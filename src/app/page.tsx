@@ -13,10 +13,6 @@ import { DashboardNewAppointmentButton, DashboardNewAppointmentMobile } from './
 import type { Appointment } from '@/lib/supabase/types'
 import { APPOINTMENT_TYPE_SHORT_LABEL } from '@/lib/appointments/appointment-type'
 
-function getInitials(name: string) {
-  return name.split(' ').map((s) => s[0]).slice(0, 2).join('').toUpperCase()
-}
-
 function Money({ n, className = '' }: { n: number; className?: string }) {
   return (
     <span className={`ph-money ${className}`}>
@@ -369,8 +365,8 @@ export default async function DashboardPage() {
               borderRadius: 10, padding: '14px 16px',
               display: 'flex', alignItems: 'center', gap: 12,
             }}>
-              <div className="ph-avatar" style={{ width: 38, height: 38, fontSize: 13 }}>
-                {getInitials('All Patients')}
+              <div className="ph-avatar" style={{ width: 38, height: 38 }}>
+                <Users size={18} strokeWidth={1.75} />
               </div>
               <div>
                 <div className="font-mono-data" style={{ fontSize: 24, fontWeight: 500, letterSpacing: '-0.02em' }}>
