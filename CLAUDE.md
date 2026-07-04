@@ -102,3 +102,4 @@ Use `date-fns` and `date-fns-tz` for all date operations. The app targets IST (I
 ## Environment Variables
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_SITE_URL` — canonical app origin (production URL); used to build auth email redirect links so they never point to localhost

@@ -10,23 +10,32 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 function LoginPageContent() {
   const searchParams = useSearchParams()
+  const [view, setView] = useState<'sign-in' | 'reset'>('sign-in')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [resetSent, setResetSent] = useState(false)
   const router = useRouter()
   const supabase = createClient()
   const inviteCompleted = searchParams.get('invite') === 'complete'
-  const inviteError = searchParams.get('error')
+  const resetCompleted = searchParams.get('reset') === 'complete'
+  const authError = searchParams.get('error')
 
-  const authMessage =
-    inviteError === 'invite-link-invalid'
+  const authErrorMessage =
+    authError === 'invite-link-invalid'
       ? 'That invite link is invalid or has expired. Ask an admin to resend it.'
-      : inviteError === 'invite-required'
+      : authError === 'invite-required'
         ? 'Complete your invite before signing in.'
-        : inviteCompleted
-          ? 'Your account is ready. Sign in with your new password.'
+        : authError === 'reset-link-invalid'
+          ? 'That reset link is invalid or has expired. Request a new one.'
           : ''
+
+  const authMessage = inviteCompleted
+    ? 'Your account is ready. Sign in with your new password.'
+    : resetCompleted
+      ? 'Your password has been updated. Sign in with your new password.'
+      : ''
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -43,6 +52,29 @@ function LoginPageContent() {
     }
   }
 
+  async function handleResetRequest(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+
+    const origin = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${origin}/auth/callback?next=${encodeURIComponent('/auth/update-password')}`,
+    })
+    setLoading(false)
+    if (error) {
+      setError(error.message)
+    } else {
+      setResetSent(true)
+    }
+  }
+
+  function switchView(next: 'sign-in' | 'reset') {
+    setView(next)
+    setError('')
+    setResetSent(false)
+  }
+
   return (
     <div className="flex min-h-dvh items-center justify-center p-4">
       <Card className="w-full max-w-sm">
@@ -50,21 +82,67 @@ function LoginPageContent() {
           <CardTitle className="text-center text-2xl">Care-Book</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            </div>
-            {authMessage && <p className="text-sm text-emerald-700">{authMessage}</p>}
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
-            </Button>
-          </form>
+          {view === 'sign-in' ? (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                <div className="text-right">
+                  <button
+                    type="button"
+                    onClick={() => switchView('reset')}
+                    className="text-sm text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              </div>
+              {authMessage && <p className="text-sm text-emerald-700">{authMessage}</p>}
+              {authErrorMessage && <p className="text-sm text-destructive">{authErrorMessage}</p>}
+              {error && <p className="text-sm text-destructive">{error}</p>}
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? 'Signing in...' : 'Sign In'}
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={handleResetRequest} className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Enter your email and we&apos;ll send you a link to reset your password.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="reset-email">Email</Label>
+                <Input
+                  id="reset-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              {resetSent && (
+                <p className="text-sm text-emerald-700">
+                  If an account exists for that email, a reset link has been sent.
+                </p>
+              )}
+              {error && <p className="text-sm text-destructive">{error}</p>}
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? 'Sending...' : 'Send Reset Link'}
+              </Button>
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => switchView('sign-in')}
+                  className="text-sm text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                >
+                  Back to sign in
+                </button>
+              </div>
+            </form>
+          )}
         </CardContent>
       </Card>
     </div>

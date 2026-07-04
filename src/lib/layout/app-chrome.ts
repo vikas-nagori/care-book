@@ -1,3 +1,3 @@
 export function shouldHideAppChrome(pathname: string | null | undefined) {
-  return pathname === '/login' || pathname === '/auth/complete-invite'
+  return pathname === '/login' || Boolean(pathname?.startsWith('/auth/'))
 }

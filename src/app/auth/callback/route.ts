@@ -43,10 +43,14 @@ export async function GET(request: NextRequest) {
     })
   }
 
+  const isRecoveryFlow = type === 'recovery' || nextPath === '/auth/update-password'
   const errorRedirect = request.nextUrl.clone()
   errorRedirect.pathname = '/login'
   errorRedirect.search = ''
-  errorRedirect.searchParams.set('error', 'invite-link-invalid')
+  errorRedirect.searchParams.set(
+    'error',
+    isRecoveryFlow ? 'reset-link-invalid' : 'invite-link-invalid'
+  )
 
   return NextResponse.redirect(errorRedirect)
 }
