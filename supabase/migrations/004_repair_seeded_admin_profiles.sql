@@ -12,7 +12,7 @@ begin
     new.id,
     new.email,
     case
-      when new.email in ('amrutakabra2512@gmail.com', 'vikasrnagori@gmail.com') then 'admin'
+      when new.email in ('vikasrnagori@gmail.com') then 'admin'
       else 'staff'
     end
   )
@@ -30,7 +30,7 @@ select
   u.email,
   'admin'
 from auth.users u
-where u.email in ('amrutakabra2512@gmail.com', 'vikasrnagori@gmail.com')
+where u.email in ('vikasrnagori@gmail.com')
 on conflict (id) do update
   set email = excluded.email,
       role = excluded.role,

@@ -2,7 +2,7 @@
 ## Care-Book — Current State (as of March 2026)
 
 **Product:** Solo physiotherapy practice management tool
-**Owner:** Amruta (solo practitioner)
+**Owner:** Solo practitioner
 **Stack:** Next.js 14 · TypeScript · Supabase · Tailwind CSS · shadcn/ui
 **Deployment:** Vercel
 

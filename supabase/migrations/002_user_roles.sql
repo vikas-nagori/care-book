@@ -1,4 +1,4 @@
--- Roles foundation. Both seeded users are 'admin'; future users default to 'staff'.
+-- Roles foundation. The seeded user is 'admin'; future users default to 'staff'.
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -34,7 +34,7 @@ begin
     new.id,
     new.email,
     case
-      when new.email in ('amrutakabra2512@gmail.com', 'vikasrnagori@gmail.com') then 'admin'
+      when new.email in ('vikasrnagori@gmail.com') then 'admin'
       else 'staff'
     end
   )
@@ -54,7 +54,7 @@ select
   u.id,
   u.email,
   case
-    when u.email in ('amrutakabra2512@gmail.com', 'vikasrnagori@gmail.com') then 'admin'
+    when u.email in ('vikasrnagori@gmail.com') then 'admin'
     else 'staff'
   end
 from auth.users u
