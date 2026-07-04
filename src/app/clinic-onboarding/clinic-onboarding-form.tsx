@@ -82,11 +82,21 @@ export function ClinicOnboardingForm() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="ownerEmail">Owner email</Label>
-              <Input id="ownerEmail" name="ownerEmail" type="email" required />
+              <Input id="ownerEmail" name="ownerEmail" type="email" autoComplete="email" required />
             </div>
             <div className="space-y-2">
               <Label htmlFor="ownerMobileNumber">Owner mobile</Label>
-              <Input id="ownerMobileNumber" name="ownerMobileNumber" type="tel" required />
+              <Input
+                id="ownerMobileNumber"
+                name="ownerMobileNumber"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
+                pattern="[0-9]{10}"
+                maxLength={10}
+                title="Enter a 10 digit mobile number."
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="clinicPhone">Clinic phone</Label>

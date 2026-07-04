@@ -1,4 +1,5 @@
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const MOBILE_NUMBER_PATTERN = /^\d{10}$/
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
@@ -72,6 +73,14 @@ export function validateClinicOnboardingInput(
       success: false,
       errorCode: 'CLINIC_ONBOARDING_MISSING_MOBILE',
       message: 'Enter the owner mobile number.',
+    }
+  }
+
+  if (!MOBILE_NUMBER_PATTERN.test(ownerMobileNumber)) {
+    return {
+      success: false,
+      errorCode: 'CLINIC_ONBOARDING_INVALID_MOBILE',
+      message: 'Enter a 10 digit owner mobile number.',
     }
   }
 

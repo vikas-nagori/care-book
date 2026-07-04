@@ -55,3 +55,18 @@ test('validateClinicOnboardingInput rejects invalid owner email', () => {
     message: 'Enter a valid owner email address.',
   })
 })
+
+test('validateClinicOnboardingInput rejects owner mobile numbers that are not 10 digits', () => {
+  const result = validateClinicOnboardingInput({
+    clinicName: 'Restore Physio',
+    ownerFullName: 'Asha Patel',
+    ownerEmail: 'owner@example.com',
+    ownerMobileNumber: '987654321',
+  })
+
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: 'CLINIC_ONBOARDING_INVALID_MOBILE',
+    message: 'Enter a 10 digit owner mobile number.',
+  })
+})
