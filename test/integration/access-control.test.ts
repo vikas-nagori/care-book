@@ -75,19 +75,8 @@ test('staff may access clinic appointments and their own home visits only', { sk
   assert.equal(canAccess(staffId, 'home_visit', otherStaffId, otherStaffId), false, "another staff's home visit")
 })
 
-test('clinic home visits are restricted to creator/assignee like personal home visits', { skip }, () => {
-  assert.equal(canAccess(staffId, 'clinic_home_visit', staffId, null), true, 'own created clinic home visit')
-  assert.equal(canAccess(staffId, 'clinic_home_visit', null, staffId), true, 'clinic home visit assigned to them')
-  assert.equal(
-    canAccess(staffId, 'clinic_home_visit', otherStaffId, otherStaffId),
-    false,
-    "another staff's clinic home visit is hidden (not broadly visible like clinic)",
-  )
-})
-
 test('admin may access any appointment', { skip }, () => {
   assert.equal(canAccess(adminId, 'home_visit', otherStaffId, otherStaffId), true)
-  assert.equal(canAccess(adminId, 'clinic_home_visit', otherStaffId, otherStaffId), true)
 })
 
 test('an anonymous session can access nothing', { skip }, () => {

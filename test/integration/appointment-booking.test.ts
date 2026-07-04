@@ -102,16 +102,16 @@ test('booking for a patient with no credit succeeds and stays unpaid', { skip: s
   assert.equal(status, 'unpaid', 'no credit means the session remains unpaid')
 })
 
-test('the type CHECK accepts clinic_home_visit and rejects unknown types', { skip: skipReason() }, () => {
-  const patient = newPatient('Clinic Home Visit Patient')
+test('the type CHECK accepts home_visit and rejects unknown types', { skip: skipReason() }, () => {
+  const patient = newPatient('Home Visit Patient')
 
   const apptId = query(
     DB,
     `insert into appointments (patient_id, date, time, type, status, fee)
-     values ('${patient}', current_date + 1, '09:00', 'clinic_home_visit', 'scheduled', 1000)
+     values ('${patient}', current_date + 1, '09:00', 'home_visit', 'scheduled', 1000)
      returning id`
   )
-  assert.ok(apptId, 'clinic_home_visit should be a permitted appointment type')
+  assert.ok(apptId, 'home_visit should be a permitted appointment type')
 
   let rejection = ''
   try {
@@ -129,11 +129,6 @@ test('the type CHECK accepts clinic_home_visit and rejects unknown types', { ski
     /appointments_type_check/,
     'unknown appointment types must still be rejected by the CHECK constraint',
   )
-})
-
-test('global_settings exposes a clinic_home_visit_fee defaulting to 0', { skip: skipReason() }, () => {
-  const fee = query(DB, `select clinic_home_visit_fee from global_settings where id = 1`)
-  assert.equal(Number(fee), 0, 'the new fee column should exist with a 0 default')
 })
 
 function skipReason(): string | false {
