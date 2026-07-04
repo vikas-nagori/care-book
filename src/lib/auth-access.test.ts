@@ -9,6 +9,7 @@ const adminProfile: Profile = {
   clinic_id: 'clinic-1',
   email: 'admin@example.com',
   role: 'admin',
+  status: 'active',
   created_at: '2026-04-18T00:00:00.000Z',
   updated_at: '2026-04-18T00:00:00.000Z',
 }

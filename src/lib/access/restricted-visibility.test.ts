@@ -11,6 +11,7 @@ const baseProfile: Profile = {
   role: 'staff',
   full_name: 'Asha Patel',
   mobile_number: '9876543210',
+  status: 'active',
   created_at: '2026-04-19T00:00:00.000Z',
   updated_at: '2026-04-19T00:00:00.000Z',
 }
