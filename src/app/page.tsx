@@ -110,7 +110,7 @@ export default async function DashboardPage() {
     supabase.from('profiles').select('id, full_name, email, role').order('full_name'),
     supabase
       .from('external_staff')
-      .select('id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')
+      .select('id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')
       .order('name'),
   ])
 

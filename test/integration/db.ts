@@ -87,12 +87,35 @@ export function queryAs(dbName: string, userId: string, sql: string): string {
   return query(dbName, prefix + sql)
 }
 
+/**
+ * Run SQL as the Supabase authenticated role so grants + RLS policies are exercised.
+ * Returns the trimmed scalar result of `sql`.
+ */
+export function queryAsAuthenticated(dbName: string, userId: string, sql: string): string {
+  const prefix = [
+    `set role authenticated`,
+    `set request.jwt.claim.sub = '${userId}'`,
+    `set request.jwt.claim.role = 'authenticated'`,
+  ].join('; ')
+  const suffix = '; reset role'
+  return query(dbName, `${prefix}; ${sql}${suffix}`)
+}
+
 /** Seed an auth user + profile with the given role and return the user/profile id. */
-export function seedUser(dbName: string, role: 'admin' | 'staff' = 'admin'): string {
+export function seedUser(
+  dbName: string,
+  role: 'admin' | 'staff' = 'admin',
+  clinicId?: string,
+  email?: string
+): string {
+  const emailSql = email
+    ? `'${email}'`
+    : `'u' || replace(gen_random_uuid()::text, '-', '') || '@test.local'`
   const id = query(
     dbName,
-    `insert into auth.users (email) values ('u' || replace(gen_random_uuid()::text, '-', '') || '@test.local') returning id`
+    `insert into auth.users (email) values (${emailSql}) returning id`
   )
-  run(dbName, `update public.profiles set role = '${role}' where id = '${id}'`)
+  const clinicSql = clinicId ? `, clinic_id = '${clinicId}'` : ''
+  run(dbName, `update public.profiles set role = '${role}'${clinicSql} where id = '${id}'`)
   return id
 }

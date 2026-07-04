@@ -106,6 +106,7 @@ export async function completeInvitedSignup(
     const { error: profileError } = await adminSupabase.from('profiles').upsert(
       {
         id: user.id,
+        clinic_id: invite.clinic_id,
         email: normalizedEmail,
         role: invite.role,
         full_name: validation.values.fullName,
@@ -163,6 +164,7 @@ export async function completeInvitedSignup(
           email: normalizedEmail,
         })
         .eq('id', invite.external_staff_id)
+        .eq('clinic_id', invite.clinic_id)
 
       if (externalStaffError) {
         logger.error('auth/completeInvite/linkExternalStaff', externalStaffError, {

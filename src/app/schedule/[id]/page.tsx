@@ -12,7 +12,7 @@ export default async function AppointmentPage({ params }: { params: { id: string
 
   let appointmentQuery = supabase
     .from('appointments')
-    .select('*, patient:patients(id, name, phone, address, medical_history, notes), external_staff:external_staff(id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at)')
+    .select('*, patient:patients(id, name, phone, address, medical_history, notes), external_staff:external_staff(id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at)')
     .eq('id', params.id)
 
   if (appointmentVisibilityFilter) {
@@ -60,7 +60,7 @@ export default async function AppointmentPage({ params }: { params: { id: string
       .order('full_name'),
     supabase
       .from('external_staff')
-      .select('id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')
+      .select('id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')
       .order('name'),
   ])
 

@@ -6,6 +6,7 @@ import type { Profile } from './supabase/types.ts'
 
 const adminProfile: Profile = {
   id: 'admin-1',
+  clinic_id: 'clinic-1',
   email: 'admin@example.com',
   role: 'admin',
   created_at: '2026-04-18T00:00:00.000Z',
@@ -14,6 +15,12 @@ const adminProfile: Profile = {
 
 test('evaluateRoleAccess returns missing_profile when no profile exists for an authenticated user', () => {
   const result = evaluateRoleAccess(null, ['admin'])
+
+  assert.equal(result, 'missing_profile')
+})
+
+test('evaluateRoleAccess returns missing_profile when profile has no clinic', () => {
+  const result = evaluateRoleAccess({ ...adminProfile, clinic_id: null }, ['admin'])
 
   assert.equal(result, 'missing_profile')
 })

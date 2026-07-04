@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -107,6 +108,14 @@ function LoginPageContent() {
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? 'Signing in...' : 'Sign In'}
               </Button>
+              <div className="text-center">
+                <Link
+                  href="/clinic-onboarding"
+                  className="text-sm text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                >
+                  Request clinic access
+                </Link>
+              </div>
             </form>
           ) : (
             <form onSubmit={handleResetRequest} className="space-y-4">

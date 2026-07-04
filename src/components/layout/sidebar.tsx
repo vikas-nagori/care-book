@@ -56,7 +56,7 @@ export function Sidebar({ canViewBilling }: SidebarProps) {
             Care-Book
           </div>
           <div style={{ fontSize: 10.5, color: 'var(--ph-ink-4)', letterSpacing: '0.02em', marginTop: 1 }}>
-            Solo practice
+            Clinic workspace
           </div>
         </div>
       </div>

@@ -1,7 +1,41 @@
 export type ReferralSource = 'walk_in' | 'doctor' | 'other'
 
+export type ClinicStatus = 'active' | 'inactive'
+
+export type Clinic = {
+  id: string
+  name: string
+  phone: string | null
+  address: string | null
+  status: ClinicStatus
+  created_at: string
+  updated_at: string
+}
+
+export type ClinicOnboardingRequestStatus = 'pending' | 'approved' | 'rejected'
+
+export type ClinicOnboardingRequest = {
+  id: string
+  clinic_name: string
+  owner_full_name: string
+  owner_email: string
+  owner_mobile_number: string
+  clinic_phone: string | null
+  clinic_address: string | null
+  status: ClinicOnboardingRequestStatus
+  approved_by: string | null
+  approved_at: string | null
+  rejected_by: string | null
+  rejected_at: string | null
+  rejection_reason: string | null
+  clinic_id: string | null
+  created_at: string
+  updated_at: string
+}
+
 export type Doctor = {
   id: string
+  clinic_id: string
   name: string
   specialty: string | null
   address: string | null
@@ -12,6 +46,7 @@ export type Doctor = {
 
 export type Patient = {
   id: string
+  clinic_id: string
   name: string
   phone: string
   email: string | null
@@ -29,6 +64,7 @@ export type Patient = {
 
 export type Appointment = {
   id: string
+  clinic_id: string
   patient_id: string
   date: string
   time: string
@@ -50,6 +86,7 @@ export type Appointment = {
 
 export type TreatmentPlan = {
   id: string
+  clinic_id: string
   patient_id: string
   diagnosis: string
   goals: string | null
@@ -73,6 +110,7 @@ export type SessionNote = {
 
 export type Package = {
   id: string
+  clinic_id: string
   patient_id: string
   name: string
   total_sessions: number
@@ -87,6 +125,7 @@ export type Package = {
 
 export type Payment = {
   id: string
+  clinic_id: string
   patient_id: string
   package_id: string | null
   appointment_id: string | null
@@ -99,6 +138,7 @@ export type Payment = {
 
 export type GlobalSettings = {
   id: number
+  clinic_id: string
   home_visit_fee: number
   clinic_fee: number
   clinic_home_visit_fee: number
@@ -123,6 +163,7 @@ export type UserRole = 'admin' | 'staff'
 
 export type Profile = {
   id: string
+  clinic_id: string | null
   email: string
   role: UserRole
   full_name: string | null
@@ -137,6 +178,7 @@ export type ExternalStaffStatus = 'active' | 'onboarded' | 'inactive'
 
 export type ExternalStaff = {
   id: string
+  clinic_id: string
   name: string
   phone: string
   email: string | null
@@ -153,6 +195,7 @@ export type UserInviteStatus = 'pending' | 'accepted' | 'revoked'
 
 export type UserInvite = {
   id: string
+  clinic_id: string
   email: string
   role: UserRole
   status: UserInviteStatus
@@ -240,6 +283,34 @@ export type CreateUserInviteInput = {
   role: UserRole
   externalStaffId?: string | null
 }
+
+export type CreateClinicOnboardingRequestInput = {
+  clinicName: string
+  ownerFullName: string
+  ownerEmail: string
+  ownerMobileNumber: string
+  clinicPhone?: string | null
+  clinicAddress?: string | null
+}
+
+export type CreateClinicOnboardingRequestResult =
+  | {
+      success: true
+      requestId: string
+    }
+  | ActionErrorResult
+
+export type ManageClinicOnboardingRequestInput = {
+  requestId: string
+  rejectionReason?: string | null
+}
+
+export type ManageClinicOnboardingRequestResult =
+  | {
+      success: true
+      request: ClinicOnboardingRequest
+    }
+  | ActionErrorResult
 
 export type CreateExternalStaffInput = {
   name: string

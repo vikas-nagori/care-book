@@ -30,14 +30,14 @@ export default async function SchedulePage() {
   let appointmentsQuery = access.canViewPaymentSignals
     ? supabase
         .from('appointments')
-        .select('id, patient_id, date, time, duration_minutes, type, status, payment_status, assigned_to, external_staff_id, patient:patients(id, name, phone), external_staff:external_staff(id, name, phone, status, linked_profile_id)')
+        .select('id, patient_id, date, time, duration_minutes, type, status, payment_status, assigned_to, external_staff_id, patient:patients(id, name, phone), external_staff:external_staff(id, clinic_id, name, phone, status, linked_profile_id)')
         .gte('date', rangeStart)
         .lte('date', rangeEnd)
         .order('date')
         .order('time')
     : supabase
         .from('appointments')
-        .select('id, patient_id, date, time, duration_minutes, type, status, assigned_to, external_staff_id, patient:patients(id, name, phone), external_staff:external_staff(id, name, phone, status, linked_profile_id)')
+        .select('id, patient_id, date, time, duration_minutes, type, status, assigned_to, external_staff_id, patient:patients(id, name, phone), external_staff:external_staff(id, clinic_id, name, phone, status, linked_profile_id)')
         .gte('date', rangeStart)
         .lte('date', rangeEnd)
         .order('date')
@@ -64,7 +64,7 @@ export default async function SchedulePage() {
       .order('full_name'),
     supabase
       .from('external_staff')
-      .select('id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')
+      .select('id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')
       .order('name'),
   ])
 

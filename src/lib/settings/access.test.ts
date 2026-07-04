@@ -6,6 +6,7 @@ import type { Profile } from '../supabase/types.ts'
 
 const baseProfile: Profile = {
   id: 'profile-1',
+  clinic_id: 'clinic-1',
   email: 'user@example.com',
   role: 'staff',
   full_name: 'Asha Patel',

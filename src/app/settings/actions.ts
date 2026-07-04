@@ -27,7 +27,7 @@ import type {
 
 async function requireAdminSettingsAccess() {
   const profile = await getCurrentProfile()
-  if (!profile || profile.role !== 'admin') {
+  if (!profile || profile.role !== 'admin' || !profile.clinic_id) {
     return null
   }
 
@@ -112,12 +112,12 @@ export async function updateGlobalSettings(
       .from('global_settings')
       .upsert(
         {
-          id: 1,
+          clinic_id: profile.clinic_id,
           clinic_fee: input.clinicFee,
           home_visit_fee: input.homeVisitFee,
           clinic_home_visit_fee: input.clinicHomeVisitFee,
         },
-        { onConflict: 'id' }
+        { onConflict: 'clinic_id' }
       )
       .select('*')
       .single()
@@ -175,6 +175,35 @@ export async function createUserInvite(
     const email = validation.values.email
     const redirectTo = await buildInviteRedirectTo()
     const externalStaffId = input.externalStaffId || null
+
+    if (externalStaffId) {
+      const { data: externalStaff, error: externalStaffLookupError } = await adminSupabase
+        .from('external_staff')
+        .select('id')
+        .eq('id', externalStaffId)
+        .eq('clinic_id', profile.clinic_id)
+        .maybeSingle()
+
+      if (externalStaffLookupError) {
+        logger.error('settings/createUserInvite/externalStaffLookup', externalStaffLookupError, {
+          externalStaffId,
+          clinicId: profile.clinic_id,
+        })
+        return {
+          success: false,
+          errorCode: externalStaffLookupError.code ?? 'INVITE_EXTERNAL_STAFF_LOOKUP_FAILED',
+          message: 'Unable to check the external staff record right now.',
+        }
+      }
+
+      if (!externalStaff) {
+        return {
+          success: false,
+          errorCode: 'INVITE_EXTERNAL_STAFF_NOT_FOUND',
+          message: 'Choose an external staff record from your clinic.',
+        }
+      }
+    }
 
     const [{ data: existingInvite, error: inviteLookupError }, { data: existingProfile, error: profileLookupError }] =
       await Promise.all([
@@ -236,6 +265,7 @@ export async function createUserInvite(
 
     const now = new Date().toISOString()
     const invitePayload = {
+      clinic_id: profile.clinic_id,
       email,
       role: validation.values.role,
       status: 'pending' as const,
@@ -279,6 +309,7 @@ export async function createUserInvite(
         .from('external_staff')
         .update({ email })
         .eq('id', externalStaffId)
+        .eq('clinic_id', profile.clinic_id)
         .is('linked_profile_id', null)
 
       if (externalStaffUpdateError) {
@@ -343,6 +374,7 @@ export async function createExternalStaff(
     const { data, error } = await supabase
       .from('external_staff')
       .insert({
+        clinic_id: profile.clinic_id,
         name,
         phone,
         email,
@@ -414,6 +446,7 @@ export async function resendUserInvite(
       .from('user_invites')
       .select('*')
       .eq('id', input.inviteId)
+      .eq('clinic_id', profile.clinic_id)
       .maybeSingle()
 
     if (inviteError) {
@@ -479,6 +512,7 @@ export async function resendUserInvite(
       .from('user_invites')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', invite.id)
+      .eq('clinic_id', profile.clinic_id)
       .select('*')
       .single()
 
@@ -538,6 +572,7 @@ export async function revokeUserInvite(
         updated_at: now,
       })
       .eq('id', input.inviteId)
+      .eq('clinic_id', profile.clinic_id)
       .eq('status', 'pending')
       .select('*')
       .maybeSingle()
