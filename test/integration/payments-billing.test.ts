@@ -11,14 +11,16 @@ const DB = 'carebook_it_payments'
 const hasPostgres = postgresAvailable()
 const skip = hasPostgres ? false : 'no local Postgres reachable'
 
+let clinicId = ''
 let adminId = ''
 let staffId = ''
 
 before(() => {
   if (!hasPostgres) return
   buildDatabase(DB)
-  adminId = seedUser(DB, 'admin')
-  staffId = seedUser(DB, 'staff')
+  clinicId = query(DB, `insert into clinics (name) values ('Payments Clinic') returning id`)
+  adminId = seedUser(DB, 'admin', clinicId)
+  staffId = seedUser(DB, 'staff', clinicId)
 })
 
 after(() => {
@@ -26,7 +28,7 @@ after(() => {
 })
 
 function newPatient(label: string): string {
-  return query(DB, `insert into patients (name, phone) values ('${label}', '1') returning id`)
+  return query(DB, `insert into patients (clinic_id, name, phone) values ('${clinicId}', '${label}', '1') returning id`)
 }
 
 /** Call an RPC as the given user and parse the JSON envelope. */

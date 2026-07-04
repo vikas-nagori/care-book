@@ -14,8 +14,12 @@ import { buildDatabase, dropDatabase, postgresAvailable, query } from './db.ts'
 const DB = 'carebook_it_booking'
 const hasPostgres = postgresAvailable()
 
+let clinicId = ''
+
 before(() => {
-  if (hasPostgres) buildDatabase(DB)
+  if (!hasPostgres) return
+  buildDatabase(DB)
+  clinicId = query(DB, `insert into clinics (name) values ('Booking Clinic') returning id`)
 })
 
 after(() => {
@@ -26,7 +30,7 @@ after(() => {
 function newPatient(label: string): string {
   return query(
     DB,
-    `insert into patients (name, phone) values ('${label}', '0000000000') returning id`
+    `insert into patients (clinic_id, name, phone) values ('${clinicId}', '${label}', '0000000000') returning id`
   )
 }
 

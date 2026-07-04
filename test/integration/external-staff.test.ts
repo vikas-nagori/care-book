@@ -6,6 +6,7 @@ const DB = 'carebook_it_external_staff'
 const hasPostgres = postgresAvailable()
 const skip = hasPostgres ? false : 'no local Postgres reachable'
 
+let clinicId = ''
 let adminId = ''
 let patientId = ''
 let externalStaffId = ''
@@ -13,8 +14,9 @@ let externalStaffId = ''
 before(() => {
   if (!hasPostgres) return
   buildDatabase(DB)
-  adminId = seedUser(DB, 'admin')
-  patientId = query(DB, `insert into patients (name, phone) values ('External Staff Patient', '1') returning id`)
+  clinicId = query(DB, `insert into clinics (name) values ('External Staff Clinic') returning id`)
+  adminId = seedUser(DB, 'admin', clinicId)
+  patientId = query(DB, `insert into patients (clinic_id, name, phone) values ('${clinicId}', 'External Staff Patient', '1') returning id`)
 })
 
 after(() => {
@@ -67,8 +69,8 @@ test('accepted invite can link an external staff record to the profile', { skip 
   const inviteId = queryAs(
     DB,
     adminId,
-    `insert into user_invites (email, role, status, invited_by, external_staff_id)
-     values ('external.staff@test.local', 'staff', 'pending', '${adminId}', '${externalStaffId}')
+    `insert into user_invites (clinic_id, email, role, status, invited_by, external_staff_id)
+     values ('${clinicId}', 'external.staff@test.local', 'staff', 'pending', '${adminId}', '${externalStaffId}')
      returning id`
   )
 

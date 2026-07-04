@@ -9,12 +9,14 @@ const DB = 'carebook_it_lifecycle'
 const hasPostgres = postgresAvailable()
 const skip = hasPostgres ? false : 'no local Postgres reachable'
 
+let clinicId = ''
 let adminId = ''
 
 before(() => {
   if (!hasPostgres) return
   buildDatabase(DB)
-  adminId = seedUser(DB, 'admin')
+  clinicId = query(DB, `insert into clinics (name) values ('Lifecycle Clinic') returning id`)
+  adminId = seedUser(DB, 'admin', clinicId)
 })
 
 after(() => {
@@ -22,7 +24,7 @@ after(() => {
 })
 
 function newPatient(label: string): string {
-  return query(DB, `insert into patients (name, phone) values ('${label}', '1') returning id`)
+  return query(DB, `insert into patients (clinic_id, name, phone) values ('${clinicId}', '${label}', '1') returning id`)
 }
 
 function pay(patient: string, amount: number): void {

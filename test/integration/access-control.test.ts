@@ -10,6 +10,7 @@ const DB = 'carebook_it_access'
 const hasPostgres = postgresAvailable()
 const skip = hasPostgres ? false : 'no local Postgres reachable'
 
+let clinicId = ''
 let adminId = ''
 let staffId = ''
 let otherStaffId = ''
@@ -17,9 +18,10 @@ let otherStaffId = ''
 before(() => {
   if (!hasPostgres) return
   buildDatabase(DB)
-  adminId = seedUser(DB, 'admin')
-  staffId = seedUser(DB, 'staff')
-  otherStaffId = seedUser(DB, 'staff')
+  clinicId = query(DB, `insert into clinics (name) values ('Access Control Clinic') returning id`)
+  adminId = seedUser(DB, 'admin', clinicId)
+  staffId = seedUser(DB, 'staff', clinicId)
+  otherStaffId = seedUser(DB, 'staff', clinicId)
 })
 
 after(() => {
@@ -41,14 +43,14 @@ function canAccess(userId: string, type: string, createdBy: string | null, assig
 }
 
 test('staff cannot record a payment', { skip }, () => {
-  const patient = query(DB, `insert into patients (name, phone) values ('P', '1') returning id`)
+  const patient = query(DB, `insert into patients (clinic_id, name, phone) values ('${clinicId}', 'P', '1') returning id`)
   const res = rpc(staffId, `public.record_payment('${patient}', null, 500, 'cash', current_date, null)`)
   assert.equal(res.success, false)
   assert.equal(res.errorCode, '42501')
 })
 
 test('staff cannot create a billing entry', { skip }, () => {
-  const patient = query(DB, `insert into patients (name, phone) values ('P2', '1') returning id`)
+  const patient = query(DB, `insert into patients (clinic_id, name, phone) values ('${clinicId}', 'P2', '1') returning id`)
   const res = rpc(
     staffId,
     `public.record_billing_entry('${patient}', 'payment_only', null, null, null, null, 500, 'cash', current_date, null)`
@@ -58,7 +60,7 @@ test('staff cannot create a billing entry', { skip }, () => {
 })
 
 test('admin can record a billing entry', { skip }, () => {
-  const patient = query(DB, `insert into patients (name, phone) values ('P3', '1') returning id`)
+  const patient = query(DB, `insert into patients (clinic_id, name, phone) values ('${clinicId}', 'P3', '1') returning id`)
   const res = rpc(
     adminId,
     `public.record_billing_entry('${patient}', 'payment_only', null, null, null, null, 500, 'cash', current_date, null)`
