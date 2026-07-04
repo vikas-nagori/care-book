@@ -282,7 +282,7 @@ export default async function DashboardPage() {
                     display: 'flex', alignItems: 'center', gap: 14,
                     padding: '12px 16px',
                     borderBottom: i < appts.length - 1 ? '1px solid var(--ph-line)' : 'none',
-                    borderLeft: `3px solid ${a.type === 'home_visit' ? 'var(--ph-warn)' : a.type === 'clinic_home_visit' ? 'var(--ph-info)' : a.status === 'completed' ? 'var(--ph-ok)' : a.status === 'cancelled' ? 'var(--ph-ink-4)' : 'var(--ph-accent)'}`,
+                    borderLeft: `3px solid ${a.type === 'home_visit' ? 'var(--ph-warn)' : a.status === 'completed' ? 'var(--ph-ok)' : a.status === 'cancelled' ? 'var(--ph-ink-4)' : 'var(--ph-accent)'}`,
                     textDecoration: 'none', color: 'inherit',
                     background: 'var(--ph-surface)',
                     opacity: a.status === 'cancelled' ? 0.5 : a.status === 'completed' ? 0.75 : 1,

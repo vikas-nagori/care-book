@@ -17,7 +17,7 @@ export type ParsedStaffAssignment = {
 }
 
 function isAssignableAppointmentType(type: Appointment['type']) {
-  return type === 'home_visit' || type === 'clinic_home_visit'
+  return type === 'home_visit'
 }
 
 function cleanId(value?: string | null) {

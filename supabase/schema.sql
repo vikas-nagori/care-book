@@ -23,7 +23,7 @@ create table appointments (
   date date not null,
   time time not null,
   duration_minutes integer default 45,
-  type text check (type in ('home_visit', 'clinic', 'clinic_home_visit')) default 'clinic',
+  type text check (type in ('home_visit', 'clinic')) default 'clinic',
   status text check (status in ('scheduled', 'completed', 'cancelled')) default 'scheduled',
   notes text,
   created_at timestamptz default now()

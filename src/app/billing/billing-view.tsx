@@ -31,7 +31,7 @@ interface BillingViewProps {
     status: 'scheduled' | 'completed' | 'cancelled'
     payment_status: 'unpaid' | 'prepaid' | 'paid'
     fee: number | null
-    type: 'home_visit' | 'clinic' | 'clinic_home_visit'
+    type: 'home_visit' | 'clinic'
   }[]
   linkedSessionCounts: Record<string, number>
   patientCredit: Record<string, number>

@@ -70,29 +70,6 @@ test('staff cannot view unrelated home visits', () => {
   )
 })
 
-test('clinic home visits are restricted to creator/assignee like personal home visits', () => {
-  // Unrelated clinic home visit: not visible to staff.
-  assert.equal(
-    canViewAppointmentForProfile(
-      appointment({
-        type: 'clinic_home_visit',
-        created_by: '00000000-0000-0000-0000-000000000003',
-        assigned_to: '00000000-0000-0000-0000-000000000004',
-      }),
-      staffProfile,
-    ),
-    false,
-  )
-  // Assigned clinic home visit: visible to that staff member.
-  assert.equal(
-    canViewAppointmentForProfile(
-      appointment({ type: 'clinic_home_visit', assigned_to: staffProfile.id }),
-      staffProfile,
-    ),
-    true,
-  )
-})
-
 test('appointment visibility filter limits staff to clinic and owned home visits', () => {
   assert.equal(
     getAppointmentVisibilityFilter(staffProfile),

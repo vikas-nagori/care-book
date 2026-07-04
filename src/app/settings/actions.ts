@@ -99,14 +99,6 @@ export async function updateGlobalSettings(
       }
     }
 
-    if (!Number.isFinite(input.clinicHomeVisitFee) || input.clinicHomeVisitFee < 0) {
-      return {
-        success: false,
-        errorCode: 'INVALID_CLINIC_HOME_VISIT_FEE',
-        message: 'Clinic home visit fee must be zero or more.',
-      }
-    }
-
     const supabase = await createClient()
     const { data, error } = await supabase
       .from('global_settings')
@@ -115,7 +107,6 @@ export async function updateGlobalSettings(
           clinic_id: profile.clinic_id,
           clinic_fee: input.clinicFee,
           home_visit_fee: input.homeVisitFee,
-          clinic_home_visit_fee: input.clinicHomeVisitFee,
         },
         { onConflict: 'clinic_id' }
       )

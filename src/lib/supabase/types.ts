@@ -69,7 +69,7 @@ export type Appointment = {
   date: string
   time: string
   duration_minutes: number
-  type: 'home_visit' | 'clinic' | 'clinic_home_visit'
+  type: 'home_visit' | 'clinic'
   status: 'scheduled' | 'completed' | 'cancelled'
   payment_status: 'unpaid' | 'prepaid' | 'paid'
   fee: number | null
@@ -141,7 +141,6 @@ export type GlobalSettings = {
   clinic_id: string
   home_visit_fee: number
   clinic_fee: number
-  clinic_home_visit_fee: number
 }
 
 export type AppointmentPayment = {
@@ -214,7 +213,6 @@ export type UserInvite = {
 export type UpdateGlobalSettingsInput = {
   clinicFee: number
   homeVisitFee: number
-  clinicHomeVisitFee: number
 }
 
 export type ActionErrorResult = {

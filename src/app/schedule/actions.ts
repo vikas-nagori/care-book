@@ -147,7 +147,7 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
     }
 
     const assignment = normalizeAppointmentAssignment({
-      type: input.type as 'home_visit' | 'clinic' | 'clinic_home_visit',
+      type: input.type as 'home_visit' | 'clinic',
       assignedTo: input.assignedTo,
       externalStaffId: input.externalStaffId,
     })
@@ -195,7 +195,7 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
 
     const supabase = await createClient()
     const assignment = normalizeAppointmentAssignment({
-      type: input.type as 'home_visit' | 'clinic' | 'clinic_home_visit',
+      type: input.type as 'home_visit' | 'clinic',
       assignedTo: input.assignedTo,
       externalStaffId: input.externalStaffId,
     })

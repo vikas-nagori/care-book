@@ -34,7 +34,7 @@ test('normalizeAppointmentAssignment keeps internal assignment for home visit ty
 test('normalizeAppointmentAssignment keeps external assignment and clears internal assignment', () => {
   assert.deepEqual(
     normalizeAppointmentAssignment({
-      type: 'clinic_home_visit',
+      type: 'home_visit',
       assignedTo: 'profile-1',
       externalStaffId: 'external-1',
     }),

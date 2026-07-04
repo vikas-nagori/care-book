@@ -14,7 +14,6 @@ const settings: GlobalSettings = {
   id: 1,
   clinic_fee: 500,
   home_visit_fee: 800,
-  clinic_home_visit_fee: 1000,
 }
 
 test('every appointment type has a full and short label', () => {
@@ -24,14 +23,12 @@ test('every appointment type has a full and short label', () => {
   }
 })
 
-test('both home-visit variants count as home visit types', () => {
+test('home visits count as home visit types', () => {
   assert.equal(isHomeVisitType('home_visit'), true)
-  assert.equal(isHomeVisitType('clinic_home_visit'), true)
   assert.equal(isHomeVisitType('clinic'), false)
 })
 
 test('feeForType picks the matching fee per type', () => {
   assert.equal(feeForType(settings, 'clinic'), 500)
   assert.equal(feeForType(settings, 'home_visit'), 800)
-  assert.equal(feeForType(settings, 'clinic_home_visit'), 1000)
 })

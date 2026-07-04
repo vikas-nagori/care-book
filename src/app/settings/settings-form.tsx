@@ -28,7 +28,6 @@ export function SettingsForm({ settings }: Props) {
     const result = await updateGlobalSettings({
       homeVisitFee: parseFloat(formData.get('home_visit_fee') as string) || 0,
       clinicFee: parseFloat(formData.get('clinic_fee') as string) || 0,
-      clinicHomeVisitFee: parseFloat(formData.get('clinic_home_visit_fee') as string) || 0,
     })
 
     if (!result.success) {
@@ -68,18 +67,6 @@ export function SettingsForm({ settings }: Props) {
               min="0"
               step="0.01"
               defaultValue={settings?.home_visit_fee ?? 0}
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="clinic_home_visit_fee">Clinic Home Visit Fee (₹)</Label>
-            <Input
-              id="clinic_home_visit_fee"
-              name="clinic_home_visit_fee"
-              type="number"
-              min="0"
-              step="0.01"
-              defaultValue={settings?.clinic_home_visit_fee ?? 0}
               required
             />
           </div>

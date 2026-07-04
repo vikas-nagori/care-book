@@ -22,17 +22,14 @@ import {
 const TYPE_BORDER_COLOR: Record<AppointmentType, string> = {
   clinic: 'var(--ph-accent)',
   home_visit: 'var(--ph-warn)',
-  clinic_home_visit: 'var(--ph-info)',
 }
 const TYPE_BG_COLOR: Record<AppointmentType, string> = {
   clinic: 'var(--ph-accent-soft)',
   home_visit: 'var(--ph-warn-soft)',
-  clinic_home_visit: 'var(--ph-info-soft)',
 }
 const TYPE_FG_COLOR: Record<AppointmentType, string> = {
   clinic: 'var(--ph-accent-ink)',
   home_visit: 'var(--ph-warn)',
-  clinic_home_visit: 'var(--ph-info)',
 }
 
 interface ScheduleViewProps {
@@ -317,7 +314,7 @@ export function ScheduleView({
       {/* Mobile filter chips */}
       {calView === 'day' && (
         <div className="flex gap-2 mb-3 md:hidden">
-          {(['all', 'clinic', 'home_visit', 'clinic_home_visit'] as const).map((f) => (
+          {(['all', 'clinic', 'home_visit'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilterType(f)}
@@ -463,7 +460,6 @@ export function ScheduleView({
                 { label: 'All sessions',    n: dayAppts.length,                                            dot: 'var(--ph-ink-3)' },
                 { label: 'Clinic',          n: dayAppts.filter((a) => a.type === 'clinic').length,          dot: 'var(--ph-accent)' },
                 { label: 'Home visits',     n: dayAppts.filter((a) => a.type === 'home_visit').length,      dot: 'var(--ph-warn)' },
-                { label: 'Clinic home',     n: dayAppts.filter((a) => a.type === 'clinic_home_visit').length, dot: 'var(--ph-info)' },
                 { label: 'Completed',       n: dayAppts.filter((a) => a.status === 'completed').length,     dot: 'var(--ph-ok)' },
               ].map((f) => (
                 <div key={f.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 8px', borderRadius: 6 }}>

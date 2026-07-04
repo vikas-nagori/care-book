@@ -403,7 +403,6 @@ export function AppointmentForm({
             <SelectContent>
               <SelectItem value="clinic">Clinic</SelectItem>
               <SelectItem value="home_visit">Home Visit</SelectItem>
-              <SelectItem value="clinic_home_visit">Clinic Home Visit</SelectItem>
             </SelectContent>
           </Select>
         </div>
