@@ -1,0 +1,9 @@
+{
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/auto-complete-appointments",
+      "schedule": "30 3 * * *"
+    }
+  ]
+}
