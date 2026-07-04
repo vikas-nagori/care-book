@@ -161,6 +161,8 @@ export type PackageSessionAllocation = {
 
 export type UserRole = 'admin' | 'staff'
 
+export type ProfileStatus = 'active' | 'blocked'
+
 export type Profile = {
   id: string
   clinic_id: string | null
@@ -168,6 +170,7 @@ export type Profile = {
   role: UserRole
   full_name: string | null
   mobile_number: string | null
+  status: ProfileStatus
   created_at: string
   updated_at: string
 }
@@ -356,3 +359,37 @@ export type CompleteInvitedSignupResult =
       success: true
     }
   | ActionErrorResult
+
+export type ManageClinicBlockInput = {
+  clinicId: string
+}
+
+export type ManageClinicBlockResult =
+  | {
+      success: true
+      status: ClinicStatus
+    }
+  | ActionErrorResult
+
+export type ManageUserBlockInput = {
+  userId: string
+}
+
+export type ManageUserBlockResult =
+  | {
+      success: true
+      status: ProfileStatus
+    }
+  | ActionErrorResult
+
+// Clinic row with aggregated counts, for the superadmin console.
+export type PlatformClinicSummary = Clinic & {
+  user_count: number
+  patient_count: number
+}
+
+// Profile row joined with its clinic, for the superadmin users directory.
+export type PlatformUserSummary = Profile & {
+  clinic_name: string | null
+  clinic_status: ClinicStatus | null
+}

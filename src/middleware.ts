@@ -1,6 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { logger } from '@/lib/logger'
+import { isPlatformAdminEmail } from '@/lib/platform/access'
+import { resolveSuperadminRedirect } from '@/lib/platform/routing'
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
@@ -39,10 +41,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  if (user && path.startsWith('/login')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/'
-    return NextResponse.redirect(url)
+  if (user) {
+    const isSuperadmin = isPlatformAdminEmail(user.email)
+
+    // Authenticated users shouldn't sit on /login — superadmins land in the
+    // platform console, everyone else on the clinic dashboard.
+    if (path.startsWith('/login')) {
+      const url = request.nextUrl.clone()
+      url.pathname = isSuperadmin ? '/platform' : '/'
+      return NextResponse.redirect(url)
+    }
+
+    const redirectTo = resolveSuperadminRedirect({ isSuperadmin, path, isPublicRoute })
+    if (redirectTo) {
+      const url = request.nextUrl.clone()
+      url.pathname = redirectTo
+      return NextResponse.redirect(url)
+    }
   }
 
   return supabaseResponse
