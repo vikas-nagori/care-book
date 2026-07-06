@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { BottomNav } from '@/components/layout/bottom-nav'
 import { Toaster } from '@/components/ui/toaster'
 import { ServiceWorkerRegistration } from '@/components/layout/service-worker-registration'
+import { Analytics } from '@vercel/analytics/next'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -58,6 +59,7 @@ export default async function RootLayout({
         <BottomNav canViewBilling={access.canViewBilling} />
         <ServiceWorkerRegistration />
         <Toaster />
+        <Analytics />
       </body>
     </html>
   )
