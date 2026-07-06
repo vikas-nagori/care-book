@@ -127,8 +127,9 @@ test('allocate_patient_payment_credit is idempotent', { skip }, () => {
 
   const firstStatus = paymentStatus(appt)
   const firstApplied = appliedTo(appt)
-  query(DB, `select public.allocate_patient_payment_credit('${patient}')`)
-  query(DB, `select public.allocate_patient_payment_credit('${patient}')`)
+  // Migration 022 moved the live allocation function into the private schema.
+  query(DB, `select private.allocate_patient_payment_credit('${patient}')`)
+  query(DB, `select private.allocate_patient_payment_credit('${patient}')`)
 
   assert.equal(paymentStatus(appt), firstStatus, 'status stable across repeated runs')
   assert.equal(appliedTo(appt), firstApplied, 'applied amount stable across repeated runs')

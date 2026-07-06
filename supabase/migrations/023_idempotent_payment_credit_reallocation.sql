@@ -1,11 +1,11 @@
 -- Make payment-credit allocation idempotent so editing a *paid* session re-derives the balance.
 --
 -- The billing-sync trigger fires `after update of fee/status on appointments` and runs
--- allocate_patient_payment_credit, but the prior version (migration 015) only ever paid off
--- sessions still flagged `unpaid` and used `insert ... on conflict do nothing`. It never un-tied
--- money from an already-paid session nor re-snapshotted amount_applied. So editing the fee (or
--- un-completing) a paid session moved appointments.fee but left its allocation frozen — the
--- due/credit totals never changed (see docs/superpowers/specs/2026-07-07-*-design.md, Phase 1).
+-- allocate_patient_payment_credit, but the function only ever paid off sessions still flagged
+-- `unpaid` and used `insert ... on conflict do nothing`. It never un-tied money from an already-paid
+-- session nor re-snapshotted amount_applied. So editing the fee (or un-completing) a paid session
+-- moved appointments.fee but left its allocation frozen — the due/credit totals never changed
+-- (see docs/superpowers/specs/2026-07-07-*-design.md, Phase 1).
 --
 -- Fix (Approach A — idempotent per-patient re-derivation): before the FIFO passes, wipe the
 -- patient's money ties on all NON-cancelled sessions and reset those sessions to `unpaid`, then
@@ -15,11 +15,15 @@
 -- 008); the package *session-quota* ledger (package_session_allocations / used_sessions) is a
 -- separate table this function never touches, so package usage counts are undisturbed.
 --
--- Note: the reset/rebuild only writes appointments.payment_status (not fee/status/date), and the
+-- NOTE: migration 022 moved the billing allocation functions into the `private` schema and rewired
+-- the triggers + RPCs to call `private.allocate_patient_payment_credit`. This migration therefore
+-- patches the PRIVATE function (the live one); the public.* copy left behind by 022 is unused.
+--
+-- The reset/rebuild only writes appointments.payment_status (not fee/status/date), and the
 -- billing-sync trigger fires only on updates of patient_id/status/date/time/fee — so these writes
 -- do not re-fire the trigger and there is no recursion.
 
-create or replace function public.allocate_patient_payment_credit(target_patient_id uuid)
+create or replace function private.allocate_patient_payment_credit(target_patient_id uuid)
 returns void
 language plpgsql
 security definer
@@ -142,7 +146,8 @@ begin
 end;
 $$;
 
-grant execute on function public.allocate_patient_payment_credit(uuid) to authenticated;
+-- Preserve the grants migration 022 established for the private function.
+grant execute on function private.allocate_patient_payment_credit(uuid) to authenticated, service_role;
 
 -- One-time backfill: re-derive every patient so balances edited before this migration are
 -- corrected on deploy, rather than waiting for each patient's next payment/fee/status change to
@@ -153,7 +158,7 @@ declare
   patient_row record;
 begin
   for patient_row in select id from public.patients loop
-    perform public.allocate_patient_payment_credit(patient_row.id);
+    perform private.allocate_patient_payment_credit(patient_row.id);
   end loop;
 end;
 $$;
