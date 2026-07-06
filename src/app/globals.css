@@ -89,6 +89,26 @@ html, body {
   border-radius: 10px;
   padding: 14px 16px;
 }
+/* Clickable stat tiles (drill-down to the records behind the figure). */
+.ph-stat-link {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s, box-shadow 0.1s;
+}
+.ph-stat-link:hover {
+  border-color: var(--ph-accent);
+  background: var(--ph-bg-soft);
+}
+.ph-stat-link:focus-visible {
+  outline: none;
+  border-color: var(--ph-accent);
+  box-shadow: 0 0 0 2px var(--ph-accent);
+}
 .ph-stat-label {
   display: flex;
   align-items: center;

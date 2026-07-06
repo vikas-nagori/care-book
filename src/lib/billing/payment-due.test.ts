@@ -66,7 +66,7 @@ const payments: PaymentDuePayment[] = [
   { id: 'payment-3', patient_id: 'patient-2', amount: 1200 },
 ]
 
-test('buildPaymentDueRows totals completed unpaid fees and subtracts unspent credit', () => {
+test('buildPaymentDueRows totals due patients and surfaces credit balances', () => {
   const rows = buildPaymentDueRows({
     appointments,
     payments,
@@ -75,6 +75,8 @@ test('buildPaymentDueRows totals completed unpaid fees and subtracts unspent cre
     ],
   })
 
+  // patient-1 owes ₹1200 gross with ₹450 credit → ₹750 net due; patient-2's ₹1200 credit
+  // overshoots its ₹800 gross by ₹400 → a credit balance. Due rows sort ahead of credit rows.
   assert.deepEqual(rows, [
     {
       patientId: 'patient-1',
@@ -83,18 +85,66 @@ test('buildPaymentDueRows totals completed unpaid fees and subtracts unspent cre
       grossDue: 1200,
       unspentCredit: 450,
       netDue: 750,
+      netCredit: 0,
+      direction: 'due',
       oldestDueDate: '2026-04-01',
       latestDueDate: '2026-04-05',
+    },
+    {
+      patientId: 'patient-2',
+      patientName: 'Bina Shah',
+      unpaidSessionCount: 1,
+      grossDue: 800,
+      unspentCredit: 1200,
+      netDue: 0,
+      netCredit: 400,
+      direction: 'credit',
+      oldestDueDate: '2026-04-03',
+      latestDueDate: '2026-04-03',
     },
   ])
 })
 
-test('buildPaymentDueRows floors net due at zero when credit covers gross due', () => {
+test('buildPaymentDueRows drops patients whose credit exactly settles their due', () => {
   const rows = buildPaymentDueRows({
-    appointments,
-    payments,
+    appointments: [
+      {
+        id: 'a1',
+        patient_id: 'p-settled',
+        date: '2026-04-01',
+        status: 'completed',
+        payment_status: 'unpaid',
+        fee: 500,
+        patient: { id: 'p-settled', name: 'Settled' },
+      },
+    ],
+    payments: [{ id: 'pay', patient_id: 'p-settled', amount: 500 }],
     appointmentPayments: [],
   })
 
-  assert.equal(rows.some((row) => row.patientId === 'patient-2'), false)
+  assert.deepEqual(rows, [])
+})
+
+test('buildPaymentDueRows surfaces a credit-only patient using patientNames', () => {
+  const rows = buildPaymentDueRows({
+    appointments: [],
+    payments: [{ id: 'pay', patient_id: 'p-credit', amount: 500 }],
+    appointmentPayments: [],
+    patientNames: { 'p-credit': 'Credit Only' },
+  })
+
+  assert.deepEqual(rows, [
+    {
+      patientId: 'p-credit',
+      patientName: 'Credit Only',
+      unpaidSessionCount: 0,
+      grossDue: 0,
+      unspentCredit: 500,
+      netDue: 0,
+      netCredit: 500,
+      direction: 'credit',
+      oldestDueDate: '',
+      latestDueDate: '',
+    },
+  ])
 })

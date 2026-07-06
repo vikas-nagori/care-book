@@ -1,9 +1,10 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
-import { Loader2, Plus, IndianRupee, Receipt, AlertCircle } from 'lucide-react'
+import { Loader2, Plus, IndianRupee, Receipt, AlertCircle, ChevronRight } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -40,7 +41,11 @@ interface BillingViewProps {
   billedLastMonth: number
   billedLastMonthLabel: string
   receivedThisMonth: number
+  initialTab?: TabId
 }
+
+// Rows shown per list tab before "View more" reveals the rest.
+const RECENT_LIMIT = 10
 
 function Money({ n, className = '' }: { n: number; className?: string }) {
   return (
@@ -48,6 +53,37 @@ function Money({ n, className = '' }: { n: number; className?: string }) {
       <span className="rs">₹</span>
       {n.toLocaleString('en-IN')}
     </span>
+  )
+}
+
+function SectionBar({ title, count }: { title: string; count: number }) {
+  return (
+    <div className="ph-section-h">
+      <h2>
+        {title}
+        <span style={{ color: 'var(--ph-ink-4)', fontWeight: 400 }}> · {count}</span>
+      </h2>
+    </div>
+  )
+}
+
+function RevealButton({ label, onClick, loading = false }: { label: string; onClick: () => void; loading?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+      <button
+        onClick={onClick}
+        disabled={loading}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          fontSize: 13, fontWeight: 500, padding: '8px 20px',
+          borderRadius: 8, border: '1px solid var(--ph-line)',
+          background: 'var(--ph-surface)', color: 'var(--ph-ink-2)',
+          cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1,
+        }}
+      >
+        {loading ? <><Loader2 size={14} className="animate-spin" /> Loading…</> : label}
+      </button>
+    </div>
   )
 }
 
@@ -66,14 +102,18 @@ export function BillingView({
   billedLastMonth,
   billedLastMonthLabel,
   receivedThisMonth,
+  initialTab = 'overview',
 }: BillingViewProps) {
   const router = useRouter()
   const [entryOpen, setEntryOpen] = useState(false)
-  const [tab, setTab] = useState<TabId>('overview')
+  const [tab, setTab] = useState<TabId>(initialTab)
   const [packages, setPackages] = useState(initialPackages)
   const [payments, setPayments] = useState(initialPayments)
   const [loadingMorePayments, setLoadingMorePayments] = useState(false)
   const [loadingMorePackages, setLoadingMorePackages] = useState(false)
+  const [showAllBalance, setShowAllBalance] = useState(false)
+  const [showAllPayments, setShowAllPayments] = useState(false)
+  const [showAllPackages, setShowAllPackages] = useState(false)
 
   async function loadMorePayments() {
     setLoadingMorePayments(true)
@@ -110,13 +150,18 @@ export function BillingView({
   const recentPaymentItems = timelineItems.filter((i) => i.type === 'payment_recorded')
   const packageItems       = timelineItems.filter((i) => i.type === 'package_created')
 
+  // Recent-10 by default; "View more" reveals the rest of what's loaded.
+  const visibleDueRows      = showAllBalance  ? paymentDueRows     : paymentDueRows.slice(0, RECENT_LIMIT)
+  const visiblePaymentItems = showAllPayments ? recentPaymentItems : recentPaymentItems.slice(0, RECENT_LIMIT)
+  const visiblePackageItems = showAllPackages ? packageItems       : packageItems.slice(0, RECENT_LIMIT)
+
   const pkgStatusCls: Record<string, string> = {
     active: 'ok', completed: 'info', cancelled: 'bad',
   }
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'overview', label: 'Overview' },
-    { id: 'payment_due', label: 'Payment Due' },
+    { id: 'payment_due', label: 'Payments Balance' },
     { id: 'payments', label: 'Payments' },
     { id: 'packages', label: 'Packages' },
   ]
@@ -158,30 +203,30 @@ export function BillingView({
         </Dialog>
       </div>
 
-      {/* Stats */}
+      {/* Stats — each drills down to the records behind the figure */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-5">
-        <div className="ph-stat">
+        <Link href="/billing/metrics/billed-this-month" className="ph-stat ph-stat-link">
           <div className="ph-stat-label"><IndianRupee size={13} /><span>Total billed</span></div>
           <div className="ph-stat-value"><Money n={billedThisMonth} /></div>
           <div className="ph-stat-meta">this month</div>
-        </div>
-        <div className="ph-stat">
+        </Link>
+        <Link href="/billing/metrics/received-this-month" className="ph-stat ph-stat-link">
           <div className="ph-stat-label"><Receipt size={13} /><span>Received</span></div>
           <div className="ph-stat-value" style={{ color: 'var(--ph-ok)' }}><Money n={receivedThisMonth} /></div>
           <div className="ph-stat-meta">this month</div>
-        </div>
-        <div className="ph-stat">
+        </Link>
+        <button type="button" onClick={() => setTab('payment_due')} className="ph-stat ph-stat-link" style={{ textAlign: 'left' }}>
           <div className="ph-stat-label"><AlertCircle size={13} /><span>Outstanding</span></div>
           <div className="ph-stat-value" style={{ color: paymentDueTotal > 0 ? 'var(--ph-warn)' : undefined }}>
             <Money n={paymentDueTotal} />
           </div>
           <div className="ph-stat-meta">payment due</div>
-        </div>
-        <div className="ph-stat">
+        </button>
+        <Link href="/billing/metrics/billed-last-month" className="ph-stat ph-stat-link">
           <div className="ph-stat-label"><IndianRupee size={13} /><span>Billed last month</span></div>
           <div className="ph-stat-value"><Money n={billedLastMonth} /></div>
           <div className="ph-stat-meta">{billedLastMonthLabel}</div>
-        </div>
+        </Link>
       </div>
 
       {/* Tabs */}
@@ -298,11 +343,13 @@ export function BillingView({
         </div>
       )}
 
-      {/* Payment due tab */}
+      {/* Payments Balance tab — owing patients and credit balances, click through to the tally */}
       {tab === 'payment_due' && (
+        <>
+        <SectionBar title="Payments Balance" count={paymentDueRows.length} />
         <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
           <div className="hidden md:grid" style={{
-            gridTemplateColumns: '1.6fr 100px 120px 120px 120px 160px',
+            gridTemplateColumns: '1.6fr 100px 120px 120px 130px 150px 20px',
             gap: 14, padding: '10px 16px',
             fontSize: 10.5, color: 'var(--ph-ink-4)',
             textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600,
@@ -312,63 +359,88 @@ export function BillingView({
             <div>Sessions</div>
             <div style={{ textAlign: 'right' }}>Gross Due</div>
             <div style={{ textAlign: 'right' }}>Credit</div>
-            <div style={{ textAlign: 'right' }}>Net Due</div>
+            <div style={{ textAlign: 'right' }}>Balance</div>
             <div>Due Range</div>
+            <div />
           </div>
           {paymentDueRows.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ph-ink-4)', fontSize: 13 }}>
-              No payment due right now.
+              No outstanding balances right now.
             </div>
           ) : (
-            paymentDueRows.map((row, index) => (
-              <div
-                key={row.patientId}
-                style={{
-                  padding: '12px 16px',
-                  borderBottom: index < paymentDueRows.length - 1 ? '1px solid var(--ph-line)' : 'none',
-                  fontSize: 13,
-                }}
-              >
-                <div className="hidden md:grid" style={{ gridTemplateColumns: '1.6fr 100px 120px 120px 120px 160px', gap: 14, alignItems: 'center' }}>
-                  <div style={{ fontWeight: 500 }}>{row.patientName}</div>
-                  <div className="font-mono-data" style={{ color: 'var(--ph-ink-3)' }}>{row.unpaidSessionCount}</div>
-                  <div style={{ textAlign: 'right' }}><Money n={row.grossDue} /></div>
-                  <div style={{ textAlign: 'right', color: row.unspentCredit > 0 ? 'var(--ph-ok)' : undefined }}>
-                    <Money n={row.unspentCredit} />
-                  </div>
-                  <div style={{ textAlign: 'right', color: 'var(--ph-warn)', fontWeight: 600 }}>
-                    <Money n={row.netDue} />
-                  </div>
-                  <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>
-                    {format(parseISO(row.oldestDueDate), 'dd MMM')}
-                    {row.latestDueDate !== row.oldestDueDate ? ` - ${format(parseISO(row.latestDueDate), 'dd MMM')}` : ''}
-                  </div>
-                </div>
-                <div className="md:hidden space-y-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div style={{ fontWeight: 500 }}>{row.patientName}</div>
-                      <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 1 }}>
-                        {row.unpaidSessionCount} session{row.unpaidSessionCount === 1 ? '' : 's'} · {format(parseISO(row.oldestDueDate), 'dd MMM')}
-                        {row.latestDueDate !== row.oldestDueDate ? ` - ${format(parseISO(row.latestDueDate), 'dd MMM')}` : ''}
-                      </div>
+            visibleDueRows.map((row, index) => {
+              const isCredit = row.direction === 'credit'
+              const range = row.oldestDueDate
+                ? `${format(parseISO(row.oldestDueDate), 'dd MMM')}${row.latestDueDate && row.latestDueDate !== row.oldestDueDate ? ` - ${format(parseISO(row.latestDueDate), 'dd MMM')}` : ''}`
+                : '—'
+              return (
+                <Link
+                  key={row.patientId}
+                  href={`/billing/payment-due/${row.patientId}`}
+                  className="hover:bg-[var(--ph-bg-soft)]"
+                  style={{
+                    display: 'block',
+                    padding: '12px 16px',
+                    borderBottom: index < visibleDueRows.length - 1 ? '1px solid var(--ph-line)' : 'none',
+                    fontSize: 13, textDecoration: 'none', color: 'inherit',
+                  }}
+                >
+                  <div className="hidden md:grid" style={{ gridTemplateColumns: '1.6fr 100px 120px 120px 130px 150px 20px', gap: 14, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontWeight: 500 }}>{row.patientName}</span>
+                      <span className={`ph-badge ${isCredit ? 'ok' : 'warn'}`} style={{ fontSize: 10 }}>
+                        <span className="ph-badge-dot" />{isCredit ? 'Credit' : 'Due'}
+                      </span>
                     </div>
-                    <Money n={row.netDue} className="warn" />
+                    <div className="font-mono-data" style={{ color: 'var(--ph-ink-3)' }}>{row.unpaidSessionCount}</div>
+                    <div style={{ textAlign: 'right' }}><Money n={row.grossDue} /></div>
+                    <div style={{ textAlign: 'right', color: row.unspentCredit > 0 ? 'var(--ph-ok)' : undefined }}>
+                      <Money n={row.unspentCredit} />
+                    </div>
+                    <div style={{ textAlign: 'right', color: isCredit ? 'var(--ph-ok)' : 'var(--ph-warn)', fontWeight: 600 }}>
+                      <Money n={isCredit ? row.netCredit : row.netDue} />
+                    </div>
+                    <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>{range}</div>
+                    <ChevronRight size={15} style={{ color: 'var(--ph-ink-4)', justifySelf: 'end' }} />
                   </div>
-                  <div className="flex justify-between text-xs" style={{ color: 'var(--ph-ink-4)' }}>
-                    <span>Gross <Money n={row.grossDue} /></span>
-                    <span>Credit <Money n={row.unspentCredit} /></span>
+                  <div className="md:hidden space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500 }}>
+                          {row.patientName}
+                          <span className={`ph-badge ${isCredit ? 'ok' : 'warn'}`} style={{ fontSize: 10 }}>
+                            <span className="ph-badge-dot" />{isCredit ? 'Credit' : 'Due'}
+                          </span>
+                        </div>
+                        <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 1 }}>
+                          {row.unpaidSessionCount} session{row.unpaidSessionCount === 1 ? '' : 's'} · {range}
+                        </div>
+                      </div>
+                      <Money n={isCredit ? row.netCredit : row.netDue} className={isCredit ? 'ok' : 'warn'} />
+                    </div>
+                    <div className="flex justify-between text-xs" style={{ color: 'var(--ph-ink-4)' }}>
+                      <span>Gross <Money n={row.grossDue} /></span>
+                      <span>Credit <Money n={row.unspentCredit} /></span>
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))
+                </Link>
+              )
+            })
           )}
         </div>
+        {!showAllBalance && paymentDueRows.length > RECENT_LIMIT && (
+          <RevealButton label={`View more (${paymentDueRows.length - RECENT_LIMIT} more)`} onClick={() => setShowAllBalance(true)} />
+        )}
+        {showAllBalance && paymentDueRows.length > RECENT_LIMIT && (
+          <RevealButton label="Show less" onClick={() => setShowAllBalance(false)} />
+        )}
+        </>
       )}
 
       {/* Payments tab */}
       {tab === 'payments' && (
         <>
+          <SectionBar title="Payments" count={recentPaymentItems.length} />
           <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
             <div className="hidden md:grid" style={{
               gridTemplateColumns: '80px 1.6fr 1.4fr 100px 110px',
@@ -384,7 +456,7 @@ export function BillingView({
                 No payments recorded yet.
               </div>
             ) : (
-              recentPaymentItems.map((item, i, arr) =>
+              visiblePaymentItems.map((item, i, arr) =>
                 item.type === 'payment_recorded' ? (
                   <div
                     key={item.id}
@@ -422,23 +494,18 @@ export function BillingView({
               )
             )}
           </div>
-          {payments.length < paymentsTotalCount && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
-              <button
-                onClick={loadMorePayments}
-                disabled={loadingMorePayments}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  fontSize: 13, fontWeight: 500, padding: '8px 20px',
-                  borderRadius: 8, border: '1px solid var(--ph-line)',
-                  background: 'var(--ph-surface)', color: 'var(--ph-ink-2)',
-                  cursor: loadingMorePayments ? 'not-allowed' : 'pointer',
-                  opacity: loadingMorePayments ? 0.6 : 1,
-                }}
-              >
-                {loadingMorePayments ? <><Loader2 size={14} className="animate-spin" /> Loading…</> : `Load more (${paymentsTotalCount - payments.length} remaining)`}
-              </button>
-            </div>
+          {!showAllPayments && recentPaymentItems.length > RECENT_LIMIT && (
+            <RevealButton label={`View more (${recentPaymentItems.length - RECENT_LIMIT} more)`} onClick={() => setShowAllPayments(true)} />
+          )}
+          {showAllPayments && payments.length < paymentsTotalCount && (
+            <RevealButton
+              label={`Load more (${paymentsTotalCount - payments.length} remaining)`}
+              onClick={loadMorePayments}
+              loading={loadingMorePayments}
+            />
+          )}
+          {showAllPayments && recentPaymentItems.length > RECENT_LIMIT && (
+            <RevealButton label="Show less" onClick={() => setShowAllPayments(false)} />
           )}
         </>
       )}
@@ -446,13 +513,14 @@ export function BillingView({
       {/* Packages tab */}
       {tab === 'packages' && (
         <>
+          <SectionBar title="Packages" count={packageItems.length} />
           <div className="grid gap-4 md:grid-cols-2">
             {packageItems.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ph-ink-4)', fontSize: 13, background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, gridColumn: '1/-1' }}>
                 No packages created yet.
               </div>
             ) : (
-              packageItems.map((item) => {
+              visiblePackageItems.map((item) => {
                 if (item.type !== 'package_created') return null
                 const pct = item.totalSessions > 0
                   ? Math.min(100, (item.usedSessions / item.totalSessions) * 100)
@@ -488,23 +556,18 @@ export function BillingView({
               })
             )}
           </div>
-          {packages.length < packagesTotalCount && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
-              <button
-                onClick={loadMorePackages}
-                disabled={loadingMorePackages}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  fontSize: 13, fontWeight: 500, padding: '8px 20px',
-                  borderRadius: 8, border: '1px solid var(--ph-line)',
-                  background: 'var(--ph-surface)', color: 'var(--ph-ink-2)',
-                  cursor: loadingMorePackages ? 'not-allowed' : 'pointer',
-                  opacity: loadingMorePackages ? 0.6 : 1,
-                }}
-              >
-                {loadingMorePackages ? <><Loader2 size={14} className="animate-spin" /> Loading…</> : `Load more (${packagesTotalCount - packages.length} remaining)`}
-              </button>
-            </div>
+          {!showAllPackages && packageItems.length > RECENT_LIMIT && (
+            <RevealButton label={`View more (${packageItems.length - RECENT_LIMIT} more)`} onClick={() => setShowAllPackages(true)} />
+          )}
+          {showAllPackages && packages.length < packagesTotalCount && (
+            <RevealButton
+              label={`Load more (${packagesTotalCount - packages.length} remaining)`}
+              onClick={loadMorePackages}
+              loading={loadingMorePackages}
+            />
+          )}
+          {showAllPackages && packageItems.length > RECENT_LIMIT && (
+            <RevealButton label="Show less" onClick={() => setShowAllPackages(false)} />
           )}
         </>
       )}
