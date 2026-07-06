@@ -6,6 +6,7 @@ import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { Sidebar } from '@/components/layout/sidebar'
 import { BottomNav } from '@/components/layout/bottom-nav'
 import { Toaster } from '@/components/ui/toaster'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -59,6 +60,7 @@ export default async function RootLayout({
         </div>
         <BottomNav canViewBilling={access.canViewBilling} />
         <Toaster />
+        <SpeedInsights />
       </body>
     </html>
   )
