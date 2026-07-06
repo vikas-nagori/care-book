@@ -55,14 +55,34 @@ const END_HOUR = 22
 const HOUR_HEIGHT = 100
 const PX_PER_MIN = HOUR_HEIGHT / 60
 
-const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => {
-  const h = START_HOUR + i
-  return { label: `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`, hh: h.toString().padStart(2, '0') }
-})
+// The grid defaults to 7am–10pm, but expands to cover any booking outside that window so an
+// out-of-hours appointment (e.g. a 00:30 home visit) is never hidden off the top or bottom —
+// which previously masked accidental double-bookings.
+function computeHourRange(
+  appts: { time: string; duration_minutes: number }[],
+): { startHour: number; endHour: number } {
+  let startHour = START_HOUR
+  let endHour = END_HOUR
+  for (const a of appts) {
+    const [h, m] = a.time.split(':').map(Number)
+    if (h < startHour) startHour = h
+    const apptEndHour = Math.ceil((h * 60 + m + a.duration_minutes) / 60)
+    if (apptEndHour > endHour) endHour = apptEndHour
+  }
+  return { startHour: Math.max(0, startHour), endHour: Math.min(24, endHour) }
+}
 
-function timeToY(time: string): number {
+function buildHours(startHour: number, endHour: number) {
+  return Array.from({ length: endHour - startHour + 1 }, (_, i) => {
+    const h = startHour + i
+    const hh = h % 24
+    return { label: `${hh % 12 || 12} ${hh >= 12 ? 'PM' : 'AM'}`, hh: h.toString().padStart(2, '0') }
+  })
+}
+
+function timeToY(time: string, startHour: number): number {
   const [hStr, mStr] = time.split(':')
-  return ((parseInt(hStr) - START_HOUR) * 60 + parseInt(mStr)) * PX_PER_MIN
+  return ((parseInt(hStr) - startHour) * 60 + parseInt(mStr)) * PX_PER_MIN
 }
 
 type ApptLayoutInfo = { column: number; totalColumns: number }
@@ -131,6 +151,12 @@ export function ScheduleView({
     : dayAppts.filter((a) => a.type === filterType)
 
   const dayColInfo = computeColumns(filteredDayAppts)
+
+  // Visible hour window per view — expands beyond 7am–10pm when the day/week has out-of-hours bookings.
+  const { startHour: dayStartHour, endHour: dayEndHour } = computeHourRange(filteredDayAppts)
+  const dayHours = buildHours(dayStartHour, dayEndHour)
+  const { startHour: weekStartHour, endHour: weekEndHour } = computeHourRange(weekAppts)
+  const weekHours = buildHours(weekStartHour, weekEndHour)
 
   const chipStyle = (a: typeof initialAppointments[0]): React.CSSProperties => ({
     borderLeftColor:
@@ -361,8 +387,8 @@ export function ScheduleView({
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: '44px 1fr' }}>
                 {/* Time labels */}
-                <div style={{ position: 'relative', height: (END_HOUR - START_HOUR + 1) * HOUR_HEIGHT }}>
-                  {HOURS.map((h, i) => (
+                <div style={{ position: 'relative', height: (dayEndHour - dayStartHour + 1) * HOUR_HEIGHT }}>
+                  {dayHours.map((h, i) => (
                     <div key={h.label} style={{
                       position: 'absolute',
                       top: i * HOUR_HEIGHT + 2,
@@ -378,8 +404,8 @@ export function ScheduleView({
                   ))}
                 </div>
                 {/* Appointment canvas */}
-                <div style={{ position: 'relative', height: (END_HOUR - START_HOUR + 1) * HOUR_HEIGHT, borderLeft: '1px solid var(--ph-line)' }}>
-                  {HOURS.map((_h, i) => (
+                <div style={{ position: 'relative', height: (dayEndHour - dayStartHour + 1) * HOUR_HEIGHT, borderLeft: '1px solid var(--ph-line)' }}>
+                  {dayHours.map((_h, i) => (
                     <div key={i} style={{
                       position: 'absolute',
                       top: i * HOUR_HEIGHT,
@@ -390,7 +416,7 @@ export function ScheduleView({
                   ))}
                   {filteredDayAppts.map((a) => {
                     const info = dayColInfo.get(a.id) ?? { column: 0, totalColumns: 1 }
-                    const top = timeToY(a.time.slice(0, 5))
+                    const top = timeToY(a.time.slice(0, 5), dayStartHour)
                     const height = Math.max(a.duration_minutes * PX_PER_MIN, 24)
                     const widthPct = 100 / info.totalColumns
                     const leftPct = info.column * widthPct
@@ -527,7 +553,7 @@ export function ScheduleView({
                 </div>
               </div>
             ))}
-            {HOURS.map((h) => (
+            {weekHours.map((h) => (
               <>
                 <div key={`t-${h.label}`} style={{
                   fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--ph-ink-4)',

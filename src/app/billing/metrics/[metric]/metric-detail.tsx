@@ -1,5 +1,8 @@
 import { format, parseISO } from 'date-fns'
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
+import { Button } from '@/components/ui/button'
 
 export type MetricRow = {
   id: string
@@ -32,11 +35,16 @@ export function MetricDetail({ title, subtitle, total, rows, emptyLabel }: Metri
     <div className="px-4 pb-4 md:p-6">
       <MobilePageHeader title={title} backHref="/billing" />
 
-      <div className="hidden md:block" style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: '-0.015em', color: 'var(--ph-ink)' }}>
-          {title}
-        </h1>
-        <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 2 }}>{subtitle}</div>
+      <div className="hidden md:flex items-center gap-2" style={{ marginBottom: 20 }}>
+        <Button variant="ghost" size="icon" asChild>
+          <Link href="/billing" aria-label="Back to billing"><ArrowLeft className="h-4 w-4" /></Link>
+        </Button>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: '-0.015em', color: 'var(--ph-ink)' }}>
+            {title}
+          </h1>
+          <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 2 }}>{subtitle}</div>
+        </div>
       </div>
 
       <div className="md:hidden" style={{ margin: '12px 0 16px' }}>

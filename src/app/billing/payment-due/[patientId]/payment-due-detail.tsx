@@ -1,5 +1,8 @@
 import { format, parseISO } from 'date-fns'
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
+import { Button } from '@/components/ui/button'
 import { formatTime12 } from '@/lib/format-time'
 import { APPOINTMENT_TYPE_SHORT_LABEL } from '@/lib/appointments/appointment-type'
 
@@ -45,7 +48,10 @@ export function PaymentDueDetail({
     <div className="px-4 pb-4 md:p-6">
       <MobilePageHeader title="Balance detail" backHref="/billing" />
 
-      <div className="hidden md:flex" style={{ alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 20 }}>
+      <div className="hidden md:flex items-center gap-2" style={{ marginBottom: 20 }}>
+        <Button variant="ghost" size="icon" asChild>
+          <Link href="/billing" aria-label="Back to billing"><ArrowLeft className="h-4 w-4" /></Link>
+        </Button>
         <div>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: '-0.015em', color: 'var(--ph-ink)' }}>
             {patientName}
