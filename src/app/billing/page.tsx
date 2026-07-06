@@ -7,9 +7,16 @@ import { buildPaymentDueRows } from '@/lib/billing/payment-due'
 
 const PAGE_SIZE = 50
 
-export default async function BillingPage() {
+const BILLING_TABS = ['overview', 'payment_due', 'payments', 'packages'] as const
+type BillingTab = (typeof BILLING_TABS)[number]
+
+export default async function BillingPage({ searchParams }: { searchParams: { tab?: string } }) {
   await requireAdmin()
   const supabase = await createClient()
+
+  const initialTab: BillingTab = BILLING_TABS.includes(searchParams.tab as BillingTab)
+    ? (searchParams.tab as BillingTab)
+    : 'overview'
 
   const now = new Date()
   const monthStart = format(startOfMonth(now), 'yyyy-MM-dd')
@@ -94,6 +101,11 @@ export default async function BillingPage() {
     })),
     payments: allPayments ?? [],
     appointmentPayments: appointmentPayments ?? [],
+    // Name credit-only patients (overpaid, no completed unpaid session to source a name from).
+    patientNames: (patients ?? []).reduce<Record<string, string>>((names, patient) => {
+      names[patient.id] = patient.name
+      return names
+    }, {}),
   })
 
   return (
@@ -113,6 +125,7 @@ export default async function BillingPage() {
         billedLastMonth={billedLastMonth}
         billedLastMonthLabel={lastMonthLabel}
         receivedThisMonth={receivedThisMonth}
+        initialTab={initialTab}
       />
     </div>
   )

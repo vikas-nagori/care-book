@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
 import type { PlatformUserSummary } from '@/lib/supabase/types'
-import { blockUser, unblockUser } from './actions'
+import { blockUser, sendPasswordReset, unblockUser } from './actions'
 
 type UsersListProps = {
   users: PlatformUserSummary[]
@@ -17,7 +17,22 @@ type UsersListProps = {
 export function UsersList({ users, superadminIds }: UsersListProps) {
   const { toast } = useToast()
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [resetBusyId, setResetBusyId] = useState<string | null>(null)
   const superadmins = new Set(superadminIds)
+
+  async function sendReset(user: PlatformUserSummary) {
+    setResetBusyId(user.id)
+    const result = await sendPasswordReset({ userId: user.id })
+    setResetBusyId(null)
+
+    toast({
+      title: result.success ? 'Reset link sent' : 'Could not send reset link',
+      description: result.success
+        ? `A password reset link was emailed to ${user.email}.`
+        : result.message,
+      variant: result.success ? 'default' : 'destructive',
+    })
+  }
 
   async function toggle(user: PlatformUserSummary) {
     const isBlocked = user.status === 'blocked'
@@ -69,20 +84,32 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
                   {user.email} · {user.clinic_name ?? 'No clinic'}
                 </div>
               </div>
-              {isSuperadmin ? (
-                <span className="text-sm text-muted-foreground">Protected</span>
-              ) : (
+              <div className="flex items-center gap-2">
                 <Button
                   type="button"
                   size="sm"
-                  variant={isBlocked ? 'default' : 'destructive'}
-                  onClick={() => toggle(user)}
-                  disabled={isBusy}
+                  variant="outline"
+                  onClick={() => sendReset(user)}
+                  disabled={resetBusyId === user.id}
                 >
-                  {isBusy ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
-                  {isBlocked ? 'Unblock' : 'Block'}
+                  {resetBusyId === user.id ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
+                  Send reset
                 </Button>
-              )}
+                {isSuperadmin ? (
+                  <span className="text-sm text-muted-foreground">Protected</span>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={isBlocked ? 'default' : 'destructive'}
+                    onClick={() => toggle(user)}
+                    disabled={isBusy}
+                  >
+                    {isBusy ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
+                    {isBlocked ? 'Unblock' : 'Block'}
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         )

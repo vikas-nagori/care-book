@@ -224,35 +224,35 @@ export default async function DashboardPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="ph-stat">
+        <Link href="/schedule" className="ph-stat ph-stat-link">
           <div className="ph-stat-label"><CalendarDays size={13} /><span>Today</span></div>
           <div className="ph-stat-value">
             {appts.filter((a) => a.status !== 'cancelled').length}
             <span style={{ fontSize: 14, color: 'var(--ph-ink-4)', marginLeft: 6 }}>/ {appts.length}</span>
           </div>
           <div className="ph-stat-meta">{cancelledCount} cancelled · {appts.filter((a) => a.status === 'scheduled').length} to go</div>
-        </div>
+        </Link>
 
-        <div className="ph-stat">
+        <Link href="/schedule" className="ph-stat ph-stat-link">
           <div className="ph-stat-label"><Users size={13} /><span>This week</span></div>
           <div className="ph-stat-value">{weekCount ?? 0}</div>
           <div className="ph-stat-meta">{totalPatients ?? 0} total patients</div>
-        </div>
+        </Link>
 
         {access.canViewBilling && (
           <>
-            <div className="ph-stat">
+            <Link href="/billing/metrics/received-this-month" className="ph-stat ph-stat-link">
               <div className="ph-stat-label"><IndianRupee size={13} /><span>This month</span></div>
               <div className="ph-stat-value"><Money n={monthRevenue} /></div>
               <div className="ph-stat-meta">collected</div>
-            </div>
-            <div className="ph-stat">
+            </Link>
+            <Link href="/billing?tab=payment_due" className="ph-stat ph-stat-link">
               <div className="ph-stat-label"><AlertCircle size={13} /><span>Outstanding</span></div>
               <div className="ph-stat-value" style={{ color: outstanding > 0 ? 'var(--ph-warn)' : undefined }}>
                 <Money n={outstanding} />
               </div>
               <div className="ph-stat-meta">payment due</div>
-            </div>
+            </Link>
           </>
         )}
       </div>
