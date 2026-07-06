@@ -21,9 +21,10 @@ function normalizePatient(patient: unknown): string {
   return (p as { name?: string } | null)?.name ?? 'Unknown patient'
 }
 
-export default async function BillingMetricPage({ params }: { params: { metric: string } }) {
+export default async function BillingMetricPage({ params }: { params: Promise<{ metric: string }> }) {
+  const { metric } = await params
   await requireAdmin()
-  const config = METRICS[params.metric]
+  const config = METRICS[metric]
   if (!config) notFound()
 
   const supabase = await createClient()
@@ -42,7 +43,7 @@ export default async function BillingMetricPage({ params }: { params: { metric: 
       .gte('date', from)
       .lte('date', to)
       .order('date', { ascending: false })
-    if (error) logger.error('BillingMetric/billed', error, { metric: params.metric })
+    if (error) logger.error('BillingMetric/billed', error, { metric })
     rows = (data ?? []).map((a) => ({
       id: a.id,
       date: a.date,
@@ -57,7 +58,7 @@ export default async function BillingMetricPage({ params }: { params: { metric: 
       .gte('date', from)
       .lte('date', to)
       .order('date', { ascending: false })
-    if (error) logger.error('BillingMetric/received', error, { metric: params.metric })
+    if (error) logger.error('BillingMetric/received', error, { metric })
     rows = (data ?? []).map((p) => ({
       id: p.id,
       date: p.date,

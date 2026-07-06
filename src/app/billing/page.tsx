@@ -10,12 +10,13 @@ const PAGE_SIZE = 50
 const BILLING_TABS = ['overview', 'payment_due', 'payments', 'packages'] as const
 type BillingTab = (typeof BILLING_TABS)[number]
 
-export default async function BillingPage({ searchParams }: { searchParams: { tab?: string } }) {
+export default async function BillingPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   await requireAdmin()
   const supabase = await createClient()
 
-  const initialTab: BillingTab = BILLING_TABS.includes(searchParams.tab as BillingTab)
-    ? (searchParams.tab as BillingTab)
+  const { tab } = await searchParams
+  const initialTab: BillingTab = BILLING_TABS.includes(tab as BillingTab)
+    ? (tab as BillingTab)
     : 'overview'
 
   const now = new Date()
