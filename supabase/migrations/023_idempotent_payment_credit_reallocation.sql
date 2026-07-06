@@ -143,3 +143,17 @@ end;
 $$;
 
 grant execute on function public.allocate_patient_payment_credit(uuid) to authenticated;
+
+-- One-time backfill: re-derive every patient so balances edited before this migration are
+-- corrected on deploy, rather than waiting for each patient's next payment/fee/status change to
+-- re-trigger the sync. The function is idempotent and returns early for patients with no payments,
+-- so this is safe to run across the whole table.
+do $$
+declare
+  patient_row record;
+begin
+  for patient_row in select id from public.patients loop
+    perform public.allocate_patient_payment_credit(patient_row.id);
+  end loop;
+end;
+$$;
