@@ -6,6 +6,7 @@ import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { Sidebar } from '@/components/layout/sidebar'
 import { BottomNav } from '@/components/layout/bottom-nav'
 import { Toaster } from '@/components/ui/toaster'
+import { ServiceWorkerRegistration } from '@/components/layout/service-worker-registration'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -46,9 +47,6 @@ export default async function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <script dangerouslySetInnerHTML={{
-          __html: `if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js') }`
-        }} />
       </head>
       <body className={`${inter.variable} ${jetbrainsMono.variable} overflow-hidden font-sans`}>
         <div className="flex h-dvh overflow-hidden">
@@ -58,6 +56,7 @@ export default async function RootLayout({
           </main>
         </div>
         <BottomNav canViewBilling={access.canViewBilling} />
+        <ServiceWorkerRegistration />
         <Toaster />
       </body>
     </html>

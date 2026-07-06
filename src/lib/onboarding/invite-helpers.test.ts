@@ -2,8 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  buildInviteRedirectUrl,
+  getInviteCollisionResult,
   getInviteCompletionFieldErrorTarget,
   normalizeEmail,
+  normalizeSiteOrigin,
   validateInviteInput,
   validateInviteCompletionInput,
 } from './invite-helpers.ts'
@@ -133,4 +136,42 @@ test('getInviteCompletionFieldErrorTarget maps missing values to their matching 
 
 test('getInviteCompletionFieldErrorTarget returns null for non-field invite errors', () => {
   assert.equal(getInviteCompletionFieldErrorTarget('INVITE_NOT_FOUND'), null)
+})
+
+test('normalizeSiteOrigin accepts configured https origins and removes trailing slashes', () => {
+  assert.equal(normalizeSiteOrigin(' https://care-book.example.com/// '), 'https://care-book.example.com')
+})
+
+test('normalizeSiteOrigin rejects paths and non-http protocols', () => {
+  assert.equal(normalizeSiteOrigin('https://care-book.example.com/settings'), null)
+  assert.equal(normalizeSiteOrigin('javascript:alert(1)'), null)
+})
+
+test('buildInviteRedirectUrl uses the canonical app origin', () => {
+  assert.equal(
+    buildInviteRedirectUrl('https://care-book.example.com'),
+    'https://care-book.example.com/auth/callback?next=%2Fauth%2Fcomplete-invite'
+  )
+})
+
+test('getInviteCollisionResult permits same-clinic revoked invites to be reused', () => {
+  assert.equal(
+    getInviteCollisionResult({
+      currentClinicId: 'clinic-a',
+      existingInvite: { clinic_id: 'clinic-a', status: 'revoked' },
+      existingProfile: null,
+    }),
+    'reuse_revoked_invite'
+  )
+})
+
+test('getInviteCollisionResult blocks cross-clinic invites without mutating them', () => {
+  assert.equal(
+    getInviteCollisionResult({
+      currentClinicId: 'clinic-a',
+      existingInvite: { clinic_id: 'clinic-b', status: 'revoked' },
+      existingProfile: null,
+    }),
+    'conflict'
+  )
 })

@@ -142,3 +142,63 @@ test('platform onboarding approval and rejection mutate only onboarding tables',
     '0'
   )
 })
+
+test('blocked users cannot read tenant business data through RLS', { skip }, () => {
+  const blockedAdmin = seedUser(DB, 'admin', clinicA, 'blocked-admin@example.com')
+  query(DB, `update profiles set status = 'blocked' where id = '${blockedAdmin}'`)
+  query(DB, `insert into patients (clinic_id, name, phone) values ('${clinicA}', 'Blocked Hidden', '3')`)
+
+  assert.equal(queryAsAuthenticated(DB, blockedAdmin, `select count(*) from patients`), '0')
+  assert.equal(queryAsAuthenticated(DB, blockedAdmin, `select public.has_role(array['admin'])`), 'f')
+})
+
+test('users from inactive clinics cannot read or mutate business data', { skip }, () => {
+  const inactiveClinic = query(DB, `insert into clinics (name, status) values ('Inactive Clinic', 'inactive') returning id`)
+  const inactiveAdmin = seedUser(DB, 'admin', inactiveClinic, 'inactive-admin@example.com')
+  const patient = query(
+    DB,
+    `insert into patients (clinic_id, name, phone) values ('${inactiveClinic}', 'Inactive Patient', '4') returning id`
+  )
+
+  assert.equal(queryAsAuthenticated(DB, inactiveAdmin, `select count(*) from patients`), '0')
+
+  const result = JSON.parse(
+    queryAsAuthenticated(
+      DB,
+      inactiveAdmin,
+      `select public.record_payment('${patient}', null, 500, 'cash', current_date, null)`
+    )
+  )
+
+  assert.equal(result.success, false)
+  assert.equal(result.errorCode, '42501')
+})
+
+test('anonymous users cannot execute internal billing allocation RPCs', { skip }, () => {
+  assert.throws(
+    () =>
+      query(
+        DB,
+        `set role anon; select public.assign_patient_package_sessions(gen_random_uuid()); reset role`
+      ),
+    /permission denied|function .* does not exist/
+  )
+})
+
+test('authenticated admins can still execute intended billing RPCs', { skip }, () => {
+  const patient = query(
+    DB,
+    `insert into patients (clinic_id, name, phone) values ('${clinicA}', 'Billing Allowed', '5') returning id`
+  )
+
+  const result = JSON.parse(
+    queryAsAuthenticated(
+      DB,
+      adminA,
+      `select public.record_payment('${patient}', null, 250, 'cash', current_date, null)`
+    )
+  )
+
+  assert.equal(result.success, true)
+  assert.equal(query(DB, `select count(*) from payments where patient_id = '${patient}'`), '1')
+})

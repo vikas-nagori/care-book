@@ -32,6 +32,21 @@ test('evaluateRoleAccess returns insufficient_role when the profile role is not 
   assert.equal(result, 'insufficient_role')
 })
 
+test('evaluateRoleAccess returns blocked_profile when the profile is blocked', () => {
+  const result = evaluateRoleAccess({ ...adminProfile, status: 'blocked' }, ['admin'])
+
+  assert.equal(result, 'blocked_profile')
+})
+
+test('evaluateRoleAccess returns inactive_clinic when the profile clinic is inactive', () => {
+  const result = evaluateRoleAccess(
+    { ...adminProfile, clinic: { status: 'inactive' } },
+    ['admin']
+  )
+
+  assert.equal(result, 'inactive_clinic')
+})
+
 test('evaluateRoleAccess returns authorized when the profile role is allowed', () => {
   const result = evaluateRoleAccess(adminProfile, ['admin'])
 

@@ -29,6 +29,9 @@ export type ClinicOnboardingRequest = {
   rejected_at: string | null
   rejection_reason: string | null
   clinic_id: string | null
+  request_ip: string | null
+  request_user_agent: string | null
+  request_fingerprint: string | null
   created_at: string
   updated_at: string
 }

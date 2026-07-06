@@ -2,14 +2,14 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import type { Profile, UserRole } from '@/lib/supabase/types'
 import { logger } from '@/lib/logger'
-import { evaluateRoleAccess } from '@/lib/auth-access'
+import { evaluateRoleAccess, type ProfileAccessShape } from '@/lib/auth-access'
 
 type CurrentProfileLookup = {
   user: {
     id: string
     email: string | null
   } | null
-  profile: Profile | null
+  profile: (Profile & ProfileAccessShape) | null
   profileError: {
     code?: string
     message?: string
@@ -33,7 +33,7 @@ async function loadCurrentProfile(): Promise<CurrentProfileLookup> {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('*')
+    .select('*, clinic:clinics(status)')
     .eq('id', user.id)
     .maybeSingle()
 
@@ -49,7 +49,7 @@ async function loadCurrentProfile(): Promise<CurrentProfileLookup> {
       id: user.id,
       email: user.email ?? null,
     },
-    profile: profile ?? null,
+    profile: (profile as (Profile & ProfileAccessShape) | null) ?? null,
     profileError,
   }
 }
@@ -91,6 +91,27 @@ export async function requireRole(roles: UserRole[]): Promise<Profile> {
         email: user.email,
         allowedRoles: roles,
         profileLookupFailed: Boolean(profileError),
+      }
+    )
+  } else if (accessResult === 'blocked_profile') {
+    logger.warn(
+      'auth/requireRole/blockedProfile',
+      'Blocked user attempted to access a protected route.',
+      {
+        userId: user.id,
+        email: user.email,
+        allowedRoles: roles,
+      }
+    )
+  } else if (accessResult === 'inactive_clinic') {
+    logger.warn(
+      'auth/requireRole/inactiveClinic',
+      'User from an inactive clinic attempted to access a protected route.',
+      {
+        userId: user.id,
+        email: user.email,
+        allowedRoles: roles,
+        clinicId: profile?.clinic_id ?? null,
       }
     )
   } else {

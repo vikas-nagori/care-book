@@ -1,4 +1,5 @@
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+export const DEFAULT_INVITE_NEXT_PATH = '/auth/complete-invite'
 
 type InviteRole = 'admin' | 'staff'
 
@@ -17,6 +18,19 @@ export type InviteInput = {
   email: string
   role: InviteRole
 }
+
+export type InviteCollisionInput = {
+  currentClinicId: string
+  existingInvite: { clinic_id: string; status: 'pending' | 'accepted' | 'revoked' } | null
+  existingProfile: { id: string; email: string } | null
+}
+
+export type InviteCollisionResult =
+  | 'none'
+  | 'reuse_revoked_invite'
+  | 'already_pending'
+  | 'already_active'
+  | 'conflict'
 
 export type InviteCompletionInput = {
   fullName: string
@@ -50,6 +64,36 @@ export function getInviteCompletionFieldErrorTarget(
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
+}
+
+export function normalizeSiteOrigin(origin: string | null | undefined): string | null {
+  if (!origin) return null
+
+  try {
+    const url = new URL(origin.trim().replace(/\/+$/, ''))
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+    if (url.pathname !== '/' || url.search || url.hash) return null
+    return url.origin
+  } catch {
+    return null
+  }
+}
+
+export function buildInviteRedirectUrl(origin: string): string {
+  return `${origin}/auth/callback?next=${encodeURIComponent(DEFAULT_INVITE_NEXT_PATH)}`
+}
+
+export function getInviteCollisionResult({
+  currentClinicId,
+  existingInvite,
+  existingProfile,
+}: InviteCollisionInput): InviteCollisionResult {
+  if (existingProfile) return 'already_active'
+  if (!existingInvite) return 'none'
+  if (existingInvite.clinic_id !== currentClinicId) return 'conflict'
+  if (existingInvite.status === 'pending') return 'already_pending'
+  if (existingInvite.status === 'accepted') return 'already_active'
+  return 'reuse_revoked_invite'
 }
 
 export function validateInviteInput(

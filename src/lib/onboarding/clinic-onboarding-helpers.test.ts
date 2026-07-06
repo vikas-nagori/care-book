@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { validateClinicOnboardingInput } from './clinic-onboarding-helpers.ts'
+import {
+  buildClinicOnboardingFingerprint,
+  getOnboardingThrottleWindowStart,
+  validateClinicOnboardingInput,
+} from './clinic-onboarding-helpers.ts'
 
 test('validateClinicOnboardingInput normalizes a valid request', () => {
   const result = validateClinicOnboardingInput({
@@ -69,4 +73,28 @@ test('validateClinicOnboardingInput rejects owner mobile numbers that are not 10
     errorCode: 'CLINIC_ONBOARDING_INVALID_MOBILE',
     message: 'Enter a 10 digit owner mobile number.',
   })
+})
+
+test('buildClinicOnboardingFingerprint is stable across whitespace and casing', () => {
+  assert.equal(
+    buildClinicOnboardingFingerprint({
+      clinicName: '  Restore Physio ',
+      ownerEmail: ' OWNER@EXAMPLE.COM ',
+      ownerMobileNumber: ' 9876543210 ',
+      requestIp: '203.0.113.10',
+    }),
+    buildClinicOnboardingFingerprint({
+      clinicName: 'restore physio',
+      ownerEmail: 'owner@example.com',
+      ownerMobileNumber: '9876543210',
+      requestIp: '203.0.113.10',
+    })
+  )
+})
+
+test('getOnboardingThrottleWindowStart returns a UTC ISO timestamp for the lookback window', () => {
+  assert.equal(
+    getOnboardingThrottleWindowStart(new Date('2026-07-07T10:30:00.000Z'), 15),
+    '2026-07-07T10:15:00.000Z'
+  )
 })

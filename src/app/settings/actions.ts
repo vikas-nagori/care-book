@@ -11,7 +11,7 @@ import {
   buildInviteRedirectTo,
   getInviteErrorMessage,
 } from '@/lib/onboarding/invite-server'
-import { validateInviteInput } from '@/lib/onboarding/invite-helpers'
+import { getInviteCollisionResult, validateInviteInput } from '@/lib/onboarding/invite-helpers'
 import type {
   CreateUserInviteInput,
   CreateExternalStaffInput,
@@ -166,19 +166,27 @@ export async function createUserInvite(
     const email = validation.values.email
     const redirectTo = await buildInviteRedirectTo()
     const externalStaffId = input.externalStaffId || null
+    const clinicId = profile.clinic_id
+    if (!clinicId) {
+      return {
+        success: false,
+        errorCode: 'INVITE_UNAUTHORIZED',
+        message: 'Only admins can invite users.',
+      }
+    }
 
     if (externalStaffId) {
       const { data: externalStaff, error: externalStaffLookupError } = await adminSupabase
         .from('external_staff')
         .select('id')
         .eq('id', externalStaffId)
-        .eq('clinic_id', profile.clinic_id)
+        .eq('clinic_id', clinicId)
         .maybeSingle()
 
       if (externalStaffLookupError) {
         logger.error('settings/createUserInvite/externalStaffLookup', externalStaffLookupError, {
           externalStaffId,
-          clinicId: profile.clinic_id,
+          clinicId,
         })
         return {
           success: false,
@@ -198,7 +206,13 @@ export async function createUserInvite(
 
     const [{ data: existingInvite, error: inviteLookupError }, { data: existingProfile, error: profileLookupError }] =
       await Promise.all([
-        adminSupabase.from('user_invites').select('*').eq('email', email).maybeSingle(),
+        adminSupabase
+          .from('user_invites')
+          .select('*')
+          .eq('email', email)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
         adminSupabase.from('profiles').select('id, email').eq('email', email).maybeSingle(),
       ])
 
@@ -220,7 +234,13 @@ export async function createUserInvite(
       }
     }
 
-    if (existingInvite?.status === 'pending') {
+    const collision = getInviteCollisionResult({
+      currentClinicId: clinicId,
+      existingInvite,
+      existingProfile,
+    })
+
+    if (collision === 'already_pending') {
       return {
         success: false,
         errorCode: 'INVITE_ALREADY_PENDING',
@@ -228,11 +248,19 @@ export async function createUserInvite(
       }
     }
 
-    if (existingInvite?.status === 'accepted' || (existingProfile && !existingInvite)) {
+    if (collision === 'already_active') {
       return {
         success: false,
         errorCode: 'INVITE_USER_ALREADY_ACTIVE',
         message: 'This email address already belongs to an active user.',
+      }
+    }
+
+    if (collision === 'conflict') {
+      return {
+        success: false,
+        errorCode: 'INVITE_EMAIL_UNAVAILABLE',
+        message: 'This email address cannot be invited.',
       }
     }
 
@@ -256,7 +284,7 @@ export async function createUserInvite(
 
     const now = new Date().toISOString()
     const invitePayload = {
-      clinic_id: profile.clinic_id,
+      clinic_id: clinicId,
       email,
       role: validation.values.role,
       status: 'pending' as const,
@@ -268,11 +296,13 @@ export async function createUserInvite(
       updated_at: now,
     }
 
-    const inviteMutation = existingInvite
+    const inviteMutation = collision === 'reuse_revoked_invite' && existingInvite
       ? adminSupabase
           .from('user_invites')
           .update(invitePayload)
           .eq('id', existingInvite.id)
+          .eq('clinic_id', clinicId)
+          .eq('status', 'revoked')
           .select('*')
           .single()
       : adminSupabase
@@ -300,7 +330,7 @@ export async function createUserInvite(
         .from('external_staff')
         .update({ email })
         .eq('id', externalStaffId)
-        .eq('clinic_id', profile.clinic_id)
+        .eq('clinic_id', clinicId)
         .is('linked_profile_id', null)
 
       if (externalStaffUpdateError) {
