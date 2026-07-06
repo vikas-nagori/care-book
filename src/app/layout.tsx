@@ -8,6 +8,7 @@ import { BottomNav } from '@/components/layout/bottom-nav'
 import { Toaster } from '@/components/ui/toaster'
 import { ServiceWorkerRegistration } from '@/components/layout/service-worker-registration'
 import { Analytics } from '@vercel/analytics/next'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -60,6 +61,7 @@ export default async function RootLayout({
         <ServiceWorkerRegistration />
         <Toaster />
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )
