@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { requirePlatformAdminUser } from '@/lib/platform/server'
 import { isPlatformAdminEmail } from '@/lib/platform/access'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
+import { getAppOrigin } from '@/lib/onboarding/invite-server'
 import { logger } from '@/lib/logger'
 import { BAN_DURATION, UNBAN_DURATION, shouldUnbanOnUserUnblock } from '@/lib/platform/block'
 import type {
@@ -11,6 +13,8 @@ import type {
   ManageUserBlockInput,
   ManageUserBlockResult,
 } from '@/lib/supabase/types'
+
+export type SendPasswordResetResult = { success: boolean; errorCode?: string; message?: string }
 
 async function setBan(
   adminSupabase: ReturnType<typeof createAdminClient>,
@@ -73,6 +77,49 @@ export async function blockUser(input: ManageUserBlockInput): Promise<ManageUser
   } catch (error) {
     logger.error('platform/blockUser/unexpected', error, input)
     return { success: false, errorCode: 'USER_BLOCK_FAILED', message: 'Unable to block this user right now.' }
+  }
+}
+
+export async function sendPasswordReset(input: ManageUserBlockInput): Promise<SendPasswordResetResult> {
+  try {
+    await requirePlatformAdminUser()
+    if (!input.userId) {
+      return { success: false, errorCode: 'USER_ID_REQUIRED', message: 'Choose a user.' }
+    }
+
+    const adminSupabase = createAdminClient()
+    const { data: target, error: lookupError } = await adminSupabase
+      .from('profiles')
+      .select('id, email')
+      .eq('id', input.userId)
+      .maybeSingle()
+
+    if (lookupError || !target?.email) {
+      logger.error('platform/sendPasswordReset/lookup', lookupError, input)
+      return {
+        success: false,
+        errorCode: lookupError?.code ?? 'USER_NOT_FOUND',
+        message: 'User was not found.',
+      }
+    }
+
+    // Prefer the canonical site URL so the reset link never points at localhost; the recovery
+    // email template routes through /auth/callback (token_hash) to the update-password page.
+    const origin = process.env.NEXT_PUBLIC_SITE_URL ?? (await getAppOrigin())
+    const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent('/auth/update-password')}`
+
+    const authClient = await createClient()
+    const { error: resetError } = await authClient.auth.resetPasswordForEmail(target.email, { redirectTo })
+
+    if (resetError) {
+      logger.error('platform/sendPasswordReset/send', resetError, { userId: input.userId })
+      return { success: false, errorCode: 'PASSWORD_RESET_FAILED', message: resetError.message }
+    }
+
+    return { success: true }
+  } catch (error) {
+    logger.error('platform/sendPasswordReset/unexpected', error, input)
+    return { success: false, errorCode: 'PASSWORD_RESET_FAILED', message: 'Unable to send a reset link right now.' }
   }
 }
 

@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Edit, FileText, Loader2, MapPin, Phone, Trash2, User, UserRound } from 'lucide-react'
+import { ArrowLeft, Edit, FileText, IndianRupee, Loader2, MapPin, Phone, Trash2, User, UserRound } from 'lucide-react'
 import { format } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -28,6 +28,7 @@ interface Props {
   externalStaffOptions: ExternalStaff[]
   currentProfileId: string | null
   canManageExternalStaff: boolean
+  canViewPaymentSignals: boolean
 }
 
 export function AppointmentDetail({
@@ -38,6 +39,7 @@ export function AppointmentDetail({
   externalStaffOptions,
   currentProfileId,
   canManageExternalStaff,
+  canViewPaymentSignals,
 }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -120,6 +122,13 @@ export function AppointmentDetail({
               {formatTime12(appointment.time)} · {appointment.duration_minutes}min · <span>{APPOINTMENT_TYPE_LABEL[appointment.type]}</span>
             </p>
           </div>
+          {canViewPaymentSignals && appointment.fee != null && (
+            <div className="flex items-center gap-2 text-sm">
+              <IndianRupee className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="font-medium">₹{Number(appointment.fee).toLocaleString('en-IN')}</span>
+              <span className="text-muted-foreground capitalize">· {appointment.payment_status}</span>
+            </div>
+          )}
           {isHomeVisitType(appointment.type) && assignedName && (
             <div className="flex items-center gap-2 text-sm">
               <UserRound className="h-4 w-4 text-muted-foreground" />

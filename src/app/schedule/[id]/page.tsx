@@ -1,4 +1,5 @@
 import { getCurrentProfile } from '@/lib/auth'
+import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { getAppointmentVisibilityFilter } from '@/lib/access/appointment-visibility'
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
@@ -78,6 +79,7 @@ export default async function AppointmentPage({ params }: { params: { id: string
         externalStaffOptions={externalStaffOptions ?? []}
         currentProfileId={currentProfile?.id ?? null}
         canManageExternalStaff={currentProfile?.role === 'admin'}
+        canViewPaymentSignals={getRestrictedUiAccess(currentProfile).canViewPaymentSignals}
       />
     </div>
   )
