@@ -7,8 +7,9 @@ import { format } from 'date-fns'
 export default async function NewAppointmentPage({
   searchParams,
 }: {
-  searchParams: { patient_id?: string; from?: string }
+  searchParams: Promise<{ patient_id?: string; from?: string }>
 }) {
+  const { patient_id, from } = await searchParams
   const currentProfile = await getCurrentProfile()
   const supabase = await createClient()
   const [{ data: patients }, { data: assigneeOptions }, { data: externalStaffOptions }] = await Promise.all([
@@ -28,7 +29,7 @@ export default async function NewAppointmentPage({
 
   return (
     <div className="px-4 pb-4 md:p-6">
-      <NewAppointmentBackNav from={searchParams.from} />
+      <NewAppointmentBackNav from={from} />
       <NewAppointmentForm
         patients={patients ?? []}
         assigneeOptions={assigneeOptions ?? []}
@@ -36,8 +37,8 @@ export default async function NewAppointmentPage({
         currentProfileId={currentProfile?.id ?? null}
         canManageExternalStaff={currentProfile?.role === 'admin'}
         defaultDate={format(new Date(), 'yyyy-MM-dd')}
-        defaultPatientId={searchParams.patient_id}
-        from={searchParams.from}
+        defaultPatientId={patient_id}
+        from={from}
       />
     </div>
   )

@@ -7,10 +7,10 @@ import { PaymentDueDetail, type PaymentDueSession } from './payment-due-detail'
 // Drill-down behind a Payments Balance row: the completed unpaid sessions that tally to a patient's
 // gross due, then the credit applied, then the net balance — the calculation made fully visible.
 // Admin-only, mirroring the Billing page guard.
-export default async function PaymentDueDetailPage({ params }: { params: { patientId: string } }) {
+export default async function PaymentDueDetailPage({ params }: { params: Promise<{ patientId: string }> }) {
+  const { patientId } = await params
   await requireAdmin()
   const supabase = await createClient()
-  const { patientId } = params
 
   const [{ data: patient }, { data: sessions, error: sessionsError }, { data: payments }, { data: appointmentPayments }] =
     await Promise.all([

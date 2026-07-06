@@ -6,7 +6,8 @@ import { notFound } from 'next/navigation'
 import { logger } from '@/lib/logger'
 import { AppointmentDetail } from './appointment-detail'
 
-export default async function AppointmentPage({ params }: { params: { id: string } }) {
+export default async function AppointmentPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const currentProfile = await getCurrentProfile()
   const appointmentVisibilityFilter = getAppointmentVisibilityFilter(currentProfile)
   const supabase = await createClient()
@@ -14,7 +15,7 @@ export default async function AppointmentPage({ params }: { params: { id: string
   let appointmentQuery = supabase
     .from('appointments')
     .select('*, patient:patients(id, name, phone, address, medical_history, notes), external_staff:external_staff(id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at)')
-    .eq('id', params.id)
+    .eq('id', id)
 
   if (appointmentVisibilityFilter) {
     appointmentQuery = appointmentQuery.or(appointmentVisibilityFilter)
@@ -22,7 +23,7 @@ export default async function AppointmentPage({ params }: { params: { id: string
 
   const { data: appointment, error: appointmentError } = await appointmentQuery.maybeSingle()
 
-  if (appointmentError) logger.error('AppointmentPage/appointment', appointmentError, { id: params.id })
+  if (appointmentError) logger.error('AppointmentPage/appointment', appointmentError, { id: id })
   if (!appointment) notFound()
 
   const normalizedAppointment = {
@@ -38,12 +39,12 @@ export default async function AppointmentPage({ params }: { params: { id: string
   const { data: sessionNote, error: sessionNoteError } = await supabase
     .from('session_notes')
     .select('*')
-    .eq('appointment_id', params.id)
+    .eq('appointment_id', id)
     .single()
 
   // PGRST116 = no rows found, expected when no session note exists yet
   if (sessionNoteError && sessionNoteError.code !== 'PGRST116') {
-    logger.error('AppointmentPage/sessionNote', sessionNoteError, { id: params.id })
+    logger.error('AppointmentPage/sessionNote', sessionNoteError, { id: id })
   }
 
   const [

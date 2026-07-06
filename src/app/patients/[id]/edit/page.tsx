@@ -2,10 +2,11 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { PatientForm } from '../../patient-form'
 
-export default async function EditPatientPage({ params }: { params: { id: string } }) {
+export default async function EditPatientPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const supabase = await createClient()
   const [{ data: patient }, { data: doctors }] = await Promise.all([
-    supabase.from('patients').select('*').eq('id', params.id).single(),
+    supabase.from('patients').select('*').eq('id', id).single(),
     supabase.from('doctors').select('*').order('name'),
   ])
 

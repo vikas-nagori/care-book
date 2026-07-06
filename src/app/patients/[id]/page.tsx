@@ -6,7 +6,8 @@ import { notFound } from 'next/navigation'
 import { logger } from '@/lib/logger'
 import { PatientDetail } from './patient-detail'
 
-export default async function PatientPage({ params }: { params: { id: string } }) {
+export default async function PatientPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const currentProfile = await getCurrentProfile()
   const access = getRestrictedUiAccess(currentProfile)
   const appointmentVisibilityFilter = getAppointmentVisibilityFilter(currentProfile)
@@ -15,10 +16,10 @@ export default async function PatientPage({ params }: { params: { id: string } }
   const { data: patient, error: patientError } = await supabase
     .from('patients')
     .select('*, referred_by_doctor:doctors(id, name, specialty, address)')
-    .eq('id', params.id)
+    .eq('id', id)
     .single()
 
-  if (patientError) logger.error('PatientPage/patient', patientError, { id: params.id })
+  if (patientError) logger.error('PatientPage/patient', patientError, { id: id })
   if (!patient) notFound()
 
   const normalizedPatient = {
@@ -31,7 +32,7 @@ export default async function PatientPage({ params }: { params: { id: string } }
   let appointmentsQuery = supabase
     .from('appointments')
     .select('id, date, time, duration_minutes, type, status')
-    .eq('patient_id', params.id)
+    .eq('patient_id', id)
     .order('date', { ascending: false })
 
   if (appointmentVisibilityFilter) {
@@ -49,38 +50,38 @@ export default async function PatientPage({ params }: { params: { id: string } }
     supabase
       .from('treatment_plans')
       .select('*')
-      .eq('patient_id', params.id)
+      .eq('patient_id', id)
       .order('created_at', { ascending: false }),
     access.canViewBilling
       ? supabase
           .from('packages')
           .select('*')
-          .eq('patient_id', params.id)
+          .eq('patient_id', id)
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [], error: null }),
     access.canViewBilling
       ? supabase
           .from('payments')
           .select('*')
-          .eq('patient_id', params.id)
+          .eq('patient_id', id)
           .order('date', { ascending: false })
       : Promise.resolve({ data: [], error: null }),
     access.canViewBilling
       ? supabase
           .from('appointments')
           .select('fee')
-          .eq('patient_id', params.id)
+          .eq('patient_id', id)
           .eq('status', 'completed')
           .eq('payment_status', 'unpaid')
           .not('fee', 'is', null)
       : Promise.resolve({ data: [], error: null }),
   ])
 
-  if (appointmentsError) logger.error('PatientPage/appointments', appointmentsError, { id: params.id })
-  if (treatmentPlansError) logger.error('PatientPage/treatmentPlans', treatmentPlansError, { id: params.id })
-  if (packagesError && access.canViewBilling) logger.error('PatientPage/packages', packagesError, { id: params.id })
-  if (paymentsError && access.canViewBilling) logger.error('PatientPage/payments', paymentsError, { id: params.id })
-  if (outstandingError && access.canViewBilling) logger.error('PatientPage/outstanding', outstandingError, { id: params.id })
+  if (appointmentsError) logger.error('PatientPage/appointments', appointmentsError, { id: id })
+  if (treatmentPlansError) logger.error('PatientPage/treatmentPlans', treatmentPlansError, { id: id })
+  if (packagesError && access.canViewBilling) logger.error('PatientPage/packages', packagesError, { id: id })
+  if (paymentsError && access.canViewBilling) logger.error('PatientPage/payments', paymentsError, { id: id })
+  if (outstandingError && access.canViewBilling) logger.error('PatientPage/outstanding', outstandingError, { id: id })
 
   const outstanding = (outstandingAppts ?? []).reduce((s, a) => s + Number((a as { fee: number | null }).fee ?? 0), 0)
 
