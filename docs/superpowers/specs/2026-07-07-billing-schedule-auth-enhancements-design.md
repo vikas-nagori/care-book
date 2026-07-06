@@ -126,12 +126,47 @@ All in `src/app/billing/billing-view.tsx` plus a new route.
 - Isolate the summary into a presentational component so a future
   **"Export / Share PDF"** button is a clean add (out of scope now).
 
+### 2d. Clickable metric tiles (billing + dashboard) — hybrid drill-down
+
+Every `.ph-stat` tile on **both** the Billing page and the Dashboard becomes
+clickable, respecting existing role gates (money tiles stay hidden from staff without
+`canViewBilling`). Two behaviours, per the hybrid decision:
+
+**Money tiles → dedicated metric-detail view.** New route
+**`src/app/billing/metrics/[metric]/page.tsx`** (server component, `requireAdmin()`)
+that switches on a metric slug and renders the exact contributing records plus the
+summed total (mirroring the Payments Balance drill-down component so the calculation
+is visible). Slugs and their sources:
+
+| Slug | Tile(s) | Underlying records |
+|---|---|---|
+| `billed-this-month` | Billing "Total billed" | completed sessions with `date` in this month, summed by `fee` (matches `sumCompletedFees`) |
+| `billed-last-month` | Billing "Billed last month" | completed sessions in last month, summed by `fee` |
+| `received-this-month` | Billing "Received" + Dashboard "This month" | `payments` with `date` in this month |
+
+**Outstanding tiles** (Billing + Dashboard) → the **Payments Balance** view, not a new
+route: deep-link to `/billing?tab=payment_due`. `billing-view.tsx` gains a
+`?tab=` initial-tab read so the deep link opens the right tab.
+
+**Count tiles → link to the relevant existing page** (no new UI):
+Dashboard "Today" → `/schedule`; "This week" → `/schedule`; total-patients →
+`/patients`. On the Billing page, the Billing "Total billed"/"Received"/"Billed last
+month" tiles use the metric route above.
+
+Implementation: Dashboard (`src/app/page.tsx`, a server component) wraps each tile in
+`<Link>`. `billing-view.tsx` (client) wraps money tiles in `<Link>` to the metric
+route and routes the Outstanding tile to its tab. Add a subtle hover affordance to
+`.ph-stat` (or a `.ph-stat-link` variant) so tiles read as clickable.
+
 ### Files
 
-- `src/app/billing/billing-view.tsx` — tab rename, row labels, Recent-10 / View More, clickable rows
+- `src/app/billing/billing-view.tsx` — tab rename, row labels, Recent-10 / View More, clickable rows, `?tab=` initial tab, clickable tiles
 - `src/lib/billing/payment-due.ts` — keep credit-positive patients
 - **New:** `src/app/billing/payment-due/[patientId]/page.tsx` + drill-down component
+- **New:** `src/app/billing/metrics/[metric]/page.tsx` + shared metric-detail component
 - `src/app/billing/page.tsx` — data for the balance rows already present (`patientCredit`)
+- `src/app/page.tsx` — wrap dashboard tiles in links (Outstanding → `/billing?tab=payment_due`, This month → metric route, count tiles → schedule/patients)
+- `src/app/globals.css` — clickable-tile hover affordance (`.ph-stat` / `.ph-stat-link`)
 
 ---
 
@@ -180,7 +215,10 @@ All in `src/app/billing/billing-view.tsx` plus a new route.
 2. **Phase 2:** Load `/billing`, confirm tabs read **Overview · Payments Balance ·
    Payments · Packages**; a credit-positive patient shows as **Credit**; Recent-10 +
    View More works; click a balance row → drill-down page shows the per-session tally
-   summing to the shown balance.
+   summing to the shown balance. Click each tile on both `/billing` and the dashboard:
+   money tiles open the metric-detail view whose records sum to the tile figure,
+   Outstanding tiles land on the Payments Balance tab, and count tiles open
+   schedule/patients. Confirm staff without `canViewBilling` see no clickable money tiles.
 3. **Phase 3:** Open an appointment detail as admin (fee visible) and as staff (hidden
    per `canViewPaymentSignals`).
 4. **Phase 4:** As a platform superadmin, click "Send password reset" for a user;
