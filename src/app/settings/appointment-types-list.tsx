@@ -115,7 +115,7 @@ export function AppointmentTypesList({ appointmentTypes }: Props) {
                 id="type-name"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Clinic Visit"
+                placeholder="Clinic"
                 required
               />
             </div>

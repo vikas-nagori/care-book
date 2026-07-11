@@ -42,13 +42,13 @@ create policy "appointment_types_tenant_write_admin" on public.appointment_types
 
 -- 2. Seed the two defaults for existing clinics, rate sourced from global_settings ----
 insert into public.appointment_types (clinic_id, name, session_rate, is_shared, is_default, sort_order)
-select c.id, 'Clinic Visit', coalesce(gs.clinic_fee, 0), true, true, 0
+select c.id, 'Clinic', coalesce(gs.clinic_fee, 0), true, true, 0
 from public.clinics c
 left join public.global_settings gs on gs.clinic_id = c.id
 on conflict (clinic_id, name) do nothing;
 
 insert into public.appointment_types (clinic_id, name, session_rate, is_shared, is_default, sort_order)
-select c.id, 'Home Visit', coalesce(gs.home_visit_fee, 0), false, true, 1
+select c.id, 'Home', coalesce(gs.home_visit_fee, 0), false, true, 1
 from public.clinics c
 left join public.global_settings gs on gs.clinic_id = c.id
 on conflict (clinic_id, name) do nothing;
@@ -66,7 +66,7 @@ set appointment_type_id = at.id,
     type_is_shared = at.is_shared
 from public.appointment_types at
 where at.clinic_id = a.clinic_id
-  and at.name = case a.type when 'clinic' then 'Clinic Visit' when 'home_visit' then 'Home Visit' else a.type end
+  and at.name = case a.type when 'clinic' then 'Clinic' when 'home_visit' then 'Home' else a.type end
   and a.appointment_type_id is null;
 
 -- Denormalize the human-readable label onto the row (was 'clinic' / 'home_visit').
@@ -131,8 +131,8 @@ begin
     where clinic_id = new.clinic_id
       and (
         name = new.type
-        or (new.type = 'clinic' and lower(name) = 'clinic visit')
-        or (new.type = 'home_visit' and lower(name) = 'home visit')
+        or (new.type = 'clinic' and lower(name) = 'clinic')
+        or (new.type = 'home_visit' and lower(name) = 'home')
       )
     order by sort_order
     limit 1;
@@ -204,8 +204,8 @@ as $$
 begin
   insert into public.appointment_types (clinic_id, name, session_rate, is_shared, is_default, sort_order)
   values
-    (new.id, 'Clinic Visit', 0, true, true, 0),
-    (new.id, 'Home Visit', 0, false, true, 1)
+    (new.id, 'Clinic', 0, true, true, 0),
+    (new.id, 'Home', 0, false, true, 1)
   on conflict (clinic_id, name) do nothing;
   return new;
 end;

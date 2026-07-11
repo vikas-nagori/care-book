@@ -105,7 +105,7 @@ test('booking for a patient with no credit succeeds and stays unpaid', { skip: s
 test('a legacy home_visit slug resolves and unknown types are rejected', { skip: skipReason() }, () => {
   const patient = newPatient('Home Visit Patient')
 
-  // The legacy slug still resolves to the seeded "Home Visit" type (migration 028 trigger).
+  // The legacy slug still resolves to the seeded "Home" type (migration 028 trigger).
   const apptId = query(
     DB,
     `insert into appointments (patient_id, date, time, type, status, fee)

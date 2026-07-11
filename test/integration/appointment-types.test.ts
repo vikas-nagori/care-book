@@ -39,8 +39,8 @@ function typeId(name: string): string {
 
 test('every clinic is seeded with the two default types', { skip }, () => {
   assert.equal(query(DB, `select count(*) from appointment_types where clinic_id = '${clinicId}'`), '2')
-  assert.equal(query(DB, `select is_shared from appointment_types where clinic_id = '${clinicId}' and name = 'Clinic Visit'`), 't')
-  assert.equal(query(DB, `select is_shared from appointment_types where clinic_id = '${clinicId}' and name = 'Home Visit'`), 'f')
+  assert.equal(query(DB, `select is_shared from appointment_types where clinic_id = '${clinicId}' and name = 'Clinic'`), 't')
+  assert.equal(query(DB, `select is_shared from appointment_types where clinic_id = '${clinicId}' and name = 'Home'`), 'f')
 })
 
 test('booking with a type id denormalizes name and visibility', { skip }, () => {
@@ -48,10 +48,10 @@ test('booking with a type id denormalizes name and visibility', { skip }, () => 
   const apptId = query(
     DB,
     `insert into appointments (patient_id, date, time, appointment_type_id, status, fee)
-     values ('${patient}', current_date + 1, '09:00', '${typeId('Clinic Visit')}', 'scheduled', 500)
+     values ('${patient}', current_date + 1, '09:00', '${typeId('Clinic')}', 'scheduled', 500)
      returning id`
   )
-  assert.equal(query(DB, `select type from appointments where id = '${apptId}'`), 'Clinic Visit')
+  assert.equal(query(DB, `select type from appointments where id = '${apptId}'`), 'Clinic')
   assert.equal(query(DB, `select type_is_shared from appointments where id = '${apptId}'`), 't')
 })
 
@@ -100,7 +100,7 @@ test('toggling a type to shared propagates and clears assignees', { skip }, () =
 })
 
 test('a type in use cannot be deleted', { skip }, () => {
-  const clinicVisit = typeId('Clinic Visit')
+  const clinicVisit = typeId('Clinic')
   const patient = newPatient('In Use')
   query(
     DB,
