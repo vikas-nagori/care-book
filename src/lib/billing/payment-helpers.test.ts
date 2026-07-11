@@ -62,25 +62,14 @@ const appointments: PaymentCandidate[] = [
   },
 ]
 
-test('getPaymentCandidates returns completed unpaid sessions for postpaid payments', () => {
+test('getPaymentCandidates returns only upcoming unpaid scheduled sessions with positive fees (prepaid-only)', () => {
   const result = getPaymentCandidates({
     appointments,
     patientId: 'patient-1',
-    paymentTiming: 'postpaid',
     today: '2026-04-18',
   })
 
-  assert.deepEqual(result.map((appointment) => appointment.id), ['a-completed-1'])
-})
-
-test('getPaymentCandidates returns upcoming unpaid sessions with positive fees for prepaid payments', () => {
-  const result = getPaymentCandidates({
-    appointments,
-    patientId: 'patient-1',
-    paymentTiming: 'prepaid',
-    today: '2026-04-18',
-  })
-
+  // Completed sessions (e.g. a-completed-1) are never candidates — packages are prepaid-only.
   assert.deepEqual(result.map((appointment) => appointment.id), [
     'a-scheduled-1',
     'a-scheduled-2',
@@ -91,7 +80,6 @@ test('getSessionsToCover accumulates fees instead of assuming every session cost
   const candidates = getPaymentCandidates({
     appointments,
     patientId: 'patient-1',
-    paymentTiming: 'prepaid',
     today: '2026-04-18',
   })
 
@@ -111,7 +99,6 @@ test('getSessionsToCover stops before a session that would exceed the recorded a
   const candidates = getPaymentCandidates({
     appointments,
     patientId: 'patient-1',
-    paymentTiming: 'prepaid',
     today: '2026-04-18',
   })
 
@@ -128,7 +115,6 @@ test('getSessionsToCover returns no sessions for non-positive payment amounts', 
   const candidates = getPaymentCandidates({
     appointments,
     patientId: 'patient-1',
-    paymentTiming: 'prepaid',
     today: '2026-04-18',
   })
 

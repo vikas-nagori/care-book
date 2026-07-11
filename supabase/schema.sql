@@ -62,7 +62,7 @@ create table packages (
   used_sessions integer default 0,
   total_amount numeric(10,2) not null,
   paid_amount numeric(10,2) default 0,
-  payment_timing text check (payment_timing in ('prepaid', 'postpaid')) default 'prepaid',
+  payment_timing text check (payment_timing = 'prepaid') default 'prepaid',
   status text check (status in ('active', 'completed', 'cancelled')) default 'active',
   created_at timestamptz default now()
 );

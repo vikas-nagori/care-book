@@ -21,7 +21,6 @@ export type BillingTimelineItem =
       totalAmount: number
       paidAmount: number
       status: Package['status']
-      paymentTiming: Package['payment_timing']
     }
   | {
       id: string
@@ -64,7 +63,6 @@ export function buildBillingTimelineItems({
     totalAmount: Number(pkg.total_amount),
     paidAmount: Number(pkg.paid_amount),
     status: pkg.status,
-    paymentTiming: pkg.payment_timing,
   }))
 
   const paymentItems: BillingTimelineItem[] = payments.map((payment) => ({

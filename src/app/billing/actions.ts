@@ -171,44 +171,20 @@ export async function createBillingEntry(
     }
 
     const paymentAmount = input.paymentAmount ?? 0
-    const packageTiming = input.packagePaymentTiming ?? 'prepaid'
-    const isZeroPostpaidPackage =
-      input.mode === 'package_with_payment' &&
-      packageTiming === 'postpaid' &&
-      Number(paymentAmount) === 0
 
-    if (
-      input.mode === 'payment_only' &&
-      (!Number.isFinite(paymentAmount) || Number(paymentAmount) <= 0)
-    ) {
+    // Packages are prepaid-only, so both entry types always require a positive payment amount.
+    if (!Number.isFinite(paymentAmount) || Number(paymentAmount) <= 0) {
       return {
         success: false,
         errorCode: 'PAYMENT_INVALID_AMOUNT',
-        message: 'Payment amount must be greater than zero.',
+        message:
+          input.mode === 'package_with_payment'
+            ? 'Enter the amount collected for this package.'
+            : 'Payment amount must be greater than zero.',
       }
     }
 
-    if (
-      input.mode === 'package_with_payment' &&
-      packageTiming === 'prepaid' &&
-      (!Number.isFinite(paymentAmount) || Number(paymentAmount) <= 0)
-    ) {
-      return {
-        success: false,
-        errorCode: 'PAYMENT_INVALID_AMOUNT',
-        message: 'Enter the amount collected for this prepaid package.',
-      }
-    }
-
-    if (!Number.isFinite(paymentAmount) || Number(paymentAmount) < 0) {
-      return {
-        success: false,
-        errorCode: 'PAYMENT_INVALID_AMOUNT',
-        message: 'Payment amount cannot be negative.',
-      }
-    }
-
-    if (!isZeroPostpaidPackage && paymentAmount > 0 && !input.paymentMethod) {
+    if (!input.paymentMethod) {
       return {
         success: false,
         errorCode: 'PAYMENT_METHOD_REQUIRED',
@@ -216,7 +192,7 @@ export async function createBillingEntry(
       }
     }
 
-    if (!isZeroPostpaidPackage && paymentAmount > 0 && !input.paymentDate) {
+    if (!input.paymentDate) {
       return {
         success: false,
         errorCode: 'PAYMENT_DATE_REQUIRED',
@@ -231,7 +207,7 @@ export async function createBillingEntry(
       p_package_name: input.packageName ?? null,
       p_package_total_sessions: input.packageTotalSessions ?? null,
       p_package_per_session_amount: input.packagePerSessionAmount ?? null,
-      p_package_payment_timing: packageTiming,
+      p_package_payment_timing: 'prepaid',
       p_amount: paymentAmount,
       p_payment_method: input.paymentMethod ?? null,
       p_payment_date: input.paymentDate ?? null,
