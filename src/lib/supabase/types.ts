@@ -281,6 +281,13 @@ export type CreateBillingEntryResult =
   | CreateBillingEntrySuccessResult
   | CreateBillingEntryErrorResult
 
+export type DeleteBillingEntryResult =
+  | {
+      success: true
+      patientId: string
+    }
+  | ActionErrorResult
+
 export type CreateUserInviteInput = {
   email: string
   role: UserRole
