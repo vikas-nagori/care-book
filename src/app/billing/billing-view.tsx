@@ -549,7 +549,7 @@ export function BillingView({
                       </span>
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--ph-ink-4)', marginTop: 6 }}>
-                      {format(new Date(item.sortDate), 'dd MMM yyyy')} · {item.paymentTiming}
+                      {format(new Date(item.sortDate), 'dd MMM yyyy')}
                     </div>
                   </div>
                 )

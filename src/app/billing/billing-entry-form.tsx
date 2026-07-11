@@ -61,7 +61,6 @@ export function BillingEntryForm({ patients, appointments, patientCredit, onSucc
   const [amount, setAmount] = useState('')
   const [packageSessions, setPackageSessions] = useState('')
   const [packagePerSessionAmount, setPackagePerSessionAmount] = useState('')
-  const [packagePaymentTiming, setPackagePaymentTiming] = useState<'prepaid' | 'postpaid'>('prepaid')
 
   const selectedPatientName = patients.find((patient) => patient.id === selectedPatient)?.name
   const todayIST = getTodayIST()
@@ -69,8 +68,6 @@ export function BillingEntryForm({ patients, appointments, patientCredit, onSucc
   const packageTotalSessions = integerFromInput(packageSessions)
   const packageRate = numberFromInput(packagePerSessionAmount)
   const packageTotal = calculatePackageTotal(packageTotalSessions, packageRate)
-  const amountInputRequired = mode === 'payment_only' || packagePaymentTiming === 'prepaid'
-  const paymentDetailsRequired = amountInputRequired || paymentAmount > 0
 
   const allocationPreview = useMemo(
     () =>
@@ -102,7 +99,6 @@ export function BillingEntryForm({ patients, appointments, patientCredit, onSucc
       input.packageName = formData.get('package_name') as string
       input.packageTotalSessions = packageTotalSessions
       input.packagePerSessionAmount = packageRate
-      input.packagePaymentTiming = packagePaymentTiming
     }
 
     const result = await createBillingEntry(input)
@@ -213,60 +209,35 @@ export function BillingEntryForm({ patients, appointments, patientCredit, onSucc
               />
             </div>
           </div>
-
-          <div className="space-y-2">
-            <Label>Package Billing Style</Label>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={packagePaymentTiming === 'prepaid' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setPackagePaymentTiming('prepaid')}
-              >
-                Prepaid
-              </Button>
-              <Button
-                type="button"
-                variant={packagePaymentTiming === 'postpaid' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setPackagePaymentTiming('postpaid')}
-              >
-                Postpaid
-              </Button>
-            </div>
-          </div>
         </div>
       )}
 
       <div className="space-y-4 rounded-md border p-4">
         <div>
           <p className="font-medium">Payment Details</p>
-          {mode === 'package_with_payment' && packagePaymentTiming === 'postpaid' && (
-            <p className="text-sm text-muted-foreground">Amount can be zero for postpaid packages.</p>
-          )}
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="payment_amount">Amount Received{amountInputRequired ? ' *' : ''}</Label>
+            <Label htmlFor="payment_amount">Amount Received *</Label>
             <Input
               id="payment_amount"
               name="payment_amount"
               type="number"
               min="0"
               step="0.01"
-              required={amountInputRequired}
+              required
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
             />
           </div>
           <div className="space-y-2 min-w-0 overflow-hidden">
-            <Label htmlFor="payment_date">Date{paymentDetailsRequired ? ' *' : ''}</Label>
+            <Label htmlFor="payment_date">Date *</Label>
             <Input
               id="payment_date"
               name="payment_date"
               type="date"
-              required={paymentDetailsRequired}
+              required
               defaultValue={format(new Date(), 'yyyy-MM-dd')}
               className="max-w-full"
             />
@@ -337,8 +308,8 @@ export function BillingEntryForm({ patients, appointments, patientCredit, onSucc
         )}
 
         <div className="space-y-2">
-          <Label>Payment Method{paymentDetailsRequired ? ' *' : ''}</Label>
-          <Select name="payment_method" defaultValue="cash" required={paymentDetailsRequired}>
+          <Label>Payment Method *</Label>
+          <Select name="payment_method" defaultValue="cash" required>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>

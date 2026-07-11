@@ -112,3 +112,25 @@ test('record_billing_entry creates a package, claims a booked session, and recor
   )
   assert.equal(pkg, '1/10 paid=8000.00', 'package should claim the booked session and bank the payment')
 })
+
+test('record_billing_entry rejects a postpaid package (packages are prepaid only)', { skip }, () => {
+  const patient = newPatient('Postpaid Blocked')
+  const res = rpc(
+    adminId,
+    `public.record_billing_entry('${patient}', 'package_with_payment', 'late-pack', 2, 950, 'postpaid', 0, null, null, null)`
+  )
+  assert.equal(res.success, false)
+  assert.equal(res.errorCode, '22023')
+  assert.equal(query(DB, `select count(*) from packages where patient_id = '${patient}'`), '0')
+})
+
+test('record_billing_entry rejects a package with a zero payment amount', { skip }, () => {
+  const patient = newPatient('Zero Amount Package')
+  const res = rpc(
+    adminId,
+    `public.record_billing_entry('${patient}', 'package_with_payment', 'free-pack', 2, 950, 'prepaid', 0, 'cash', current_date, null)`
+  )
+  assert.equal(res.success, false)
+  assert.equal(res.errorCode, '22023')
+  assert.equal(query(DB, `select count(*) from packages where patient_id = '${patient}'`), '0')
+})

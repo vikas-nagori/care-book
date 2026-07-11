@@ -121,7 +121,7 @@ export type Package = {
   total_amount: number
   per_session_amount: number
   paid_amount: number
-  payment_timing: 'prepaid' | 'postpaid'
+  payment_timing: 'prepaid'
   status: 'active' | 'completed' | 'cancelled'
   created_at: string
 }
@@ -258,7 +258,6 @@ export type CreateBillingEntryInput = {
   packageName?: string
   packageTotalSessions?: number
   packagePerSessionAmount?: number
-  packagePaymentTiming?: 'prepaid' | 'postpaid'
   paymentAmount?: number
   paymentMethod?: string
   paymentDate?: string

@@ -1,5 +1,3 @@
-export type PaymentTiming = 'prepaid' | 'postpaid'
-
 export type PaymentCandidate = {
   id: string
   patient_id: string
@@ -12,7 +10,6 @@ export type PaymentCandidate = {
 type CandidateParams = {
   appointments: PaymentCandidate[]
   patientId: string
-  paymentTiming: PaymentTiming
   today: string
 }
 
@@ -81,20 +78,16 @@ function getCoverableSessions<T extends PaymentCandidate>({
 export function getPaymentCandidates<T extends PaymentCandidate>({
   appointments,
   patientId,
-  paymentTiming,
   today,
 }: Omit<CandidateParams, 'appointments'> & { appointments: T[] }) {
+  // Packages are prepaid-only: candidates are the patient's upcoming unpaid scheduled sessions.
   return appointments
     .filter((appointment) => {
       if (appointment.patient_id !== patientId) return false
       if (appointment.payment_status !== 'unpaid') return false
       if (!hasPositiveFee(appointment)) return false
 
-      if (paymentTiming === 'postpaid') {
-        return appointment.status === 'completed'
-      }
-
-  return appointment.status === 'scheduled' && appointment.date >= today
+      return appointment.status === 'scheduled' && appointment.date >= today
     })
     .sort(sortByDate)
 }
