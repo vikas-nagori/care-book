@@ -1,32 +1,66 @@
-import type { Appointment, GlobalSettings } from '../supabase/types'
+import type { AppointmentType, CreateAppointmentTypeInput } from '../supabase/types'
 
-export type AppointmentType = Appointment['type']
+export type { AppointmentType }
 
-export const APPOINTMENT_TYPES = ['clinic', 'home_visit'] as const
+// Types are now per-clinic data (see appointment_types table / migration 028).
+// The appointment's denormalized `type` label is stored on the row, so display
+// code reads `appointment.type` directly; these helpers operate on the fetched
+// list for forms, filters, and Settings CRUD.
 
-export const APPOINTMENT_TYPE_LABEL: Record<AppointmentType, string> = {
-  clinic: 'Clinic',
-  home_visit: 'Home Visit',
+export function sortAppointmentTypes(types: AppointmentType[]): AppointmentType[] {
+  return [...types].sort(
+    (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name),
+  )
 }
 
-// Compact labels for badges / chips where space is tight.
-export const APPOINTMENT_TYPE_SHORT_LABEL: Record<AppointmentType, string> = {
-  clinic: 'Clinic',
-  home_visit: 'Home',
+// The type selected by default in the booking form: the first shared default,
+// else the first type by sort order.
+export function defaultAppointmentType(types: AppointmentType[]): AppointmentType | null {
+  const sorted = sortAppointmentTypes(types)
+  return sorted.find((type) => type.is_shared) ?? sorted[0] ?? null
 }
 
-// Home visits carry restricted visibility and keep an assignee.
-export function isHomeVisitType(type: AppointmentType): boolean {
-  return type === 'home_visit'
+type ValidationFailure = {
+  success: false
+  errorCode: string
+  message: string
 }
 
-// Default fee for a given appointment type, sourced from global settings.
-export function feeForType(settings: GlobalSettings, type: AppointmentType): number {
-  switch (type) {
-    case 'home_visit':
-      return settings.home_visit_fee
-    case 'clinic':
-    default:
-      return settings.clinic_fee
+type ValidationSuccess = {
+  success: true
+  values: {
+    name: string
+    sessionRate: number
+    isShared: boolean
+  }
+}
+
+export function validateAppointmentTypeInput(
+  input: CreateAppointmentTypeInput,
+): ValidationSuccess | ValidationFailure {
+  const name = input.name.trim()
+  if (!name) {
+    return {
+      success: false,
+      errorCode: 'APPOINTMENT_TYPE_NAME_REQUIRED',
+      message: 'Enter an appointment type name.',
+    }
+  }
+
+  if (!Number.isFinite(input.sessionRate) || input.sessionRate < 0) {
+    return {
+      success: false,
+      errorCode: 'APPOINTMENT_TYPE_INVALID_RATE',
+      message: 'Session rate must be zero or more.',
+    }
+  }
+
+  return {
+    success: true,
+    values: {
+      name,
+      sessionRate: input.sessionRate,
+      isShared: input.isShared,
+    },
   }
 }

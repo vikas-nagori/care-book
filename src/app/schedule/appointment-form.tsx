@@ -21,8 +21,8 @@ import {
   type AppointmentPatientDraft,
   type AppointmentPatientOption,
 } from '@/lib/schedule/patient-search'
-import type { Appointment, AppointmentAssigneeOption, ExternalStaff, GlobalSettings } from '@/lib/supabase/types'
-import { feeForType, isHomeVisitType } from '@/lib/appointments/appointment-type'
+import type { Appointment, AppointmentAssigneeOption, AppointmentType, ExternalStaff } from '@/lib/supabase/types'
+import { defaultAppointmentType, sortAppointmentTypes } from '@/lib/appointments/appointment-type'
 import { normalizeAppointmentAssignment, parseStaffAssignmentValue } from '@/lib/appointments/assignment'
 
 const UNASSIGNED_ASSIGNEE_VALUE = '__unassigned__'
@@ -58,20 +58,19 @@ export function AppointmentForm({
   const { toast } = useToast()
   const searchContainerRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(false)
-  const [settings, setSettings] = useState<GlobalSettings | null>(null)
-  const [appointmentType, setAppointmentType] = useState<Appointment['type']>(appointment?.type || 'clinic')
-  const [assignedTo, setAssignedTo] = useState(
-    appointment?.assigned_to ?? (isHomeVisitType(appointmentType) ? (currentProfileId ?? '') : ''),
-  )
+  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([])
+  const [appointmentTypeId, setAppointmentTypeId] = useState<string>(appointment?.appointment_type_id ?? '')
+  const [assignedTo, setAssignedTo] = useState(appointment?.assigned_to ?? '')
   const initialStaffAssignment = appointment?.external_staff_id
     ? `external:${appointment.external_staff_id}`
     : appointment?.assigned_to
       ? `internal:${appointment.assigned_to}`
-      : isHomeVisitType(appointmentType) && currentProfileId
-        ? `internal:${currentProfileId}`
-        : UNASSIGNED_ASSIGNEE_VALUE
+      : UNASSIGNED_ASSIGNEE_VALUE
   const [staffAssignment, setStaffAssignment] = useState(initialStaffAssignment)
   const [fee, setFee] = useState<string>(appointment?.fee?.toString() || '')
+
+  const selectedType = appointmentTypes.find((type) => type.id === appointmentTypeId) ?? null
+  const isSharedType = selectedType?.is_shared ?? false
   const initialSelectedPatientId = appointment?.patient_id || defaultPatientId || ''
   const initialSelectedPatient = patients.find((patient) => patient.id === initialSelectedPatientId) ?? null
   const [selectedPatientId, setSelectedPatientId] = useState(initialSelectedPatientId)
@@ -86,14 +85,17 @@ export function AppointmentForm({
   )
   const canCreatePatient = shouldOfferCreatePatientOption(patients, patientSearchQuery)
 
-  // Load global settings once on mount
+  // Load the clinic's appointment types once on mount
   useEffect(() => {
-    supabase.from('global_settings').select('*').single().then(({ data }) => {
-      if (data) {
-        setSettings(data)
-        // Only auto-fill if fee not already set (i.e., new appointment)
-        if (!appointment?.fee) {
-          setFee(String(feeForType(data, appointmentType)))
+    supabase.from('appointment_types').select('*').order('sort_order').then(({ data }) => {
+      if (!data) return
+      setAppointmentTypes(data)
+      // For new appointments, default to a sensible type and auto-fill its rate.
+      if (!appointment) {
+        const def = defaultAppointmentType(data)
+        if (def) {
+          setAppointmentTypeId(def.id)
+          setFee((current) => current || String(def.session_rate))
         }
       }
     })
@@ -117,21 +119,22 @@ export function AppointmentForm({
     return () => document.removeEventListener('mousedown', handlePointerDown)
   }, [appointment])
 
-  // Update fee when type changes (only for new appointments)
-  function handleTypeChange(value: Appointment['type']) {
-    setAppointmentType(value)
-    setAssignedTo((currentAssignee) => {
-      if (value === 'clinic') return ''
-      return currentAssignee || currentProfileId || ''
-    })
-    if (value === 'clinic') {
+  // Update assignment + fee when the selected type changes
+  function handleTypeChange(typeId: string) {
+    setAppointmentTypeId(typeId)
+    const type = appointmentTypes.find((candidate) => candidate.id === typeId)
+    const shared = type?.is_shared ?? false
+
+    setAssignedTo((currentAssignee) => (shared ? '' : currentAssignee || currentProfileId || ''))
+    if (shared) {
       setStaffAssignment(UNASSIGNED_ASSIGNEE_VALUE)
     } else if (staffAssignment === UNASSIGNED_ASSIGNEE_VALUE && currentProfileId) {
       setStaffAssignment(`internal:${currentProfileId}`)
     }
 
-    if (!appointment && settings) {
-      setFee(String(feeForType(settings, value)))
+    // Auto-fill the rate for new appointments (admins can still override).
+    if (!appointment && type) {
+      setFee(String(type.session_rate))
     }
   }
 
@@ -233,11 +236,20 @@ export function AppointmentForm({
       return
     }
 
-    const selectedType = formData.get('type') as Appointment['type']
+    if (!appointmentTypeId) {
+      toast({
+        title: 'Appointment type required',
+        description: 'Choose an appointment type before saving.',
+        variant: 'destructive',
+      })
+      setLoading(false)
+      return
+    }
+
     const selectedAssignment = parseStaffAssignmentValue(staffAssignment)
 
     const assignment = normalizeAppointmentAssignment({
-      type: selectedType,
+      isShared: isSharedType,
       assignedTo: canManageExternalStaff
         ? selectedAssignment.assignedTo
         : (appointment?.external_staff_id ? null : assignedTo),
@@ -251,7 +263,7 @@ export function AppointmentForm({
       date: formData.get('date') as string,
       time: formData.get('time') as string,
       duration_minutes: parseInt(formData.get('duration_minutes') as string) || 45,
-      type: selectedType,
+      appointment_type_id: appointmentTypeId,
       status: (formData.get('status') as string) || 'scheduled',
       fee: parseFloat(formData.get('fee') as string) || null,
       assigned_to: assignment.assigned_to,
@@ -392,23 +404,22 @@ export function AppointmentForm({
         </div>
         <div className="space-y-2">
           <Label htmlFor="type">Type</Label>
-          <Select
-            name="type"
-            defaultValue={appointmentType}
-            onValueChange={(value) => handleTypeChange(value as Appointment['type'])}
-          >
+          <Select value={appointmentTypeId} onValueChange={handleTypeChange}>
             <SelectTrigger>
-              <SelectValue />
+              <SelectValue placeholder="Select type" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="clinic">Clinic</SelectItem>
-              <SelectItem value="home_visit">Home Visit</SelectItem>
+              {sortAppointmentTypes(appointmentTypes).map((type) => (
+                <SelectItem key={type.id} value={type.id}>
+                  {type.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
       </div>
 
-      {isHomeVisitType(appointmentType) && (
+      {selectedType && !selectedType.is_shared && (
         <div className="space-y-2">
           <Label htmlFor="assigned_to">Assigned Staff</Label>
           <Select
@@ -445,7 +456,7 @@ export function AppointmentForm({
           step="0.01"
           value={fee}
           onChange={(e) => setFee(e.target.value)}
-          placeholder="Auto-filled from settings"
+          placeholder="Auto-filled from type"
         />
       </div>
 

@@ -11,29 +11,17 @@ import { AppointmentForm } from './appointment-form'
 import type { Appointment, AppointmentAssigneeOption, ExternalStaff } from '@/lib/supabase/types'
 import Link from 'next/link'
 import { formatTime12 } from '@/lib/format-time'
-import {
-  APPOINTMENT_TYPE_LABEL,
-  APPOINTMENT_TYPE_SHORT_LABEL,
-  isHomeVisitType,
-  type AppointmentType,
-} from '@/lib/appointments/appointment-type'
 
-// Per-type accent colors for chips and week cells (token names from globals.css).
-const TYPE_BORDER_COLOR: Record<AppointmentType, string> = {
-  clinic: 'var(--ph-accent)',
-  home_visit: 'var(--ph-warn)',
-}
-const TYPE_BG_COLOR: Record<AppointmentType, string> = {
-  clinic: 'var(--ph-accent-soft)',
-  home_visit: 'var(--ph-warn-soft)',
-}
-const TYPE_FG_COLOR: Record<AppointmentType, string> = {
-  clinic: 'var(--ph-accent-ink)',
-  home_visit: 'var(--ph-warn)',
+// Chip/cell accent colors keyed off the type's visibility: shared types (e.g. clinic
+// visits) read as the accent color, restricted types (e.g. home visits) as the warn color.
+function typeColorTokens(isShared: boolean) {
+  return isShared
+    ? { border: 'var(--ph-accent)', bg: 'var(--ph-accent-soft)', fg: 'var(--ph-accent-ink)' }
+    : { border: 'var(--ph-warn)', bg: 'var(--ph-warn-soft)', fg: 'var(--ph-warn)' }
 }
 
 interface ScheduleViewProps {
-  initialAppointments: (Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'status'> & {
+  initialAppointments: (Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status'> & {
     payment_status?: Appointment['payment_status']
     assigned_to?: string | null
     external_staff_id?: string | null
@@ -129,7 +117,7 @@ export function ScheduleView({
   const [mobileDialogOpen, setMobileDialogOpen] = useState(false)
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [mobileCalendarOpen, setMobileCalendarOpen] = useState(false)
-  const [filterType, setFilterType] = useState<'all' | AppointmentType>('all')
+  const [filterType, setFilterType] = useState<'all' | string>('all')
   const router = useRouter()
 
   useEffect(() => { setFilterType('all') }, [selectedDate])
@@ -146,6 +134,7 @@ export function ScheduleView({
     return d >= weekStart && d < addDays(weekStart, 7)
   })
 
+  const dayTypeNames = Array.from(new Set(dayAppts.map((a) => a.type)))
   const filteredDayAppts = filterType === 'all'
     ? dayAppts
     : dayAppts.filter((a) => a.type === filterType)
@@ -162,7 +151,7 @@ export function ScheduleView({
     borderLeftColor:
       a.status === 'completed' ? 'var(--ph-ok)' :
       a.status === 'cancelled' ? 'var(--ph-ink-4)' :
-      TYPE_BORDER_COLOR[a.type],
+      typeColorTokens(a.type_is_shared).border,
     opacity: a.status === 'cancelled' ? 0.45 : a.status === 'completed' ? 0.75 : 1,
   })
 
@@ -340,7 +329,7 @@ export function ScheduleView({
       {/* Mobile filter chips */}
       {calView === 'day' && (
         <div className="flex gap-2 mb-3 md:hidden">
-          {(['all', 'clinic', 'home_visit'] as const).map((f) => (
+          {['all', ...dayTypeNames].map((f) => (
             <button
               key={f}
               onClick={() => setFilterType(f)}
@@ -353,7 +342,7 @@ export function ScheduleView({
                 cursor: 'pointer', fontWeight: filterType === f ? 600 : 400,
               }}
             >
-              {f === 'all' ? 'All' : APPOINTMENT_TYPE_SHORT_LABEL[f]}
+              {f === 'all' ? 'All' : f}
             </button>
           ))}
         </div>
@@ -382,7 +371,7 @@ export function ScheduleView({
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ph-ink-4)', fontSize: 13 }}>
                 {filterType === 'all'
                   ? 'No appointments on this day.'
-                  : `No ${APPOINTMENT_TYPE_LABEL[filterType].toLowerCase()} appointments on this day.`}
+                  : `No ${filterType.toLowerCase()} appointments on this day.`}
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: '44px 1fr' }}>
@@ -456,16 +445,16 @@ export function ScheduleView({
                           {a.patient?.name ?? 'Unknown'}
                         </span>
                         {showMeta && (() => {
-                          const internalAssigneeName = isHomeVisitType(a.type) && canViewPaymentSignals && a.assigned_to
+                          const internalAssigneeName = !a.type_is_shared && canViewPaymentSignals && a.assigned_to
                             ? (assigneeOptions.find((o) => o.id === a.assigned_to)?.full_name ?? null)
                             : null
-                          const externalAssigneeName = isHomeVisitType(a.type) && canViewPaymentSignals
+                          const externalAssigneeName = !a.type_is_shared && canViewPaymentSignals
                             ? (a.external_staff?.name ?? null)
                             : null
                           const assigneeName = externalAssigneeName ?? internalAssigneeName
                           return (
                             <span style={{ fontSize: 10.5, lineHeight: 1.2, color: 'var(--ph-ink-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
-                              {a.duration_minutes}m · {APPOINTMENT_TYPE_SHORT_LABEL[a.type]}
+                              {a.duration_minutes}m · {a.type}
                               {assigneeName && ` · ${assigneeName}`}
                             </span>
                           )
@@ -484,8 +473,11 @@ export function ScheduleView({
               <div className="ph-section-h" style={{ marginBottom: 10 }}><h2>Filters</h2></div>
               {[
                 { label: 'All sessions',    n: dayAppts.length,                                            dot: 'var(--ph-ink-3)' },
-                { label: 'Clinic',          n: dayAppts.filter((a) => a.type === 'clinic').length,          dot: 'var(--ph-accent)' },
-                { label: 'Home visits',     n: dayAppts.filter((a) => a.type === 'home_visit').length,      dot: 'var(--ph-warn)' },
+                ...dayTypeNames.map((name) => ({
+                  label: name,
+                  n: dayAppts.filter((a) => a.type === name).length,
+                  dot: typeColorTokens(dayAppts.find((a) => a.type === name)?.type_is_shared ?? false).border,
+                })),
                 { label: 'Completed',       n: dayAppts.filter((a) => a.status === 'completed').length,     dot: 'var(--ph-ok)' },
               ].map((f) => (
                 <div key={f.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 8px', borderRadius: 6 }}>
@@ -574,8 +566,8 @@ export function ScheduleView({
                       {slotAppts.map((a) => (
                         <Link key={a.id} href={`/schedule/${a.id}`} style={{
                           display: 'block',
-                          background: TYPE_BG_COLOR[a.type],
-                          color: TYPE_FG_COLOR[a.type],
+                          background: typeColorTokens(a.type_is_shared).bg,
+                          color: typeColorTokens(a.type_is_shared).fg,
                           borderRadius: 3, padding: '2px 4px', marginBottom: 2,
                           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                           textDecoration: 'none', fontSize: 10,

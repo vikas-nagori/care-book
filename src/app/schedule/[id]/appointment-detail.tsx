@@ -18,7 +18,6 @@ import { AppointmentForm } from '../appointment-form'
 import { SessionNoteForm } from './session-note-form'
 import { deleteAppointment, updateAppointmentStatus } from '../actions'
 import type { Appointment, AppointmentAssigneeOption, ExternalStaff, SessionNote } from '@/lib/supabase/types'
-import { APPOINTMENT_TYPE_LABEL, isHomeVisitType } from '@/lib/appointments/appointment-type'
 
 interface Props {
   appointment: Appointment & { patient: { id: string; name: string; phone: string; address: string | null; medical_history: string | null; notes: string | null } | null }
@@ -119,7 +118,7 @@ export function AppointmentDetail({
           <div>
             <p className="font-medium">{format(new Date(appointment.date), 'EEEE, dd MMM yyyy')}</p>
             <p className="text-sm text-muted-foreground">
-              {formatTime12(appointment.time)} · {appointment.duration_minutes}min · <span>{APPOINTMENT_TYPE_LABEL[appointment.type]}</span>
+              {formatTime12(appointment.time)} · {appointment.duration_minutes}min · <span>{appointment.type}</span>
             </p>
           </div>
           {canViewPaymentSignals && appointment.fee != null && (
@@ -129,7 +128,7 @@ export function AppointmentDetail({
               <span className="text-muted-foreground capitalize">· {appointment.payment_status}</span>
             </div>
           )}
-          {isHomeVisitType(appointment.type) && assignedName && (
+          {!appointment.type_is_shared && assignedName && (
             <div className="flex items-center gap-2 text-sm">
               <UserRound className="h-4 w-4 text-muted-foreground" />
               <span>{assignedName}</span>

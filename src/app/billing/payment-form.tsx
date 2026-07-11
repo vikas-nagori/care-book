@@ -15,7 +15,6 @@ import { useToast } from '@/hooks/use-toast'
 import { recordPayment } from './actions'
 import { getPaymentAllocationPreview } from '@/lib/billing/payment-helpers'
 import type { Package, Appointment } from '@/lib/supabase/types'
-import { APPOINTMENT_TYPE_SHORT_LABEL } from '@/lib/appointments/appointment-type'
 
 type AppointmentSlim = Pick<Appointment, 'id' | 'patient_id' | 'date' | 'time' | 'status' | 'payment_status' | 'fee' | 'type'>
 
@@ -140,7 +139,7 @@ export function PaymentForm({ patients, packages, appointments, onSuccess }: Pro
               <p className="text-sm font-medium">Marking {outstandingSessions.length} completed session(s) as paid:</p>
               {outstandingSessions.map(a => (
                 <div key={a.id} className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Badge variant="outline" className="text-xs">{APPOINTMENT_TYPE_SHORT_LABEL[a.type]}</Badge>
+                  <Badge variant="outline" className="text-xs">{a.type}</Badge>
                   <span>{format(parseISO(a.date), 'dd MMM yyyy')}</span>
                   {a.fee && <span className="ml-auto">₹{Number(a.fee).toLocaleString()}</span>}
                 </div>
@@ -152,7 +151,7 @@ export function PaymentForm({ patients, packages, appointments, onSuccess }: Pro
               <p className="text-sm font-medium">Prepaying {prepaidSessions.length} upcoming session(s):</p>
               {prepaidSessions.map(a => (
                 <div key={a.id} className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Badge variant="outline" className="text-xs">{APPOINTMENT_TYPE_SHORT_LABEL[a.type]}</Badge>
+                  <Badge variant="outline" className="text-xs">{a.type}</Badge>
                   <span>{format(parseISO(a.date), 'dd MMM yyyy')}</span>
                   {a.fee && <span className="ml-auto">₹{Number(a.fee).toLocaleString()}</span>}
                 </div>

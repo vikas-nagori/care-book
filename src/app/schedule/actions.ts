@@ -4,7 +4,6 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentProfile } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { createClient } from '@/lib/supabase/server'
-import { normalizeAppointmentAssignment } from '@/lib/appointments/assignment'
 
 // --- Types ---
 
@@ -146,12 +145,8 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
       return { success: false, errorCode: 'SCHEDULE_MISSING_PATIENT', message: 'Select or create a patient.' }
     }
 
-    const assignment = normalizeAppointmentAssignment({
-      type: input.type as 'home_visit' | 'clinic',
-      assignedTo: input.assignedTo,
-      externalStaffId: input.externalStaffId,
-    })
-
+    // The set_appointment_creator trigger resolves the type, denormalizes its
+    // visibility, and clears the assignee for shared types.
     const { data, error } = await supabase
       .from('appointments')
       .insert({
@@ -162,8 +157,8 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
         type: input.type,
         status: 'scheduled',
         fee: input.fee,
-        assigned_to: assignment.assigned_to,
-        external_staff_id: assignment.external_staff_id,
+        assigned_to: input.assignedTo || null,
+        external_staff_id: input.externalStaffId || null,
         notes: input.notes || null,
       })
       .select('id')
@@ -194,11 +189,6 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
     }
 
     const supabase = await createClient()
-    const assignment = normalizeAppointmentAssignment({
-      type: input.type as 'home_visit' | 'clinic',
-      assignedTo: input.assignedTo,
-      externalStaffId: input.externalStaffId,
-    })
     const { error } = await supabase
       .from('appointments')
       .update({
@@ -209,8 +199,8 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
         type: input.type,
         status: input.status,
         fee: input.fee,
-        assigned_to: assignment.assigned_to,
-        external_staff_id: assignment.external_staff_id,
+        assigned_to: input.assignedTo || null,
+        external_staff_id: input.externalStaffId || null,
         notes: input.notes || null,
       })
       .eq('id', input.appointmentId)

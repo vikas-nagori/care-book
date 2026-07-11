@@ -1,7 +1,6 @@
-import type { Appointment } from '../supabase/types'
-
 export type AppointmentAssignmentInput = {
-  type: Appointment['type']
+  // Shared types (e.g. clinic visits) carry no assignee; restricted types do.
+  isShared: boolean
   assignedTo?: string | null
   externalStaffId?: string | null
 }
@@ -16,8 +15,8 @@ export type ParsedStaffAssignment = {
   externalStaffId: string | null
 }
 
-function isAssignableAppointmentType(type: Appointment['type']) {
-  return type === 'home_visit'
+function isAssignableAppointment(isShared: boolean) {
+  return !isShared
 }
 
 function cleanId(value?: string | null) {
@@ -50,11 +49,11 @@ export function parseStaffAssignmentValue(value?: string | null): ParsedStaffAss
 }
 
 export function normalizeAppointmentAssignment({
-  type,
+  isShared,
   assignedTo,
   externalStaffId,
 }: AppointmentAssignmentInput): NormalizedAppointmentAssignment {
-  if (!isAssignableAppointmentType(type)) {
+  if (!isAssignableAppointment(isShared)) {
     return {
       assigned_to: null,
       external_staff_id: null,

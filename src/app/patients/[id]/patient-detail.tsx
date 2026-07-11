@@ -15,7 +15,6 @@ import { format } from 'date-fns'
 import { formatTime12 } from '@/lib/format-time'
 import { TreatmentPlanForm } from './treatment-plan-form'
 import type { Patient, Appointment, TreatmentPlan, Package, Payment, ReferralSource } from '@/lib/supabase/types'
-import { APPOINTMENT_TYPE_LABEL } from '@/lib/appointments/appointment-type'
 
 const REFERRAL_SOURCE_LABEL: Record<ReferralSource, string> = {
   walk_in: 'Walk-in',
@@ -199,7 +198,7 @@ export function PatientDetail({
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="font-medium">{format(new Date(appt.date), 'dd MMM yyyy')} at {formatTime12(appt.time)}</p>
-                          <p className="text-sm text-muted-foreground">{APPOINTMENT_TYPE_LABEL[appt.type]} · {appt.duration_minutes}min</p>
+                          <p className="text-sm text-muted-foreground">{appt.type} · {appt.duration_minutes}min</p>
                         </div>
                         <Badge className={statusColors[appt.status] || ''}>
                           {appt.status.replace('_', ' ')}

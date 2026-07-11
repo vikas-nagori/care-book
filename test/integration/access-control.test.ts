@@ -32,12 +32,14 @@ function rpc(userId: string, expr: string): Record<string, unknown> {
   return JSON.parse(queryAs(DB, userId, `select ${expr}`))
 }
 
-function canAccess(userId: string, type: string, createdBy: string | null, assignedTo: string | null): boolean {
+// Visibility now keys off is_shared (migration 028) rather than the 'clinic' magic
+// string: shared types are visible to all staff, non-shared only to creator/assignee.
+function canAccess(userId: string, isShared: boolean, createdBy: string | null, assignedTo: string | null): boolean {
   const arg = (v: string | null) => (v === null ? 'null' : `'${v}'`)
   const out = queryAs(
     DB,
     userId,
-    `select public.can_access_appointment('${type}', ${arg(createdBy)}, ${arg(assignedTo)})`
+    `select public.can_access_appointment(${isShared}, ${arg(createdBy)}, ${arg(assignedTo)})`
   )
   return out === 't'
 }
@@ -68,17 +70,17 @@ test('admin can record a billing entry', { skip }, () => {
   assert.equal(res.success, true)
 })
 
-test('staff may access clinic appointments and their own home visits only', { skip }, () => {
-  assert.equal(canAccess(staffId, 'clinic', otherStaffId, otherStaffId), true, 'clinic is shared')
-  assert.equal(canAccess(staffId, 'home_visit', staffId, null), true, 'own created home visit')
-  assert.equal(canAccess(staffId, 'home_visit', null, staffId), true, 'home visit assigned to them')
-  assert.equal(canAccess(staffId, 'home_visit', otherStaffId, otherStaffId), false, "another staff's home visit")
+test('staff may access shared appointments and their own restricted ones only', { skip }, () => {
+  assert.equal(canAccess(staffId, true, otherStaffId, otherStaffId), true, 'shared type is visible to all staff')
+  assert.equal(canAccess(staffId, false, staffId, null), true, 'own created restricted appointment')
+  assert.equal(canAccess(staffId, false, null, staffId), true, 'restricted appointment assigned to them')
+  assert.equal(canAccess(staffId, false, otherStaffId, otherStaffId), false, "another staff's restricted appointment")
 })
 
 test('admin may access any appointment', { skip }, () => {
-  assert.equal(canAccess(adminId, 'home_visit', otherStaffId, otherStaffId), true)
+  assert.equal(canAccess(adminId, false, otherStaffId, otherStaffId), true)
 })
 
 test('an anonymous session can access nothing', { skip }, () => {
-  assert.equal(canAccess('', 'clinic', null, null), false)
+  assert.equal(canAccess('', true, null, null), false)
 })

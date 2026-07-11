@@ -4,13 +4,12 @@ import { ArrowLeft } from 'lucide-react'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
 import { Button } from '@/components/ui/button'
 import { formatTime12 } from '@/lib/format-time'
-import { APPOINTMENT_TYPE_SHORT_LABEL } from '@/lib/appointments/appointment-type'
 
 export type PaymentDueSession = {
   id: string
   date: string
   time: string
-  type: 'home_visit' | 'clinic'
+  type: string
   fee: number
 }
 
@@ -112,7 +111,7 @@ export function PaymentDueDetail({
                 <div style={{ fontSize: 10.5, color: 'var(--ph-ink-4)', marginTop: 1 }}>{formatTime12(session.time)}</div>
               </div>
               <span className="ph-badge soft" style={{ textTransform: 'none', fontSize: 10.5 }}>
-                {APPOINTMENT_TYPE_SHORT_LABEL[session.type]}
+                {session.type}
               </span>
               <div style={{ marginLeft: 'auto' }}><Money n={session.fee} /></div>
             </div>

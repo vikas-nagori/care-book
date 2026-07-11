@@ -19,7 +19,6 @@ import {
 } from '@/lib/billing/payment-helpers'
 import { getBillingModeLabel, type BillingTimelinePackage } from '@/lib/billing/unified-billing'
 import type { Appointment, BillingEntryKind, CreateBillingEntryInput } from '@/lib/supabase/types'
-import { APPOINTMENT_TYPE_SHORT_LABEL } from '@/lib/appointments/appointment-type'
 import { createBillingEntry } from './actions'
 
 type AppointmentSlim = Pick<Appointment, 'id' | 'patient_id' | 'date' | 'time' | 'status' | 'payment_status' | 'fee' | 'type'>
@@ -254,7 +253,7 @@ export function BillingEntryForm({ patients, appointments, patientCredit, onSucc
                 {allocationPreview.outstandingSessions.map((appointment) => (
                   <div key={appointment.id} className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Badge variant="outline" className="text-xs">
-                      {APPOINTMENT_TYPE_SHORT_LABEL[appointment.type]}
+                      {appointment.type}
                     </Badge>
                     <span>{format(parseISO(appointment.date), 'dd MMM yyyy')}</span>
                     {appointment.fee && <span className="ml-auto">₹{Number(appointment.fee).toLocaleString('en-IN')}</span>}
@@ -269,7 +268,7 @@ export function BillingEntryForm({ patients, appointments, patientCredit, onSucc
                 {allocationPreview.prepaidSessions.map((appointment) => (
                   <div key={appointment.id} className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Badge variant="outline" className="text-xs">
-                      {APPOINTMENT_TYPE_SHORT_LABEL[appointment.type]}
+                      {appointment.type}
                     </Badge>
                     <span>{format(parseISO(appointment.date), 'dd MMM yyyy')}</span>
                     {appointment.fee && <span className="ml-auto">₹{Number(appointment.fee).toLocaleString('en-IN')}</span>}
