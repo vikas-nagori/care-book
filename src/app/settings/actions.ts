@@ -12,17 +12,22 @@ import {
   getInviteErrorMessage,
 } from '@/lib/onboarding/invite-server'
 import { getInviteCollisionResult, validateInviteInput } from '@/lib/onboarding/invite-helpers'
+import { validateAppointmentTypeInput } from '@/lib/appointments/appointment-type'
 import { validatePackageTemplateInput } from '@/lib/billing/package-template'
 import type {
+  AppointmentTypeResult,
+  CreateAppointmentTypeInput,
   CreatePackageTemplateInput,
   CreateUserInviteInput,
   CreateExternalStaffInput,
   CreateExternalStaffResult,
   CreateUserInviteResult,
+  DeleteAppointmentTypeResult,
   DeletePackageTemplateResult,
   ManageUserInviteInput,
   ManageUserInviteResult,
   PackageTemplateResult,
+  UpdateAppointmentTypeInput,
   UpdateGlobalSettingsInput,
   UpdatePackageTemplateInput,
   UpdateGlobalSettingsResult,
@@ -141,6 +146,204 @@ export async function updateGlobalSettings(
       success: false,
       errorCode: 'SETTINGS_UPDATE_FAILED',
       message: 'Unable to update settings right now.',
+    }
+  }
+}
+
+async function nextAppointmentTypeSortOrder(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  clinicId: string,
+): Promise<number> {
+  const { data } = await supabase
+    .from('appointment_types')
+    .select('sort_order')
+    .eq('clinic_id', clinicId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return (data?.sort_order ?? -1) + 1
+}
+
+export async function createAppointmentType(
+  input: CreateAppointmentTypeInput
+): Promise<AppointmentTypeResult> {
+  try {
+    const profile = await requireAdminSettingsAccess()
+    if (!profile) {
+      return {
+        success: false,
+        errorCode: 'APPOINTMENT_TYPE_UNAUTHORIZED',
+        message: 'Only admins can manage appointment types.',
+      }
+    }
+
+    const validation = validateAppointmentTypeInput(input)
+    if (!validation.success) {
+      return validation
+    }
+
+    const clinicId = profile.clinic_id
+    if (!clinicId) {
+      return {
+        success: false,
+        errorCode: 'APPOINTMENT_TYPE_UNAUTHORIZED',
+        message: 'Only admins can manage appointment types.',
+      }
+    }
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from('appointment_types')
+      .insert({
+        clinic_id: clinicId,
+        name: validation.values.name,
+        session_rate: validation.values.sessionRate,
+        is_shared: validation.values.isShared,
+        sort_order: await nextAppointmentTypeSortOrder(supabase, clinicId),
+      })
+      .select('*')
+      .single()
+
+    if (error || !data) {
+      logger.error('settings/createAppointmentType', error, input)
+      return {
+        success: false,
+        errorCode: error?.code ?? 'APPOINTMENT_TYPE_SAVE_FAILED',
+        message:
+          error?.code === '23505'
+            ? 'An appointment type with that name already exists.'
+            : error?.message ?? 'Unable to save this appointment type right now.',
+      }
+    }
+
+    revalidatePath('/settings')
+    revalidatePath('/schedule')
+    revalidatePath('/schedule/new')
+    return { success: true, appointmentType: data }
+  } catch (error) {
+    logger.error('settings/createAppointmentType/unexpected', error, input)
+    return {
+      success: false,
+      errorCode: 'APPOINTMENT_TYPE_SAVE_FAILED',
+      message: 'Unable to save this appointment type right now.',
+    }
+  }
+}
+
+export async function updateAppointmentType(
+  input: UpdateAppointmentTypeInput
+): Promise<AppointmentTypeResult> {
+  try {
+    const profile = await requireAdminSettingsAccess()
+    if (!profile) {
+      return {
+        success: false,
+        errorCode: 'APPOINTMENT_TYPE_UNAUTHORIZED',
+        message: 'Only admins can manage appointment types.',
+      }
+    }
+
+    if (!input.id) {
+      return {
+        success: false,
+        errorCode: 'APPOINTMENT_TYPE_MISSING_ID',
+        message: 'Choose an appointment type to update.',
+      }
+    }
+
+    const validation = validateAppointmentTypeInput(input)
+    if (!validation.success) {
+      return validation
+    }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from('appointment_types')
+      .update({
+        name: validation.values.name,
+        session_rate: validation.values.sessionRate,
+        is_shared: validation.values.isShared,
+      })
+      .eq('id', input.id)
+      .eq('clinic_id', profile.clinic_id)
+      .select('*')
+      .single()
+
+    if (error || !data) {
+      logger.error('settings/updateAppointmentType', error, input)
+      return {
+        success: false,
+        errorCode: error?.code ?? 'APPOINTMENT_TYPE_SAVE_FAILED',
+        message:
+          error?.code === '23505'
+            ? 'An appointment type with that name already exists.'
+            : error?.message ?? 'Unable to update this appointment type right now.',
+      }
+    }
+
+    revalidatePath('/settings')
+    revalidatePath('/schedule')
+    revalidatePath('/schedule/new')
+    return { success: true, appointmentType: data }
+  } catch (error) {
+    logger.error('settings/updateAppointmentType/unexpected', error, input)
+    return {
+      success: false,
+      errorCode: 'APPOINTMENT_TYPE_SAVE_FAILED',
+      message: 'Unable to update this appointment type right now.',
+    }
+  }
+}
+
+export async function deleteAppointmentType(
+  id: string
+): Promise<DeleteAppointmentTypeResult> {
+  try {
+    const profile = await requireAdminSettingsAccess()
+    if (!profile) {
+      return {
+        success: false,
+        errorCode: 'APPOINTMENT_TYPE_UNAUTHORIZED',
+        message: 'Only admins can manage appointment types.',
+      }
+    }
+
+    if (!id) {
+      return {
+        success: false,
+        errorCode: 'APPOINTMENT_TYPE_MISSING_ID',
+        message: 'Choose an appointment type to delete.',
+      }
+    }
+
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from('appointment_types')
+      .delete()
+      .eq('id', id)
+      .eq('clinic_id', profile.clinic_id)
+
+    if (error) {
+      logger.error('settings/deleteAppointmentType', error, { id })
+      return {
+        success: false,
+        errorCode: error.code ?? 'APPOINTMENT_TYPE_DELETE_FAILED',
+        message:
+          error.code === '23503'
+            ? 'This type is used by existing appointments and cannot be deleted.'
+            : error.message,
+      }
+    }
+
+    revalidatePath('/settings')
+    revalidatePath('/schedule')
+    revalidatePath('/schedule/new')
+    return { success: true, id }
+  } catch (error) {
+    logger.error('settings/deleteAppointmentType/unexpected', error, { id })
+    return {
+      success: false,
+      errorCode: 'APPOINTMENT_TYPE_DELETE_FAILED',
+      message: 'Unable to delete this appointment type right now.',
     }
   }
 }
@@ -455,8 +658,6 @@ export async function createUserInvite(
       clinic_id: clinicId,
       email,
       role: validation.values.role,
-      full_name: validation.values.fullName,
-      mobile_number: validation.values.mobileNumber,
       status: 'pending' as const,
       auth_user_id: inviteUserData.user?.id ?? existingInvite?.auth_user_id ?? null,
       external_staff_id: externalStaffId,

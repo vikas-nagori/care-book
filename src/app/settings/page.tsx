@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { AccountSummary } from './account-summary'
 import { logoutFromSettings } from './actions'
 import { InviteForm } from './invite-form'
-import { SettingsForm } from './settings-form'
+import { AppointmentTypesList } from './appointment-types-list'
 import { PackageTemplatesList } from './package-templates-list'
 import { ExternalStaffList } from './external-staff-list'
 import { UserInvitesList } from './user-invites-list'
@@ -31,13 +31,13 @@ export default async function SettingsPage() {
 
   const supabase = await createClient()
   const [
-    { data: settings },
+    { data: appointmentTypes },
     { data: profiles },
     { data: invites },
     { data: externalStaff, error: externalStaffError },
     { data: packageTemplates },
   ] = await Promise.all([
-    supabase.from('global_settings').select('*').single(),
+    supabase.from('appointment_types').select('*').order('sort_order'),
     supabase.from('profiles').select('*').order('created_at'),
     supabase.from('user_invites').select('*').order('created_at', { ascending: false }),
     supabase
@@ -62,7 +62,7 @@ export default async function SettingsPage() {
       <AccountSummary profile={currentProfile} logoutAction={logoutFromSettings} />
       <div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
         <div className="space-y-6">
-          <SettingsForm settings={settings} />
+          <AppointmentTypesList appointmentTypes={appointmentTypes ?? []} />
           <PackageTemplatesList templates={packageTemplates ?? []} />
           <InviteForm />
         </div>

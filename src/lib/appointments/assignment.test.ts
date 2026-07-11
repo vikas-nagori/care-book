@@ -3,10 +3,10 @@ import test from 'node:test'
 
 import { normalizeAppointmentAssignment, parseStaffAssignmentValue } from './assignment.ts'
 
-test('normalizeAppointmentAssignment clears assignment fields for clinic appointments', () => {
+test('normalizeAppointmentAssignment clears assignment fields for shared appointments', () => {
   assert.deepEqual(
     normalizeAppointmentAssignment({
-      type: 'clinic',
+      isShared: true,
       assignedTo: 'profile-1',
       externalStaffId: 'external-1',
     }),
@@ -17,10 +17,10 @@ test('normalizeAppointmentAssignment clears assignment fields for clinic appoint
   )
 })
 
-test('normalizeAppointmentAssignment keeps internal assignment for home visit types', () => {
+test('normalizeAppointmentAssignment keeps internal assignment for restricted types', () => {
   assert.deepEqual(
     normalizeAppointmentAssignment({
-      type: 'home_visit',
+      isShared: false,
       assignedTo: 'profile-1',
       externalStaffId: '',
     }),
@@ -34,7 +34,7 @@ test('normalizeAppointmentAssignment keeps internal assignment for home visit ty
 test('normalizeAppointmentAssignment keeps external assignment and clears internal assignment', () => {
   assert.deepEqual(
     normalizeAppointmentAssignment({
-      type: 'home_visit',
+      isShared: false,
       assignedTo: 'profile-1',
       externalStaffId: 'external-1',
     }),

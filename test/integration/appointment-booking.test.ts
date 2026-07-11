@@ -102,16 +102,17 @@ test('booking for a patient with no credit succeeds and stays unpaid', { skip: s
   assert.equal(status, 'unpaid', 'no credit means the session remains unpaid')
 })
 
-test('the type CHECK accepts home_visit and rejects unknown types', { skip: skipReason() }, () => {
+test('a legacy home_visit slug resolves and unknown types are rejected', { skip: skipReason() }, () => {
   const patient = newPatient('Home Visit Patient')
 
+  // The legacy slug still resolves to the seeded "Home" type (migration 028 trigger).
   const apptId = query(
     DB,
     `insert into appointments (patient_id, date, time, type, status, fee)
      values ('${patient}', current_date + 1, '09:00', 'home_visit', 'scheduled', 1000)
      returning id`
   )
-  assert.ok(apptId, 'home_visit should be a permitted appointment type')
+  assert.ok(apptId, 'home_visit should resolve to the default Home Visit type')
 
   let rejection = ''
   try {
@@ -121,13 +122,12 @@ test('the type CHECK accepts home_visit and rejects unknown types', { skip: skip
        values ('${patient}', current_date + 1, '09:30', 'not_a_type', 'scheduled', 100)`
     )
   } catch (err) {
-    // psql writes the violated constraint to stderr (captured separately from the Error message).
     rejection = (err as { stderr?: string }).stderr ?? (err as Error).message
   }
   assert.match(
     rejection,
-    /appointments_type_check/,
-    'unknown appointment types must still be rejected by the CHECK constraint',
+    /was not found for this clinic/,
+    'unknown appointment types must still be rejected',
   )
 })
 

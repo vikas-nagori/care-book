@@ -3,7 +3,6 @@ import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { requireAdmin } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
-import { APPOINTMENT_TYPE_SHORT_LABEL } from '@/lib/appointments/appointment-type'
 import { MetricDetail, type MetricRow } from './metric-detail'
 
 // Drill-down behind a billing money tile: the exact records that sum to the figure, with the total
@@ -48,7 +47,7 @@ export default async function BillingMetricPage({ params }: { params: Promise<{ 
       id: a.id,
       date: a.date,
       title: normalizePatient(a.patient),
-      meta: APPOINTMENT_TYPE_SHORT_LABEL[a.type as 'home_visit' | 'clinic'],
+      meta: a.type,
       amount: Number(a.fee ?? 0),
     }))
   } else {

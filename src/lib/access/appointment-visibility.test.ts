@@ -18,10 +18,10 @@ const adminProfile: Pick<Profile, 'id' | 'role'> = {
 }
 
 function appointment(
-  overrides: Partial<Pick<Appointment, 'type' | 'created_by' | 'assigned_to'>> = {},
-): Pick<Appointment, 'type' | 'created_by' | 'assigned_to'> {
+  overrides: Partial<Pick<Appointment, 'type_is_shared' | 'created_by' | 'assigned_to'>> = {},
+): Pick<Appointment, 'type_is_shared' | 'created_by' | 'assigned_to'> {
   return {
-    type: 'home_visit',
+    type_is_shared: false,
     created_by: null,
     assigned_to: null,
     ...overrides,
@@ -29,15 +29,15 @@ function appointment(
 }
 
 test('admins can view every appointment type', () => {
-  assert.equal(canViewAppointmentForProfile(appointment({ type: 'clinic' }), adminProfile), true)
-  assert.equal(canViewAppointmentForProfile(appointment({ type: 'home_visit' }), adminProfile), true)
+  assert.equal(canViewAppointmentForProfile(appointment({ type_is_shared: true }), adminProfile), true)
+  assert.equal(canViewAppointmentForProfile(appointment({ type_is_shared: false }), adminProfile), true)
 })
 
-test('staff can view clinic appointments', () => {
-  assert.equal(canViewAppointmentForProfile(appointment({ type: 'clinic' }), staffProfile), true)
+test('staff can view shared appointments', () => {
+  assert.equal(canViewAppointmentForProfile(appointment({ type_is_shared: true }), staffProfile), true)
 })
 
-test('staff can view home visits they created', () => {
+test('staff can view restricted appointments they created', () => {
   assert.equal(
     canViewAppointmentForProfile(
       appointment({ created_by: staffProfile.id }),
@@ -47,7 +47,7 @@ test('staff can view home visits they created', () => {
   )
 })
 
-test('staff can view home visits assigned to them', () => {
+test('staff can view restricted appointments assigned to them', () => {
   assert.equal(
     canViewAppointmentForProfile(
       appointment({ assigned_to: staffProfile.id }),
@@ -57,7 +57,7 @@ test('staff can view home visits assigned to them', () => {
   )
 })
 
-test('staff cannot view unrelated home visits', () => {
+test('staff cannot view unrelated restricted appointments', () => {
   assert.equal(
     canViewAppointmentForProfile(
       appointment({
@@ -70,10 +70,10 @@ test('staff cannot view unrelated home visits', () => {
   )
 })
 
-test('appointment visibility filter limits staff to clinic and owned home visits', () => {
+test('appointment visibility filter limits staff to shared and owned appointments', () => {
   assert.equal(
     getAppointmentVisibilityFilter(staffProfile),
-    `type.eq.clinic,created_by.eq.${staffProfile.id},assigned_to.eq.${staffProfile.id}`,
+    `type_is_shared.eq.true,created_by.eq.${staffProfile.id},assigned_to.eq.${staffProfile.id}`,
   )
 })
 

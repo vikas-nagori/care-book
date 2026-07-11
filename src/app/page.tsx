@@ -11,7 +11,6 @@ import { CalendarDays, Users, IndianRupee, AlertCircle } from 'lucide-react'
 import { DashboardDate } from './dashboard-date'
 import { DashboardNewAppointmentButton, DashboardNewAppointmentMobile } from './dashboard-new-appointment'
 import type { Appointment } from '@/lib/supabase/types'
-import { APPOINTMENT_TYPE_SHORT_LABEL } from '@/lib/appointments/appointment-type'
 
 function Money({ n, className = '' }: { n: number; className?: string }) {
   return (
@@ -51,7 +50,7 @@ export default async function DashboardPage() {
 
   let apptQuery = supabase
     .from('appointments')
-    .select('id, date, time, duration_minutes, type, status, payment_status, fee, patient:patients(id, name, phone)')
+    .select('id, date, time, duration_minutes, type, type_is_shared, status, payment_status, fee, patient:patients(id, name, phone)')
     .eq('date', today)
     .order('time')
 
@@ -118,7 +117,7 @@ export default async function DashboardPage() {
   if (assigneeOptionsError) logger.error('Dashboard/assigneeOptions', assigneeOptionsError)
   if (externalStaffOptionsError) logger.error('Dashboard/externalStaffOptions', externalStaffOptionsError)
 
-  type ApptRow = Pick<Appointment, 'id' | 'time' | 'duration_minutes' | 'type' | 'status' | 'payment_status' | 'fee'> & {
+  type ApptRow = Pick<Appointment, 'id' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status' | 'payment_status' | 'fee'> & {
     patient: { id: string; name: string; phone: string } | null
   }
 
@@ -205,7 +204,7 @@ export default async function DashboardPage() {
                 {formatTime12(nextAppt.time)}
               </span>
               <span className="ph-badge soft" style={{ textTransform: 'none' }}>
-                {APPOINTMENT_TYPE_SHORT_LABEL[nextAppt.type]}
+                {nextAppt.type}
               </span>
             </div>
             <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ph-ink)', marginBottom: 3 }}>
@@ -282,7 +281,7 @@ export default async function DashboardPage() {
                     display: 'flex', alignItems: 'center', gap: 14,
                     padding: '12px 16px',
                     borderBottom: i < appts.length - 1 ? '1px solid var(--ph-line)' : 'none',
-                    borderLeft: `3px solid ${a.type === 'home_visit' ? 'var(--ph-warn)' : a.status === 'completed' ? 'var(--ph-ok)' : a.status === 'cancelled' ? 'var(--ph-ink-4)' : 'var(--ph-accent)'}`,
+                    borderLeft: `3px solid ${!a.type_is_shared ? 'var(--ph-warn)' : a.status === 'completed' ? 'var(--ph-ok)' : a.status === 'cancelled' ? 'var(--ph-ink-4)' : 'var(--ph-accent)'}`,
                     textDecoration: 'none', color: 'inherit',
                     background: 'var(--ph-surface)',
                     opacity: a.status === 'cancelled' ? 0.5 : a.status === 'completed' ? 0.75 : 1,
@@ -303,7 +302,7 @@ export default async function DashboardPage() {
                         {a.patient?.name ?? 'Unknown'}
                       </span>
                       <span className="ph-badge soft" style={{ textTransform: 'none', fontSize: 10.5 }}>
-                        {APPOINTMENT_TYPE_SHORT_LABEL[a.type]}
+                        {a.type}
                       </span>
                     </div>
                   </div>
@@ -336,7 +335,7 @@ export default async function DashboardPage() {
                     {formatTime12(nextAppt.time)}
                   </span>
                   <span className="ph-badge soft" style={{ textTransform: 'none' }}>
-                    {APPOINTMENT_TYPE_SHORT_LABEL[nextAppt.type]}
+                    {nextAppt.type}
                   </span>
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ph-ink)', marginBottom: 3 }}>

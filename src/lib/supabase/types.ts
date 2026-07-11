@@ -72,7 +72,11 @@ export type Appointment = {
   date: string
   time: string
   duration_minutes: number
-  type: 'home_visit' | 'clinic'
+  // Denormalized human label of the appointment's type (source of truth is
+  // appointment_type_id). type_is_shared mirrors the type's visibility flag.
+  type: string
+  appointment_type_id: string
+  type_is_shared: boolean
   status: 'scheduled' | 'completed' | 'cancelled'
   payment_status: 'unpaid' | 'prepaid' | 'paid'
   fee: number | null
@@ -144,6 +148,17 @@ export type GlobalSettings = {
   clinic_id: string
   home_visit_fee: number
   clinic_fee: number
+}
+
+export type AppointmentType = {
+  id: string
+  clinic_id: string
+  name: string
+  session_rate: number
+  is_shared: boolean
+  is_default: boolean
+  sort_order: number
+  created_at: string
 }
 
 export type AppointmentPayment = {
@@ -228,6 +243,30 @@ export type UpdateGlobalSettingsInput = {
   clinicFee: number
   homeVisitFee: number
 }
+
+export type CreateAppointmentTypeInput = {
+  name: string
+  sessionRate: number
+  isShared: boolean
+}
+
+export type UpdateAppointmentTypeInput = CreateAppointmentTypeInput & {
+  id: string
+}
+
+export type AppointmentTypeResult =
+  | {
+      success: true
+      appointmentType: AppointmentType
+    }
+  | ActionErrorResult
+
+export type DeleteAppointmentTypeResult =
+  | {
+      success: true
+      id: string
+    }
+  | ActionErrorResult
 
 export type CreatePackageTemplateInput = {
   name: string
