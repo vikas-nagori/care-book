@@ -12,14 +12,19 @@ import {
   getInviteErrorMessage,
 } from '@/lib/onboarding/invite-server'
 import { getInviteCollisionResult, validateInviteInput } from '@/lib/onboarding/invite-helpers'
+import { validatePackageTemplateInput } from '@/lib/billing/package-template'
 import type {
+  CreatePackageTemplateInput,
   CreateUserInviteInput,
   CreateExternalStaffInput,
   CreateExternalStaffResult,
   CreateUserInviteResult,
+  DeletePackageTemplateResult,
   ManageUserInviteInput,
   ManageUserInviteResult,
+  PackageTemplateResult,
   UpdateGlobalSettingsInput,
+  UpdatePackageTemplateInput,
   UpdateGlobalSettingsResult,
   ExternalStaff,
   UserInvite,
@@ -136,6 +141,169 @@ export async function updateGlobalSettings(
       success: false,
       errorCode: 'SETTINGS_UPDATE_FAILED',
       message: 'Unable to update settings right now.',
+    }
+  }
+}
+
+export async function createPackageTemplate(
+  input: CreatePackageTemplateInput
+): Promise<PackageTemplateResult> {
+  try {
+    const profile = await requireAdminSettingsAccess()
+    if (!profile) {
+      return {
+        success: false,
+        errorCode: 'PACKAGE_TEMPLATE_UNAUTHORIZED',
+        message: 'Only admins can manage package templates.',
+      }
+    }
+
+    const validation = validatePackageTemplateInput(input)
+    if (!validation.success) {
+      return validation
+    }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from('package_templates')
+      .insert({
+        clinic_id: profile.clinic_id,
+        name: validation.values.name,
+        min_sessions: validation.values.minSessions,
+        per_session_amount: validation.values.perSessionAmount,
+      })
+      .select('*')
+      .single()
+
+    if (error || !data) {
+      logger.error('settings/createPackageTemplate', error, input)
+      return {
+        success: false,
+        errorCode: error?.code ?? 'PACKAGE_TEMPLATE_SAVE_FAILED',
+        message: error?.message ?? 'Unable to save this template right now.',
+      }
+    }
+
+    revalidatePath('/settings')
+    revalidatePath('/billing')
+    return { success: true, template: data }
+  } catch (error) {
+    logger.error('settings/createPackageTemplate/unexpected', error, input)
+    return {
+      success: false,
+      errorCode: 'PACKAGE_TEMPLATE_SAVE_FAILED',
+      message: 'Unable to save this template right now.',
+    }
+  }
+}
+
+export async function updatePackageTemplate(
+  input: UpdatePackageTemplateInput
+): Promise<PackageTemplateResult> {
+  try {
+    const profile = await requireAdminSettingsAccess()
+    if (!profile) {
+      return {
+        success: false,
+        errorCode: 'PACKAGE_TEMPLATE_UNAUTHORIZED',
+        message: 'Only admins can manage package templates.',
+      }
+    }
+
+    if (!input.id) {
+      return {
+        success: false,
+        errorCode: 'PACKAGE_TEMPLATE_MISSING_ID',
+        message: 'Choose a template to update.',
+      }
+    }
+
+    const validation = validatePackageTemplateInput(input)
+    if (!validation.success) {
+      return validation
+    }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from('package_templates')
+      .update({
+        name: validation.values.name,
+        min_sessions: validation.values.minSessions,
+        per_session_amount: validation.values.perSessionAmount,
+      })
+      .eq('id', input.id)
+      .eq('clinic_id', profile.clinic_id)
+      .select('*')
+      .single()
+
+    if (error || !data) {
+      logger.error('settings/updatePackageTemplate', error, input)
+      return {
+        success: false,
+        errorCode: error?.code ?? 'PACKAGE_TEMPLATE_SAVE_FAILED',
+        message: error?.message ?? 'Unable to update this template right now.',
+      }
+    }
+
+    revalidatePath('/settings')
+    revalidatePath('/billing')
+    return { success: true, template: data }
+  } catch (error) {
+    logger.error('settings/updatePackageTemplate/unexpected', error, input)
+    return {
+      success: false,
+      errorCode: 'PACKAGE_TEMPLATE_SAVE_FAILED',
+      message: 'Unable to update this template right now.',
+    }
+  }
+}
+
+export async function deletePackageTemplate(
+  id: string
+): Promise<DeletePackageTemplateResult> {
+  try {
+    const profile = await requireAdminSettingsAccess()
+    if (!profile) {
+      return {
+        success: false,
+        errorCode: 'PACKAGE_TEMPLATE_UNAUTHORIZED',
+        message: 'Only admins can manage package templates.',
+      }
+    }
+
+    if (!id) {
+      return {
+        success: false,
+        errorCode: 'PACKAGE_TEMPLATE_MISSING_ID',
+        message: 'Choose a template to delete.',
+      }
+    }
+
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from('package_templates')
+      .delete()
+      .eq('id', id)
+      .eq('clinic_id', profile.clinic_id)
+
+    if (error) {
+      logger.error('settings/deletePackageTemplate', error, { id })
+      return {
+        success: false,
+        errorCode: error.code ?? 'PACKAGE_TEMPLATE_DELETE_FAILED',
+        message: error.message,
+      }
+    }
+
+    revalidatePath('/settings')
+    revalidatePath('/billing')
+    return { success: true, id }
+  } catch (error) {
+    logger.error('settings/deletePackageTemplate/unexpected', error, { id })
+    return {
+      success: false,
+      errorCode: 'PACKAGE_TEMPLATE_DELETE_FAILED',
+      message: 'Unable to delete this template right now.',
     }
   }
 }

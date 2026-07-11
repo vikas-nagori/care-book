@@ -18,7 +18,13 @@ import {
   sumAppointmentFees,
 } from '@/lib/billing/payment-helpers'
 import { getBillingModeLabel, type BillingTimelinePackage } from '@/lib/billing/unified-billing'
-import type { Appointment, BillingEntryKind, CreateBillingEntryInput } from '@/lib/supabase/types'
+import { applyPackageTemplate } from '@/lib/billing/package-template'
+import type {
+  Appointment,
+  BillingEntryKind,
+  CreateBillingEntryInput,
+  PackageTemplate,
+} from '@/lib/supabase/types'
 import { APPOINTMENT_TYPE_SHORT_LABEL } from '@/lib/appointments/appointment-type'
 import { createBillingEntry } from './actions'
 
@@ -27,6 +33,7 @@ type AppointmentSlim = Pick<Appointment, 'id' | 'patient_id' | 'date' | 'time' |
 interface Props {
   patients: { id: string; name: string }[]
   packages: BillingTimelinePackage[]
+  packageTemplates?: PackageTemplate[]
   appointments: AppointmentSlim[]
   // Each patient's unspent advance credit, so the preview reflects pooled FIFO allocation.
   patientCredit?: Record<string, number>
@@ -53,14 +60,32 @@ function Money({ amount }: { amount: number }) {
   return <span>₹{amount.toLocaleString('en-IN')}</span>
 }
 
-export function BillingEntryForm({ patients, appointments, patientCredit, onSuccess }: Props) {
+export function BillingEntryForm({
+  patients,
+  packageTemplates = [],
+  appointments,
+  patientCredit,
+  onSuccess,
+}: Props) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
   const [selectedPatient, setSelectedPatient] = useState('')
   const [mode, setMode] = useState<BillingEntryKind>('payment_only')
   const [amount, setAmount] = useState('')
+  const [packageName, setPackageName] = useState('')
   const [packageSessions, setPackageSessions] = useState('')
   const [packagePerSessionAmount, setPackagePerSessionAmount] = useState('')
+
+  function handleTemplateSelect(templateId: string) {
+    const template = packageTemplates.find((t) => t.id === templateId)
+    if (!template) return
+    const values = applyPackageTemplate(template)
+    setPackageName(values.name)
+    setPackageSessions(values.sessions)
+    setPackagePerSessionAmount(values.perSessionAmount)
+    // Prepaid packages collect the full total up front; pre-fill the amount too (editable).
+    setAmount(String(calculatePackageTotal(template.min_sessions, template.per_session_amount)))
+  }
 
   const selectedPatientName = patients.find((patient) => patient.id === selectedPatient)?.name
   const todayIST = getTodayIST()
@@ -96,7 +121,7 @@ export function BillingEntryForm({ patients, appointments, patientCredit, onSucc
     }
 
     if (mode === 'package_with_payment') {
-      input.packageName = formData.get('package_name') as string
+      input.packageName = packageName
       input.packageTotalSessions = packageTotalSessions
       input.packagePerSessionAmount = packageRate
     }
@@ -177,9 +202,35 @@ export function BillingEntryForm({ patients, appointments, patientCredit, onSucc
             </p>
           </div>
 
+          {packageTemplates.length > 0 && (
+            <div className="space-y-2">
+              <Label>Package Template</Label>
+              <Select onValueChange={handleTemplateSelect}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a template (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {packageTemplates.map((template) => (
+                    <SelectItem key={template.id} value={template.id}>
+                      {template.name} · {template.min_sessions} sessions · ₹{template.per_session_amount.toLocaleString('en-IN')}/session
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Pre-fills the fields below — all still editable.</p>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="package_name">Package Name *</Label>
-            <Input id="package_name" name="package_name" placeholder="e.g. 10 Session Package" required />
+            <Input
+              id="package_name"
+              name="package_name"
+              placeholder="e.g. 10 Session Package"
+              required
+              value={packageName}
+              onChange={(event) => setPackageName(event.target.value)}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

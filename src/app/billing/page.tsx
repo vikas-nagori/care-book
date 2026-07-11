@@ -35,6 +35,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     { data: appointmentPayments, error: appointmentPaymentsError },
     { data: allPayments, error: allPaymentsError },
     { data: monthPayments, error: monthPaymentsError },
+    { data: packageTemplates, error: packageTemplatesError },
   ] = await Promise.all([
     supabase.from('packages').select('*, patient:patients(id, name)', { count: 'exact' }).order('created_at', { ascending: false }).range(0, PAGE_SIZE - 1),
     supabase
@@ -53,6 +54,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     supabase.from('payments').select('id, patient_id, amount'),
     // This-month payments — unpaginated — for the "Received (this month)" tile.
     supabase.from('payments').select('amount').gte('date', monthStart).lte('date', monthEnd),
+    supabase.from('package_templates').select('*').order('created_at', { ascending: false }),
   ])
 
   if (packagesError) logger.error('BillingPage/packages', packagesError)
@@ -62,6 +64,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   if (appointmentPaymentsError) logger.error('BillingPage/appointmentPayments', appointmentPaymentsError)
   if (allPaymentsError) logger.error('BillingPage/allPayments', allPaymentsError)
   if (monthPaymentsError) logger.error('BillingPage/monthPayments', monthPaymentsError)
+  if (packageTemplatesError) logger.error('BillingPage/packageTemplates', packageTemplatesError)
 
   // Billed (completed sessions' fees) per period — captures package + standalone sessions
   // without double-counting, since every session is an appointment carrying its own fee.
@@ -114,6 +117,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       <BillingView
         packages={packages ?? []}
         packagesTotalCount={packagesCount ?? 0}
+        packageTemplates={packageTemplates ?? []}
         payments={payments ?? []}
         paymentsTotalCount={paymentsCount ?? 0}
         pageSize={PAGE_SIZE}
