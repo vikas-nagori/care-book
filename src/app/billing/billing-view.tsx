@@ -4,8 +4,19 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
-import { Loader2, Plus, IndianRupee, Receipt, AlertCircle, ChevronRight } from 'lucide-react'
+import { Loader2, Plus, IndianRupee, Receipt, AlertCircle, ChevronRight, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { useToast } from '@/hooks/use-toast'
 import { createClient } from '@/lib/supabase/client'
 import {
   buildBillingTimelineItems,
@@ -14,6 +25,7 @@ import {
 } from '@/lib/billing/unified-billing'
 import type { PaymentDueRow } from '@/lib/billing/payment-due'
 import { BillingEntryForm } from './billing-entry-form'
+import { deletePackage, deletePayment } from './actions'
 
 type TabId = 'overview' | 'payment_due' | 'payments' | 'packages'
 
@@ -87,6 +99,20 @@ function RevealButton({ label, onClick, loading = false }: { label: string; onCl
   )
 }
 
+function DeleteIconButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-md text-[var(--ph-ink-4)] hover:text-[var(--ph-bad)] hover:bg-[var(--ph-bg-soft)] transition-colors"
+    >
+      <Trash2 size={15} />
+    </button>
+  )
+}
+
 export function BillingView({
   packages: initialPackages,
   packagesTotalCount,
@@ -105,6 +131,7 @@ export function BillingView({
   initialTab = 'overview',
 }: BillingViewProps) {
   const router = useRouter()
+  const { toast } = useToast()
   const [entryOpen, setEntryOpen] = useState(false)
   const [tab, setTab] = useState<TabId>(initialTab)
   const [packages, setPackages] = useState(initialPackages)
@@ -114,6 +141,40 @@ export function BillingView({
   const [showAllBalance, setShowAllBalance] = useState(false)
   const [showAllPayments, setShowAllPayments] = useState(false)
   const [showAllPackages, setShowAllPackages] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: 'payment' | 'package'; id: string; label: string } | null
+  >(null)
+  const [deleting, setDeleting] = useState(false)
+
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    setDeleting(true)
+    const { kind, id } = pendingDelete
+    const result = kind === 'payment' ? await deletePayment(id) : await deletePackage(id)
+    setDeleting(false)
+
+    if (!result.success) {
+      toast({
+        title: `Could not delete ${kind}`,
+        description: result.message,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Drop the deleted entry locally; balances recompute server-side on refresh.
+    if (kind === 'payment') {
+      setPayments((prev) => prev.filter((p) => p.id !== id))
+    } else {
+      setPackages((prev) => prev.filter((p) => p.id !== id))
+    }
+    setPendingDelete(null)
+    toast({
+      title: `${kind === 'payment' ? 'Payment' : 'Package'} deleted`,
+      description: 'Balances have been recomputed.',
+    })
+    router.refresh()
+  }
 
   async function loadMorePayments() {
     setLoadingMorePayments(true)
@@ -443,13 +504,13 @@ export function BillingView({
           <SectionBar title="Payments" count={recentPaymentItems.length} />
           <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
             <div className="hidden md:grid" style={{
-              gridTemplateColumns: '80px 1.6fr 1.4fr 100px 110px',
+              gridTemplateColumns: '80px 1.6fr 1.4fr 100px 110px 44px',
               gap: 14, padding: '10px 16px',
               fontSize: 10.5, color: 'var(--ph-ink-4)',
               textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600,
               borderBottom: '1px solid var(--ph-line)',
             }}>
-              <div>Date</div><div>Patient</div><div>For</div><div>Method</div><div style={{ textAlign: 'right' }}>Amount</div>
+              <div>Date</div><div>Patient</div><div>For</div><div>Method</div><div style={{ textAlign: 'right' }}>Amount</div><div />
             </div>
             {recentPaymentItems.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ph-ink-4)', fontSize: 13 }}>
@@ -466,7 +527,7 @@ export function BillingView({
                       fontSize: 13,
                     }}
                   >
-                    <div className="hidden md:grid" style={{ gridTemplateColumns: '80px 1.6fr 1.4fr 100px 110px', gap: 14, alignItems: 'center' }}>
+                    <div className="hidden md:grid" style={{ gridTemplateColumns: '80px 1.6fr 1.4fr 100px 110px 44px', gap: 14, alignItems: 'center' }}>
                       <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>
                         {format(parseISO(item.sortDate), 'dd MMM')}
                       </div>
@@ -477,6 +538,12 @@ export function BillingView({
                       </div>
                       <div style={{ fontSize: 12, textTransform: 'capitalize' }}>{item.paymentMethod}</div>
                       <div style={{ textAlign: 'right' }}><Money n={item.amount} /></div>
+                      <div style={{ justifySelf: 'end' }}>
+                        <DeleteIconButton
+                          label="Delete payment"
+                          onClick={() => setPendingDelete({ kind: 'payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })}
+                        />
+                      </div>
                     </div>
                     {/* Mobile row */}
                     <div className="md:hidden flex justify-between gap-3">
@@ -487,7 +554,13 @@ export function BillingView({
                           {item.packageName ? ` · ${item.packageName}` : ''}
                         </div>
                       </div>
-                      <Money n={item.amount} />
+                      <div className="flex items-center gap-1">
+                        <Money n={item.amount} />
+                        <DeleteIconButton
+                          label="Delete payment"
+                          onClick={() => setPendingDelete({ kind: 'payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })}
+                        />
+                      </div>
                     </div>
                   </div>
                 ) : null
@@ -535,7 +608,13 @@ export function BillingView({
                         <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ph-ink)' }}>{item.patientName}</div>
                         <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 1 }}>{item.packageName}</div>
                       </div>
-                      <span className={`ph-badge ${pkgStatusCls[item.status] ?? ''}`}>{item.status}</span>
+                      <div className="flex items-start gap-1">
+                        <span className={`ph-badge ${pkgStatusCls[item.status] ?? ''}`}>{item.status}</span>
+                        <DeleteIconButton
+                          label="Delete package"
+                          onClick={() => setPendingDelete({ kind: 'package', id: item.id, label: `${item.patientName} · ${item.packageName}` })}
+                        />
+                      </div>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ph-ink-3)', marginBottom: 6 }}>
                       <span>{item.usedSessions} availed · {Math.max(item.totalSessions - item.usedSessions, 0)} due · {item.totalSessions} total</span>
@@ -571,6 +650,30 @@ export function BillingView({
           )}
         </>
       )}
+
+      <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => { if (!open && !deleting) setPendingDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete this {pendingDelete?.kind === 'package' ? 'package' : 'payment'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.label ? <><span className="font-medium">{pendingDelete.label}</span><br /></> : null}
+              This permanently removes the {pendingDelete?.kind === 'package' ? 'package and its collected payment' : 'payment'} and recomputes balances. The most recent completed sessions may become unpaid. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => { event.preventDefault(); confirmDelete() }}
+              disabled={deleting}
+              className="bg-[var(--ph-bad)] hover:bg-[var(--ph-bad)]/90"
+            >
+              {deleting ? <><Loader2 size={14} className="animate-spin" /> Deleting…</> : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

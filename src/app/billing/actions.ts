@@ -7,9 +7,17 @@ import { createClient } from '@/lib/supabase/server'
 import type {
   CreateBillingEntryInput,
   CreateBillingEntryResult,
+  DeleteBillingEntryResult,
   RecordPaymentInput,
   RecordPaymentResult,
 } from '@/lib/supabase/types'
+
+type RpcDeleteResult = {
+  success?: boolean
+  patientId?: string
+  errorCode?: string
+  message?: string
+} | null
 
 type RpcRecordPaymentResult = {
   success?: boolean
@@ -121,6 +129,71 @@ export async function recordPayment(input: RecordPaymentInput): Promise<RecordPa
       message: 'Unable to record this payment right now.',
     }
   }
+}
+
+async function callDeleteBillingRpc(
+  rpc: 'delete_payment' | 'delete_package',
+  arg: 'p_payment_id' | 'p_package_id',
+  id: string,
+  logKey: string,
+): Promise<DeleteBillingEntryResult> {
+  try {
+    const profile = await getCurrentProfile()
+    if (!profile || profile.role !== 'admin') {
+      return {
+        success: false,
+        errorCode: 'BILLING_UNAUTHORIZED',
+        message: 'You are not allowed to delete billing entries.',
+      }
+    }
+
+    if (!id) {
+      return {
+        success: false,
+        errorCode: 'BILLING_MISSING_ID',
+        message: 'Nothing was selected to delete.',
+      }
+    }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc(rpc, { [arg]: id })
+
+    if (error) {
+      logger.error(`${logKey}/rpc`, error, { id })
+      return {
+        success: false,
+        errorCode: error.code ?? 'BILLING_DELETE_FAILED',
+        message: error.message,
+      }
+    }
+
+    const result = data as RpcDeleteResult
+    if (!result?.success || !result.patientId) {
+      return {
+        success: false,
+        errorCode: result?.errorCode ?? 'BILLING_DELETE_FAILED',
+        message: result?.message ?? 'Unable to delete this entry right now.',
+      }
+    }
+
+    revalidateBillingViews()
+    return { success: true, patientId: result.patientId }
+  } catch (error) {
+    logger.error(`${logKey}/unexpected`, error, { id })
+    return {
+      success: false,
+      errorCode: 'BILLING_DELETE_FAILED',
+      message: 'Unable to delete this entry right now.',
+    }
+  }
+}
+
+export async function deletePayment(paymentId: string): Promise<DeleteBillingEntryResult> {
+  return callDeleteBillingRpc('delete_payment', 'p_payment_id', paymentId, 'billing/deletePayment')
+}
+
+export async function deletePackage(packageId: string): Promise<DeleteBillingEntryResult> {
+  return callDeleteBillingRpc('delete_package', 'p_package_id', packageId, 'billing/deletePackage')
 }
 
 export async function createBillingEntry(
