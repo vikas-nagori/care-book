@@ -204,6 +204,8 @@ export type UserInvite = {
   email: string
   role: UserRole
   status: UserInviteStatus
+  full_name: string | null
+  mobile_number: string | null
   auth_user_id: string | null
   external_staff_id: string | null
   invited_by: string
@@ -284,6 +286,8 @@ export type CreateBillingEntryResult =
 export type CreateUserInviteInput = {
   email: string
   role: UserRole
+  fullName: string
+  mobileNumber: string
   externalStaffId?: string | null
 }
 
@@ -348,8 +352,6 @@ export type ManageUserInviteResult =
   | ActionErrorResult
 
 export type CompleteInvitedSignupInput = {
-  fullName: string
-  mobileNumber: string
   password: string
   passwordConfirmation: string
 }

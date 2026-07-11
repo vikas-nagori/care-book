@@ -287,6 +287,8 @@ export async function createUserInvite(
       clinic_id: clinicId,
       email,
       role: validation.values.role,
+      full_name: validation.values.fullName,
+      mobile_number: validation.values.mobileNumber,
       status: 'pending' as const,
       auth_user_id: inviteUserData.user?.id ?? existingInvite?.auth_user_id ?? null,
       external_staff_id: externalStaffId,

@@ -19,6 +19,8 @@ test('validateInviteInput normalizes a valid email invite payload', () => {
   const result = validateInviteInput({
     email: ' Staff.Member@Example.com ',
     role: 'staff',
+    fullName: '  Asha Patel  ',
+    mobileNumber: ' 9876543210 ',
   })
 
   assert.deepEqual(result, {
@@ -26,6 +28,8 @@ test('validateInviteInput normalizes a valid email invite payload', () => {
     values: {
       email: 'staff.member@example.com',
       role: 'staff',
+      fullName: 'Asha Patel',
+      mobileNumber: '9876543210',
     },
   })
 })
@@ -34,6 +38,8 @@ test('validateInviteInput rejects an invalid email address', () => {
   const result = validateInviteInput({
     email: 'invalid-email',
     role: 'admin',
+    fullName: 'Asha Patel',
+    mobileNumber: '9876543210',
   })
 
   assert.deepEqual(result, {
@@ -43,10 +49,38 @@ test('validateInviteInput rejects an invalid email address', () => {
   })
 })
 
+test('validateInviteInput requires a name', () => {
+  const result = validateInviteInput({
+    email: 'staff@example.com',
+    role: 'staff',
+    fullName: '   ',
+    mobileNumber: '9876543210',
+  })
+
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: 'INVITE_MISSING_NAME',
+    message: 'Enter the user name.',
+  })
+})
+
+test('validateInviteInput requires a mobile number after a valid name', () => {
+  const result = validateInviteInput({
+    email: 'staff@example.com',
+    role: 'staff',
+    fullName: 'Asha Patel',
+    mobileNumber: '  ',
+  })
+
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: 'INVITE_MISSING_MOBILE',
+    message: 'Enter the mobile number.',
+  })
+})
+
 test('validateInviteCompletionInput rejects mismatched passwords', () => {
   const result = validateInviteCompletionInput({
-    fullName: 'Asha Patel',
-    mobileNumber: '9876543210',
     password: 'password-123',
     passwordConfirmation: 'password-456',
   })
@@ -58,40 +92,8 @@ test('validateInviteCompletionInput rejects mismatched passwords', () => {
   })
 })
 
-test('validateInviteCompletionInput requires name and mobile number', () => {
+test('validateInviteCompletionInput requires a password', () => {
   const result = validateInviteCompletionInput({
-    fullName: '   ',
-    mobileNumber: '',
-    password: 'password-123',
-    passwordConfirmation: 'password-123',
-  })
-
-  assert.deepEqual(result, {
-    success: false,
-    errorCode: 'INVITE_MISSING_NAME',
-    message: 'Enter the user name.',
-  })
-})
-
-test('validateInviteCompletionInput requires a mobile number after a valid name', () => {
-  const result = validateInviteCompletionInput({
-    fullName: 'Asha Patel',
-    mobileNumber: '   ',
-    password: 'password-123',
-    passwordConfirmation: 'password-123',
-  })
-
-  assert.deepEqual(result, {
-    success: false,
-    errorCode: 'INVITE_MISSING_MOBILE',
-    message: 'Enter the mobile number.',
-  })
-})
-
-test('validateInviteCompletionInput requires a password after user details are present', () => {
-  const result = validateInviteCompletionInput({
-    fullName: 'Asha Patel',
-    mobileNumber: '9876543210',
     password: '',
     passwordConfirmation: '',
   })
@@ -103,10 +105,8 @@ test('validateInviteCompletionInput requires a password after user details are p
   })
 })
 
-test('validateInviteCompletionInput trims valid values', () => {
+test('validateInviteCompletionInput accepts a matching password', () => {
   const result = validateInviteCompletionInput({
-    fullName: '  Asha Patel  ',
-    mobileNumber: ' 9876543210 ',
     password: 'password-123',
     passwordConfirmation: 'password-123',
   })
@@ -114,8 +114,6 @@ test('validateInviteCompletionInput trims valid values', () => {
   assert.deepEqual(result, {
     success: true,
     values: {
-      fullName: 'Asha Patel',
-      mobileNumber: '9876543210',
       password: 'password-123',
     },
   })
@@ -128,9 +126,7 @@ test('getInviteCompletionFieldErrorTarget maps mismatch errors to confirm passwo
   )
 })
 
-test('getInviteCompletionFieldErrorTarget maps missing values to their matching fields', () => {
-  assert.equal(getInviteCompletionFieldErrorTarget('INVITE_MISSING_NAME'), 'fullName')
-  assert.equal(getInviteCompletionFieldErrorTarget('INVITE_MISSING_MOBILE'), 'mobileNumber')
+test('getInviteCompletionFieldErrorTarget maps the missing password error to its field', () => {
   assert.equal(getInviteCompletionFieldErrorTarget('INVITE_MISSING_PASSWORD'), 'password')
 })
 
