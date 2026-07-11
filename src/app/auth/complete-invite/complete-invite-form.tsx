@@ -21,8 +21,6 @@ type Props = {
 export function CompleteInviteForm({ email }: Props) {
   const router = useRouter()
   const confirmPasswordRef = useRef<HTMLInputElement>(null)
-  const [fullName, setFullName] = useState('')
-  const [mobileNumber, setMobileNumber] = useState('')
   const [password, setPassword] = useState('')
   const [passwordConfirmation, setPasswordConfirmation] = useState('')
   const [showPasswordConfirmation, setShowPasswordConfirmation] = useState(false)
@@ -46,8 +44,6 @@ export function CompleteInviteForm({ email }: Props) {
     setFieldErrors({})
 
     const validation = validateInviteCompletionInput({
-      fullName,
-      mobileNumber,
       password,
       passwordConfirmation,
     })
@@ -69,8 +65,6 @@ export function CompleteInviteForm({ email }: Props) {
 
     setLoading(true)
     const result = await completeInvitedSignup({
-      fullName,
-      mobileNumber,
       password,
       passwordConfirmation,
     })
@@ -106,41 +100,6 @@ export function CompleteInviteForm({ email }: Props) {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="full_name">Name</Label>
-              <Input
-                id="full_name"
-                value={fullName}
-                onChange={(event) => {
-                  setFullName(event.target.value)
-                  clearFieldError('fullName')
-                }}
-                autoComplete="name"
-                aria-invalid={Boolean(fieldErrors.fullName)}
-                required
-              />
-              {fieldErrors.fullName && (
-                <p className="text-sm text-destructive">{fieldErrors.fullName}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="mobile_number">Mobile number</Label>
-              <Input
-                id="mobile_number"
-                value={mobileNumber}
-                onChange={(event) => {
-                  setMobileNumber(event.target.value)
-                  clearFieldError('mobileNumber')
-                }}
-                autoComplete="tel"
-                inputMode="tel"
-                aria-invalid={Boolean(fieldErrors.mobileNumber)}
-                required
-              />
-              {fieldErrors.mobileNumber && (
-                <p className="text-sm text-destructive">{fieldErrors.mobileNumber}</p>
-              )}
-            </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
