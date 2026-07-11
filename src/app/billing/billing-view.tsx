@@ -24,6 +24,7 @@ import {
   type BillingTimelinePayment,
 } from '@/lib/billing/unified-billing'
 import type { PaymentDueRow } from '@/lib/billing/payment-due'
+import type { PackageTemplate } from '@/lib/supabase/types'
 import { BillingEntryForm } from './billing-entry-form'
 import { deletePackage, deletePayment } from './actions'
 
@@ -32,6 +33,7 @@ type TabId = 'overview' | 'payment_due' | 'payments' | 'packages'
 interface BillingViewProps {
   packages: BillingTimelinePackage[]
   packagesTotalCount: number
+  packageTemplates: PackageTemplate[]
   payments: BillingTimelinePayment[]
   paymentsTotalCount: number
   pageSize: number
@@ -116,6 +118,7 @@ function DeleteIconButton({ label, onClick }: { label: string; onClick: () => vo
 export function BillingView({
   packages: initialPackages,
   packagesTotalCount,
+  packageTemplates,
   payments: initialPayments,
   paymentsTotalCount,
   pageSize,
@@ -256,6 +259,7 @@ export function BillingView({
             <BillingEntryForm
               patients={patients}
               packages={packages}
+              packageTemplates={packageTemplates}
               appointments={appointments}
               patientCredit={patientCredit}
               onSuccess={() => { setEntryOpen(false); router.refresh() }}

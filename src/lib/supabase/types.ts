@@ -215,10 +215,43 @@ export type UserInvite = {
   updated_at: string
 }
 
+export type PackageTemplate = {
+  id: string
+  clinic_id: string
+  name: string
+  min_sessions: number
+  per_session_amount: number
+  created_at: string
+}
+
 export type UpdateGlobalSettingsInput = {
   clinicFee: number
   homeVisitFee: number
 }
+
+export type CreatePackageTemplateInput = {
+  name: string
+  minSessions: number
+  perSessionAmount: number
+}
+
+export type UpdatePackageTemplateInput = CreatePackageTemplateInput & {
+  id: string
+}
+
+export type PackageTemplateResult =
+  | {
+      success: true
+      template: PackageTemplate
+    }
+  | ActionErrorResult
+
+export type DeletePackageTemplateResult =
+  | {
+      success: true
+      id: string
+    }
+  | ActionErrorResult
 
 export type ActionErrorResult = {
   success: false
