@@ -7,6 +7,7 @@ import { AccountSummary } from './account-summary'
 import { logoutFromSettings } from './actions'
 import { InviteForm } from './invite-form'
 import { AppointmentTypesList } from './appointment-types-list'
+import { PackageTemplatesList } from './package-templates-list'
 import { ExternalStaffList } from './external-staff-list'
 import { UserInvitesList } from './user-invites-list'
 import { UsersList } from './users-list'
@@ -34,6 +35,7 @@ export default async function SettingsPage() {
     { data: profiles },
     { data: invites },
     { data: externalStaff, error: externalStaffError },
+    { data: packageTemplates },
   ] = await Promise.all([
     supabase.from('appointment_types').select('*').order('sort_order'),
     supabase.from('profiles').select('*').order('created_at'),
@@ -42,6 +44,7 @@ export default async function SettingsPage() {
       .from('external_staff')
       .select('id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')
       .order('created_at', { ascending: false }),
+    supabase.from('package_templates').select('*').order('created_at', { ascending: false }),
   ])
 
   const pendingInviteEmails = new Set(
@@ -60,6 +63,7 @@ export default async function SettingsPage() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
         <div className="space-y-6">
           <AppointmentTypesList appointmentTypes={appointmentTypes ?? []} />
+          <PackageTemplatesList templates={packageTemplates ?? []} />
           <InviteForm />
         </div>
         <div className="space-y-6">

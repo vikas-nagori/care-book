@@ -102,6 +102,8 @@ export async function completeInvitedSignup(
       }
     }
 
+    // Name and mobile are captured by the admin at invite time, so they come
+    // from the invite record rather than the setup form.
     const now = new Date().toISOString()
     const { error: profileError } = await adminSupabase.from('profiles').upsert(
       {
@@ -109,8 +111,8 @@ export async function completeInvitedSignup(
         clinic_id: invite.clinic_id,
         email: normalizedEmail,
         role: invite.role,
-        full_name: validation.values.fullName,
-        mobile_number: validation.values.mobileNumber,
+        full_name: invite.full_name,
+        mobile_number: invite.mobile_number,
         updated_at: now,
       },
       { onConflict: 'id' }

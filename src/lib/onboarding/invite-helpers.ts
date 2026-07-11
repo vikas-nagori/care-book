@@ -17,6 +17,8 @@ type ValidationSuccess<T> = {
 export type InviteInput = {
   email: string
   role: InviteRole
+  fullName: string
+  mobileNumber: string
 }
 
 export type InviteCollisionInput = {
@@ -33,26 +35,16 @@ export type InviteCollisionResult =
   | 'conflict'
 
 export type InviteCompletionInput = {
-  fullName: string
-  mobileNumber: string
   password: string
   passwordConfirmation: string
 }
 
-export type InviteCompletionField =
-  | 'fullName'
-  | 'mobileNumber'
-  | 'password'
-  | 'passwordConfirmation'
+export type InviteCompletionField = 'password' | 'passwordConfirmation'
 
 export function getInviteCompletionFieldErrorTarget(
   errorCode: string
 ): InviteCompletionField | null {
   switch (errorCode) {
-    case 'INVITE_MISSING_NAME':
-      return 'fullName'
-    case 'INVITE_MISSING_MOBILE':
-      return 'mobileNumber'
     case 'INVITE_MISSING_PASSWORD':
       return 'password'
     case 'INVITE_PASSWORD_MISMATCH':
@@ -109,27 +101,7 @@ export function validateInviteInput(
     }
   }
 
-  return {
-    success: true,
-    values: {
-      email,
-      role: input.role,
-    },
-  }
-}
-
-export function validateInviteCompletionInput(
-  input: InviteCompletionInput
-):
-  | ValidationSuccess<{
-      fullName: string
-      mobileNumber: string
-      password: string
-    }>
-  | ValidationFailure {
   const fullName = input.fullName.trim()
-  const mobileNumber = input.mobileNumber.trim()
-
   if (!fullName) {
     return {
       success: false,
@@ -138,6 +110,7 @@ export function validateInviteCompletionInput(
     }
   }
 
+  const mobileNumber = input.mobileNumber.trim()
   if (!mobileNumber) {
     return {
       success: false,
@@ -146,6 +119,20 @@ export function validateInviteCompletionInput(
     }
   }
 
+  return {
+    success: true,
+    values: {
+      email,
+      role: input.role,
+      fullName,
+      mobileNumber,
+    },
+  }
+}
+
+export function validateInviteCompletionInput(
+  input: InviteCompletionInput
+): ValidationSuccess<{ password: string }> | ValidationFailure {
   if (!input.password) {
     return {
       success: false,
@@ -165,8 +152,6 @@ export function validateInviteCompletionInput(
   return {
     success: true,
     values: {
-      fullName,
-      mobileNumber,
       password: input.password,
     },
   }

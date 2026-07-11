@@ -219,6 +219,8 @@ export type UserInvite = {
   email: string
   role: UserRole
   status: UserInviteStatus
+  full_name: string | null
+  mobile_number: string | null
   auth_user_id: string | null
   external_staff_id: string | null
   invited_by: string
@@ -226,6 +228,15 @@ export type UserInvite = {
   revoked_at: string | null
   created_at: string
   updated_at: string
+}
+
+export type PackageTemplate = {
+  id: string
+  clinic_id: string
+  name: string
+  min_sessions: number
+  per_session_amount: number
+  created_at: string
 }
 
 export type UpdateGlobalSettingsInput = {
@@ -251,6 +262,30 @@ export type AppointmentTypeResult =
   | ActionErrorResult
 
 export type DeleteAppointmentTypeResult =
+  | {
+      success: true
+      id: string
+    }
+  | ActionErrorResult
+
+export type CreatePackageTemplateInput = {
+  name: string
+  minSessions: number
+  perSessionAmount: number
+}
+
+export type UpdatePackageTemplateInput = CreatePackageTemplateInput & {
+  id: string
+}
+
+export type PackageTemplateResult =
+  | {
+      success: true
+      template: PackageTemplate
+    }
+  | ActionErrorResult
+
+export type DeletePackageTemplateResult =
   | {
       success: true
       id: string
@@ -320,9 +355,18 @@ export type CreateBillingEntryResult =
   | CreateBillingEntrySuccessResult
   | CreateBillingEntryErrorResult
 
+export type DeleteBillingEntryResult =
+  | {
+      success: true
+      patientId: string
+    }
+  | ActionErrorResult
+
 export type CreateUserInviteInput = {
   email: string
   role: UserRole
+  fullName: string
+  mobileNumber: string
   externalStaffId?: string | null
 }
 
@@ -387,8 +431,6 @@ export type ManageUserInviteResult =
   | ActionErrorResult
 
 export type CompleteInvitedSignupInput = {
-  fullName: string
-  mobileNumber: string
   password: string
   passwordConfirmation: string
 }

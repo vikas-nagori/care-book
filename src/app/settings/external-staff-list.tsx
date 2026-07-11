@@ -70,6 +70,8 @@ export function ExternalStaffList({
     const result = await createUserInvite({
       email,
       role: 'staff',
+      fullName: staff.name,
+      mobileNumber: staff.phone,
       externalStaffId: staff.id,
     })
 

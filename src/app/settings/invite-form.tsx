@@ -23,13 +23,15 @@ export function InviteForm() {
   const router = useRouter()
   const { toast } = useToast()
   const [email, setEmail] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [mobileNumber, setMobileNumber] = useState('')
   const [role, setRole] = useState<UserRole>('staff')
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    const validation = validateInviteInput({ email, role })
+    const validation = validateInviteInput({ email, role, fullName, mobileNumber })
     if (!validation.success) {
       toast({
         title: 'Invite not sent',
@@ -57,6 +59,8 @@ export function InviteForm() {
       description: `${result.invite.email} can finish onboarding from the email link.`,
     })
     setEmail('')
+    setFullName('')
+    setMobileNumber('')
     setRole('staff')
     router.refresh()
     setLoading(false)
@@ -69,6 +73,29 @@ export function InviteForm() {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="invite-name">Name</Label>
+            <Input
+              id="invite-name"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+              placeholder="Asha Patel"
+              autoComplete="name"
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="invite-mobile">Mobile number</Label>
+            <Input
+              id="invite-mobile"
+              value={mobileNumber}
+              onChange={(event) => setMobileNumber(event.target.value)}
+              placeholder="9876543210"
+              autoComplete="tel"
+              inputMode="tel"
+              required
+            />
+          </div>
           <div className="space-y-2">
             <Label htmlFor="invite-email">Email</Label>
             <Input
