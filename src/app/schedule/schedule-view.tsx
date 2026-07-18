@@ -13,7 +13,9 @@ import Link from 'next/link'
 import { formatTime12 } from '@/lib/format-time'
 import {
   buildScheduleRailDates,
+  getScheduleDateNavigation,
   getScheduleRailDateAccessibility,
+  getScheduleRailCenteringBehavior,
   isScheduleDateToday,
   resolveScheduleDateRange,
 } from '@/lib/schedule/date-range'
@@ -136,33 +138,69 @@ export function ScheduleView({
   const mobileRailRef = useRef<HTMLDivElement>(null)
   const selectedMobileDateRef = useRef<HTMLButtonElement>(null)
   const lastCenteredDateRef = useRef<string | null>(null)
+  const lastRailWidthRef = useRef<number | null>(null)
+  const railWasVisibleRef = useRef(false)
   const router = useRouter()
 
   useEffect(() => { setFilterType('all') }, [initialSelectedDate])
 
   useLayoutEffect(() => {
-    if (!mobileRailRef.current || !selectedMobileDateRef.current) return
-    const selectionChanged = lastCenteredDateRef.current !== null
-      && lastCenteredDateRef.current !== initialSelectedDate
-    const prefersReducedMotion = typeof window !== 'undefined'
-      && typeof window.matchMedia === 'function'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const shouldAnimate = selectionChanged && !prefersReducedMotion
+    const rail = mobileRailRef.current
+    if (!rail) return
 
-    selectedMobileDateRef.current.scrollIntoView({
-      behavior: shouldAnimate ? 'smooth' : 'auto',
-      block: 'nearest',
-      inline: 'center',
-    })
-    lastCenteredDateRef.current = initialSelectedDate
+    const centerSelectedChip = () => {
+      const selectedChip = selectedMobileDateRef.current
+      const railIsVisible = rail.getClientRects().length > 0
+      const chipIsVisible = selectedChip != null && selectedChip.getClientRects().length > 0
+      const railWidth = railIsVisible ? rail.getBoundingClientRect().width : 0
+      const prefersReducedMotion = railIsVisible && chipIsVisible
+        && typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const centeringBehavior = getScheduleRailCenteringBehavior({
+        railIsVisible,
+        chipIsVisible,
+        selectedDate: initialSelectedDate,
+        lastCenteredDate: lastCenteredDateRef.current,
+        railWidth,
+        lastRailWidth: lastRailWidthRef.current,
+        wasVisible: railWasVisibleRef.current,
+        prefersReducedMotion,
+      })
+
+      if (!railIsVisible || !chipIsVisible) {
+        railWasVisibleRef.current = false
+        return
+      }
+      if (!selectedChip || centeringBehavior === null) return
+
+      selectedChip.scrollIntoView({
+        behavior: centeringBehavior,
+        block: 'nearest',
+        inline: 'center',
+      })
+      lastCenteredDateRef.current = initialSelectedDate
+      lastRailWidthRef.current = railWidth
+      railWasVisibleRef.current = true
+    }
+
+    centerSelectedChip()
+
+    if (typeof window === 'undefined' || typeof window.ResizeObserver !== 'function') return
+
+    const observer = new window.ResizeObserver(centerSelectedChip)
+    observer.observe(rail)
+
+    return () => observer.disconnect()
   }, [initialSelectedDate])
 
-  const navigateToDate = (date: Date) => {
-    router.replace(`/schedule?date=${format(date, 'yyyy-MM-dd')}`, { scroll: false })
+  const navigateToDateString = (date: string) => {
+    const navigation = getScheduleDateNavigation(date)
+    router.push(navigation.href, navigation.options)
   }
 
-  const navigateToDateString = (date: string) => {
-    router.replace(`/schedule?date=${date}`, { scroll: false })
+  const navigateToDate = (date: Date) => {
+    navigateToDateString(format(date, 'yyyy-MM-dd'))
   }
 
   const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 })

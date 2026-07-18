@@ -23,6 +23,22 @@ export interface ScheduleRailDateAccessibility {
   ariaCurrent: 'date' | undefined
 }
 
+export interface ScheduleDateNavigation {
+  href: string
+  options: { scroll: false }
+}
+
+export interface ScheduleRailCenteringInput {
+  railIsVisible: boolean
+  chipIsVisible: boolean
+  selectedDate: string
+  lastCenteredDate: string | null
+  railWidth: number
+  lastRailWidth: number | null
+  wasVisible: boolean
+  prefersReducedMotion: boolean
+}
+
 function isStrictCalendarDate(value: unknown): value is string {
   if (typeof value !== 'string') return false
 
@@ -89,6 +105,34 @@ export function getScheduleRailDateAccessibility(
     ariaLabel: `${fullDate}, ${appointmentSummary}`,
     ariaCurrent: isSelected ? 'date' : undefined,
   }
+}
+
+export function getScheduleDateNavigation(date: string): ScheduleDateNavigation {
+  return {
+    href: `/schedule?date=${date}`,
+    options: { scroll: false },
+  }
+}
+
+export function getScheduleRailCenteringBehavior({
+  railIsVisible,
+  chipIsVisible,
+  selectedDate,
+  lastCenteredDate,
+  railWidth,
+  lastRailWidth,
+  wasVisible,
+  prefersReducedMotion,
+}: ScheduleRailCenteringInput): 'auto' | 'smooth' | null {
+  if (!railIsVisible || !chipIsVisible) return null
+
+  const needsInitialCenter = lastCenteredDate === null
+  const becameVisible = !wasVisible
+  const selectionChanged = lastCenteredDate !== null && lastCenteredDate !== selectedDate
+  const sizeChanged = lastRailWidth !== railWidth
+
+  if (!needsInitialCenter && !becameVisible && !selectionChanged && !sizeChanged) return null
+  return selectionChanged && !becameVisible && !prefersReducedMotion ? 'smooth' : 'auto'
 }
 
 export function resolveScheduleDateRange(
