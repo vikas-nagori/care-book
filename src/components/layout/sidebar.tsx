@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, Users, CalendarDays, Receipt, Settings } from 'lucide-react'
+import { BrandMark } from '@/components/brand/brand'
 import { shouldHideAppChrome } from '@/lib/layout/app-chrome'
 import { cn } from '@/lib/utils'
 
@@ -37,20 +38,7 @@ export function Sidebar({ canViewBilling }: SidebarProps) {
     >
       {/* Brand */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px 22px' }}>
-        <div
-          style={{
-            width: 28, height: 28,
-            borderRadius: 8,
-            background: 'var(--ph-accent)',
-            color: '#fff',
-            display: 'grid', placeItems: 'center',
-            fontFamily: 'var(--font-mono, ui-monospace)',
-            fontSize: 13, fontWeight: 600, letterSpacing: '-0.02em',
-            flexShrink: 0,
-          }}
-        >
-          अ
-        </div>
+        <BrandMark size={28} priority />
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '-0.01em', lineHeight: 1.2, color: 'var(--ph-ink)' }}>
             Care-Book

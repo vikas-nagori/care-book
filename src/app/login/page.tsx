@@ -7,7 +7,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { BrandLockup } from '@/components/brand/brand'
 
 function LoginPageContent() {
   const searchParams = useSearchParams()
@@ -80,7 +81,12 @@ function LoginPageContent() {
     <div className="flex min-h-dvh items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-center text-2xl">Care-Book</CardTitle>
+          <BrandLockup
+            markSize={48}
+            priority
+            className="justify-center"
+            nameClassName="text-2xl"
+          />
         </CardHeader>
         <CardContent>
           {view === 'sign-in' ? (
@@ -163,7 +169,12 @@ function LoginPageFallback() {
     <div className="flex min-h-dvh items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-center text-2xl">Care-Book</CardTitle>
+          <BrandLockup
+            markSize={48}
+            priority
+            className="justify-center"
+            nameClassName="text-2xl"
+          />
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">Loading sign-in form...</p>

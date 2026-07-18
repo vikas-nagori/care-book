@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Care-Book">
+  <rect x="0" y="0" width="512" height="512" rx="135" fill="#2f5d5a"></rect>
+  <path d="M154.5 211.8 A116 116 0 0 1 357.5 211.8" fill="none" stroke="#ffffff" stroke-opacity="0.30" stroke-width="34" stroke-linecap="round"></path>
+  <circle cx="256" cy="152" r="27" fill="#e0b487"></circle>
+  <g transform="translate(151 236) scale(8.75)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="5" r="1"></circle>
+    <path d="m9 20 3-6 3 6"></path>
+    <path d="m6 8 6 2 6-2"></path>
+    <path d="M12 10v4"></path>
+  </g>
+</svg>
