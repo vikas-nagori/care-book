@@ -22,6 +22,7 @@ import {
   getMobileSettingsSections,
   type MobileSettingsSectionKey,
 } from '@/lib/settings/mobile-sections'
+import { shouldRestoreSettingsFocus } from '@/lib/settings/responsive-layout'
 import type {
   AppointmentType,
   ExternalStaff,
@@ -71,7 +72,8 @@ export function MobileSettingsView({
   profiles = [],
   isExternalStaffSchemaMissing = false,
 }: MobileSettingsViewProps) {
-  const [openSection, setOpenSection] = useState<MobileSettingsSectionKey | null>(null)
+  const [selectedSection, setSelectedSection] = useState<MobileSettingsSectionKey | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
   const lastTriggerRef = useRef<HTMLButtonElement | null>(null)
   const sections = getMobileSettingsSections(accessLevel, {
     appointmentTypes: appointmentTypes.length,
@@ -80,10 +82,10 @@ export function MobileSettingsView({
     invites: invites.length,
     activeUsers: profiles.length,
   })
-  const activeSection = sections.find((section) => section.key === openSection)
+  const activeSection = sections.find((section) => section.key === selectedSection)
 
   function renderOpenSection() {
-    switch (openSection) {
+    switch (selectedSection) {
       case 'account':
         return <AccountSummary profile={profile} logoutAction={logoutAction} variant="sheet" />
       case 'types':
@@ -115,7 +117,7 @@ export function MobileSettingsView({
       <div className="overflow-hidden rounded-[12px] border border-[var(--ph-line)] bg-[var(--ph-surface)]">
         {sections.map((section, index) => {
           const Icon = sectionIcons[section.key]
-          const isActive = section.key === openSection
+          const isActive = section.key === selectedSection && sheetOpen
 
           return (
             <button
@@ -125,7 +127,8 @@ export function MobileSettingsView({
               aria-expanded={isActive}
               onClick={(event) => {
                 lastTriggerRef.current = event.currentTarget
-                setOpenSection(section.key)
+                setSelectedSection(section.key)
+                setSheetOpen(true)
               }}
               className={cn(
                 'flex w-full items-center gap-3 px-[15px] py-[14px] text-left transition-colors hover:bg-[var(--ph-bg-soft)] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ph-accent)]',
@@ -156,16 +159,22 @@ export function MobileSettingsView({
       </div>
 
       <Sheet
-        open={openSection !== null}
+        open={sheetOpen}
         onOpenChange={(open) => {
-          if (!open) setOpenSection(null)
+          setSheetOpen(open)
         }}
       >
         <SheetContent
           side="bottom"
           onCloseAutoFocus={(event) => {
             event.preventDefault()
-            lastTriggerRef.current?.focus()
+            const trigger = lastTriggerRef.current
+            if (
+              trigger
+              && shouldRestoreSettingsFocus(trigger.isConnected, trigger.getClientRects().length)
+            ) {
+              trigger.focus()
+            }
           }}
         >
           <SheetHeader className="mb-5 pr-10 text-left">

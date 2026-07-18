@@ -8,25 +8,36 @@ function source(path: string) {
 }
 
 const pageSource = source('src/app/settings/page.tsx')
+const responsiveViewSource = source('src/app/settings/responsive-settings-view.tsx')
 const mobileViewSource = source('src/app/settings/mobile-settings-view.tsx')
 const sheetSource = source('src/components/ui/sheet.tsx')
+const externalStaffSource = source('src/app/settings/external-staff-list.tsx')
+const invitesSource = source('src/app/settings/user-invites-list.tsx')
+const usersSource = source('src/app/settings/users-list.tsx')
 
-test('settings page preserves desktop content and passes normalized server data to mobile settings', () => {
-  assert.match(pageSource, /hidden md:block/)
-  assert.match(pageSource, /md:hidden/)
-  assert.match(pageSource, /<MobileSettingsView/)
+test('settings page passes normalized server data into one responsive coordinator', () => {
+  assert.equal(pageSource.match(/<SettingsResponsiveView/g)?.length, 2)
+  assert.match(pageSource, /accessLevel="profile_only"/)
+  assert.match(pageSource, /accessLevel="admin"/)
   assert.match(pageSource, /appointmentTypes=\{appointmentTypes \?\? \[\]\}/)
   assert.match(pageSource, /profiles=\{activeProfiles\}/)
   assert.match(pageSource, /isExternalStaffSchemaMissing=\{externalStaffError\?\.code === 'PGRST205'\}/)
+  assert.doesNotMatch(pageSource, /<MobileSettingsView|<AccountSummary|<AppointmentTypesList/)
+  assert.match(responsiveViewSource, /useSettingsDesktopLayout\(\)/)
+  assert.match(responsiveViewSource, /if \(isDesktop\)/)
+  assert.match(responsiveViewSource, /hidden space-y-6 md:block/)
+  assert.match(responsiveViewSource, /md:hidden/)
   assert.match(mobileViewSource, /variant="sheet"/)
 })
 
 test('mobile settings uses one controlled bottom sheet for all semantic menu buttons', () => {
-  assert.match(mobileViewSource, /useState<MobileSettingsSectionKey \| null>\(null\)/)
+  assert.match(mobileViewSource, /selectedSection, setSelectedSection/)
+  assert.match(mobileViewSource, /sheetOpen, setSheetOpen/)
   assert.equal(mobileViewSource.match(/<Sheet\s/g)?.length, 1)
-  assert.match(mobileViewSource, /open=\{openSection !== null\}/)
+  assert.match(mobileViewSource, /open=\{sheetOpen\}/)
   assert.match(mobileViewSource, /onOpenChange=\{\(open\) => \{/)
-  assert.match(mobileViewSource, /if \(!open\) setOpenSection\(null\)/)
+  assert.match(mobileViewSource, /setSheetOpen\(open\)/)
+  assert.doesNotMatch(mobileViewSource, /if \(!open\) setSelectedSection\(null\)/)
   assert.match(mobileViewSource, /<button/)
   assert.match(mobileViewSource, /aria-hidden="true"/)
   assert.match(mobileViewSource, /<SheetTitle/)
@@ -35,9 +46,42 @@ test('mobile settings uses one controlled bottom sheet for all semantic menu but
 test('controlled sheet restores focus to its menu button and keeps a 44px close hit target', () => {
   assert.match(mobileViewSource, /useRef<HTMLButtonElement \| null>\(null\)/)
   assert.match(mobileViewSource, /lastTriggerRef\.current = event\.currentTarget/)
-  assert.match(mobileViewSource, /onCloseAutoFocus=\{\(event\) => \{[\s\S]*lastTriggerRef\.current\?\.focus\(\)/)
+  assert.match(mobileViewSource, /shouldRestoreSettingsFocus\([\s\S]*trigger\.getClientRects\(\)\.length/)
+  assert.match(mobileViewSource, /onCloseAutoFocus=\{\(event\) => \{[\s\S]*trigger\.focus\(\)/)
   assert.match(sheetSource, /h-11 w-11/)
   assert.match(sheetSource, /h-\[30px\] w-\[30px\][^\n]*bg-\[var\(--ph-bg-soft\)\]/)
+})
+
+test('responsive coordinator hydrates from mobile and unmounts the mobile portal at md', () => {
+  assert.match(responsiveViewSource, /useSyncExternalStore/)
+  assert.match(responsiveViewSource, /SETTINGS_DESKTOP_MEDIA_QUERY/)
+  assert.match(responsiveViewSource, /window\.matchMedia/)
+  assert.match(responsiveViewSource, /getSettingsServerSnapshot/)
+  assert.ok(
+    responsiveViewSource.indexOf('if (isDesktop)') < responsiveViewSource.indexOf('<MobileSettingsView'),
+    'desktop branch should return before mobile branch is constructed',
+  )
+})
+
+test('sheet variants branch before constructing desktop and mobile list representations', () => {
+  for (const [path, componentSource] of [
+    ['external-staff-list.tsx', externalStaffSource],
+    ['user-invites-list.tsx', invitesSource],
+    ['users-list.tsx', usersSource],
+  ] as const) {
+    assert.doesNotMatch(componentSource, /const desktopList|const mobileList/, path)
+    assert.ok(
+      componentSource.indexOf("if (variant === 'sheet')") < componentSource.indexOf('<Table>'),
+      `${path} should choose its variant before building the desktop table`,
+    )
+  }
+})
+
+test('mobile invite dates preserve revoked semantics and user-controlled names can wrap', () => {
+  assert.match(invitesSource, /`Revoked \$\{formatTimestamp\(invite\.revoked_at\)\}`/)
+  assert.doesNotMatch(invitesSource, /`Updated \$\{formatTimestamp\(invite\.updated_at\)\}`/)
+  assert.match(externalStaffSource, /min-w-0[^"']*\[overflow-wrap:anywhere\]/)
+  assert.match(usersSource, /min-w-0[^"']*\[overflow-wrap:anywhere\]/)
 })
 
 test('bottom sheet has the required mobile geometry, safe area, overlay, and drag handle', () => {
