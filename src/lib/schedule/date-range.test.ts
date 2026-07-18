@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildScheduleRailDates, resolveScheduleDateRange } from './date-range.ts'
+import {
+  buildScheduleRailDates,
+  getScheduleRailDateAccessibility,
+  isScheduleDateToday,
+  resolveScheduleDateRange,
+} from './date-range.ts'
 
 test('resolveScheduleDateRange accepts a strict real YYYY-MM-DD date', () => {
   const result = resolveScheduleDateRange(
@@ -46,4 +51,26 @@ test('resolveScheduleDateRange includes the same 43 dates used by its query rang
   assert.deepEqual(result.railDates, buildScheduleRailDates('2026-12-20'))
   assert.equal(result.rangeStart, result.railDates[0])
   assert.equal(result.rangeEnd, result.railDates[42])
+})
+
+test('isScheduleDateToday compares Kolkata calendar date keys directly', () => {
+  assert.equal(isScheduleDateToday('2026-07-19', '2026-07-19'), true)
+  assert.equal(isScheduleDateToday('2026-07-18', '2026-07-19'), false)
+})
+
+test('rail accessibility names distinguish the same weekday and day number across months', () => {
+  const january = getScheduleRailDateAccessibility('2026-01-05', 0, false)
+  const october = getScheduleRailDateAccessibility('2026-10-05', 0, false)
+
+  assert.equal(january.ariaLabel, 'Monday, January 5, 2026, no appointments')
+  assert.equal(october.ariaLabel, 'Monday, October 5, 2026, no appointments')
+  assert.notEqual(january.ariaLabel, october.ariaLabel)
+})
+
+test('rail accessibility metadata describes zero, singular, and plural appointment counts', () => {
+  assert.match(getScheduleRailDateAccessibility('2026-01-05', 0, false).ariaLabel, /no appointments$/)
+  assert.match(getScheduleRailDateAccessibility('2026-01-05', 1, false).ariaLabel, /1 appointment$/)
+  assert.match(getScheduleRailDateAccessibility('2026-01-05', 2, false).ariaLabel, /2 appointments$/)
+  assert.equal(getScheduleRailDateAccessibility('2026-01-05', 2, true).ariaCurrent, 'date')
+  assert.equal(getScheduleRailDateAccessibility('2026-01-05', 2, false).ariaCurrent, undefined)
 })

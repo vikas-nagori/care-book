@@ -1,6 +1,13 @@
 const KOLKATA_TIME_ZONE = 'Asia/Kolkata'
 const RAIL_RADIUS_DAYS = 21
 const STRICT_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+const FULL_DATE_FORMATTER = new Intl.DateTimeFormat('en', {
+  timeZone: 'UTC',
+  weekday: 'long',
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+})
 
 export type ScheduleDateQueryInput = string | string[] | undefined
 
@@ -9,6 +16,11 @@ export interface ScheduleDateRange {
   rangeStart: string
   rangeEnd: string
   railDates: string[]
+}
+
+export interface ScheduleRailDateAccessibility {
+  ariaLabel: string
+  ariaCurrent: 'date' | undefined
 }
 
 function isStrictCalendarDate(value: unknown): value is string {
@@ -57,6 +69,26 @@ export function buildScheduleRailDates(selectedDate: string) {
     { length: RAIL_RADIUS_DAYS * 2 + 1 },
     (_, index) => addCalendarDays(selectedDate, index - RAIL_RADIUS_DAYS)
   )
+}
+
+export function isScheduleDateToday(date: string, todayDate: string) {
+  return date === todayDate
+}
+
+export function getScheduleRailDateAccessibility(
+  date: string,
+  appointmentCount: number,
+  isSelected: boolean
+): ScheduleRailDateAccessibility {
+  const fullDate = FULL_DATE_FORMATTER.format(new Date(`${date}T00:00:00.000Z`))
+  const appointmentSummary = appointmentCount === 0
+    ? 'no appointments'
+    : `${appointmentCount} ${appointmentCount === 1 ? 'appointment' : 'appointments'}`
+
+  return {
+    ariaLabel: `${fullDate}, ${appointmentSummary}`,
+    ariaCurrent: isSelected ? 'date' : undefined,
+  }
 }
 
 export function resolveScheduleDateRange(

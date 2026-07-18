@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, addDays, startOfWeek, isSameDay, parseISO } from 'date-fns'
 import { CalendarIcon, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -11,7 +11,12 @@ import { AppointmentForm } from './appointment-form'
 import type { Appointment, AppointmentAssigneeOption, Doctor, ExternalStaff } from '@/lib/supabase/types'
 import Link from 'next/link'
 import { formatTime12 } from '@/lib/format-time'
-import { buildScheduleRailDates, resolveScheduleDateRange } from '@/lib/schedule/date-range'
+import {
+  buildScheduleRailDates,
+  getScheduleRailDateAccessibility,
+  isScheduleDateToday,
+  resolveScheduleDateRange,
+} from '@/lib/schedule/date-range'
 
 // Chip/cell accent colors keyed off the type's visibility: shared types (e.g. clinic
 // visits) read as the accent color, restricted types (e.g. home visits) as the warn color.
@@ -130,17 +135,26 @@ export function ScheduleView({
   const [filterType, setFilterType] = useState<'all' | string>('all')
   const mobileRailRef = useRef<HTMLDivElement>(null)
   const selectedMobileDateRef = useRef<HTMLButtonElement>(null)
+  const lastCenteredDateRef = useRef<string | null>(null)
   const router = useRouter()
 
   useEffect(() => { setFilterType('all') }, [initialSelectedDate])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!mobileRailRef.current || !selectedMobileDateRef.current) return
+    const selectionChanged = lastCenteredDateRef.current !== null
+      && lastCenteredDateRef.current !== initialSelectedDate
+    const prefersReducedMotion = typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const shouldAnimate = selectionChanged && !prefersReducedMotion
+
     selectedMobileDateRef.current.scrollIntoView({
-      behavior: 'smooth',
+      behavior: shouldAnimate ? 'smooth' : 'auto',
       block: 'nearest',
       inline: 'center',
     })
+    lastCenteredDateRef.current = initialSelectedDate
   }, [initialSelectedDate])
 
   const navigateToDate = (date: Date) => {
@@ -326,7 +340,7 @@ export function ScheduleView({
       <div className="hidden md:block">
         <div className="ph-date-strip mb-4">
           {weekDays.map((day, i) => {
-            const isToday = isSameDay(day, new Date())
+            const isToday = isScheduleDateToday(format(day, 'yyyy-MM-dd'), todayDate)
             const isSel = isSameDay(day, selectedDate)
             const count = initialAppointments.filter((a) => isSameDay(parseISO(a.date), day)).length
             return (
@@ -367,14 +381,17 @@ export function ScheduleView({
         <div ref={mobileRailRef} className="ph-date-strip">
           {mobileRailDates.map((date) => {
             const day = parseISO(date)
-            const isToday = date === todayDate
+            const isToday = isScheduleDateToday(date, todayDate)
             const isSel = date === initialSelectedDate
             const count = initialAppointments.filter((appointment) => appointment.date === date).length
+            const accessibility = getScheduleRailDateAccessibility(date, count, isSel)
             return (
               <button
                 key={date}
                 ref={isSel ? selectedMobileDateRef : undefined}
                 data-selected={isSel}
+                aria-label={accessibility.ariaLabel}
+                aria-current={accessibility.ariaCurrent}
                 onClick={() => { navigateToDateString(date); setCalView('day') }}
                 style={{
                   minWidth: 48, padding: '8px 4px', textAlign: 'center',
@@ -604,23 +621,26 @@ export function ScheduleView({
             minWidth: 640,
           }}>
             <div style={{ borderBottom: '1px solid var(--ph-line)', background: 'var(--ph-surface)' }} />
-            {weekDays.map((day, i) => (
-              <div
-                key={i}
-                style={{
-                  padding: '10px 6px', borderBottom: '1px solid var(--ph-line)',
-                  fontSize: 11, textAlign: 'center',
-                  color: isSameDay(day, new Date()) ? 'var(--ph-accent)' : 'var(--ph-ink-3)',
-                  fontWeight: isSameDay(day, new Date()) ? 600 : 400,
-                  borderLeft: '1px solid var(--ph-line)',
-                }}
-              >
-                <div style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>{format(day, 'EEE')}</div>
-                <div className="font-mono-data" style={{ fontSize: 15, fontWeight: 500, marginTop: 2, color: isSameDay(day, new Date()) ? 'var(--ph-accent)' : 'var(--ph-ink)' }}>
-                  {format(day, 'd')}
+            {weekDays.map((day, i) => {
+              const isToday = isScheduleDateToday(format(day, 'yyyy-MM-dd'), todayDate)
+              return (
+                <div
+                  key={i}
+                  style={{
+                    padding: '10px 6px', borderBottom: '1px solid var(--ph-line)',
+                    fontSize: 11, textAlign: 'center',
+                    color: isToday ? 'var(--ph-accent)' : 'var(--ph-ink-3)',
+                    fontWeight: isToday ? 600 : 400,
+                    borderLeft: '1px solid var(--ph-line)',
+                  }}
+                >
+                  <div style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>{format(day, 'EEE')}</div>
+                  <div className="font-mono-data" style={{ fontSize: 15, fontWeight: 500, marginTop: 2, color: isToday ? 'var(--ph-accent)' : 'var(--ph-ink)' }}>
+                    {format(day, 'd')}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {weekHours.map((h) => (
               <>
                 <div key={`t-${h.label}`} style={{
