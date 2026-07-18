@@ -169,7 +169,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Mobile quick-actions */}
-      <div className="md:hidden grid grid-cols-2 gap-2">
+      <div className={`md:hidden grid gap-2 ${access.canViewBilling ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <DashboardNewAppointmentMobile
           patients={patients ?? []}
           doctors={doctors ?? []}
@@ -178,17 +178,19 @@ export default async function DashboardPage() {
           currentProfileId={currentProfile?.id ?? null}
           canManageExternalStaff={currentProfile?.role === 'admin'}
         />
-        <Link
-          href="/patients"
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            fontSize: 13, fontWeight: 500, padding: '10px 16px', minHeight: 44,
-            borderRadius: 8, border: '1px solid var(--ph-line)',
-            background: 'var(--ph-surface)', color: 'var(--ph-ink)', textDecoration: 'none',
-          }}
-        >
-          <Users size={15} />Find patient
-        </Link>
+        {access.canViewBilling && (
+          <Link
+            href="/billing?new=1"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              fontSize: 13, fontWeight: 500, padding: '10px 16px', minHeight: 44,
+              borderRadius: 8, border: '1px solid var(--ph-line)',
+              background: 'var(--ph-surface)', color: 'var(--ph-ink)', textDecoration: 'none',
+            }}
+          >
+            <IndianRupee size={15} />New billing
+          </Link>
+        )}
       </div>
 
       {/* Mobile-only Up next (shown before stats on mobile) */}

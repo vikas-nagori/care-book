@@ -56,6 +56,7 @@ interface BillingViewProps {
   billedLastMonthLabel: string
   receivedThisMonth: number
   initialTab?: TabId
+  initialEntryOpen: boolean
 }
 
 // Rows shown per list tab before "View more" reveals the rest.
@@ -132,10 +133,11 @@ export function BillingView({
   billedLastMonthLabel,
   receivedThisMonth,
   initialTab = 'overview',
+  initialEntryOpen,
 }: BillingViewProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const [entryOpen, setEntryOpen] = useState(false)
+  const [entryOpen, setEntryOpen] = useState(initialEntryOpen)
   const [tab, setTab] = useState<TabId>(initialTab)
   const [packages, setPackages] = useState(initialPackages)
   const [payments, setPayments] = useState(initialPayments)
@@ -148,6 +150,22 @@ export function BillingView({
     { kind: 'payment' | 'package'; id: string; label: string } | null
   >(null)
   const [deleting, setDeleting] = useState(false)
+  const cleanBillingUrl = initialTab === 'overview' ? '/billing' : `/billing?tab=${initialTab}`
+
+  function handleEntryOpenChange(open: boolean) {
+    setEntryOpen(open)
+    if (!open && initialEntryOpen) {
+      router.replace(cleanBillingUrl, { scroll: false })
+    }
+  }
+
+  function handleEntrySuccess() {
+    setEntryOpen(false)
+    if (initialEntryOpen) {
+      router.replace(cleanBillingUrl, { scroll: false })
+    }
+    router.refresh()
+  }
 
   async function confirmDelete() {
     if (!pendingDelete) return
@@ -242,7 +260,7 @@ export function BillingView({
             {format(new Date(), 'MMMM yyyy')}
           </div>
         </div>
-        <Dialog open={entryOpen} onOpenChange={setEntryOpen}>
+        <Dialog open={entryOpen} onOpenChange={handleEntryOpenChange}>
           <DialogTrigger asChild>
             <button style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -262,7 +280,7 @@ export function BillingView({
               packageTemplates={packageTemplates}
               appointments={appointments}
               patientCredit={patientCredit}
-              onSuccess={() => { setEntryOpen(false); router.refresh() }}
+              onSuccess={handleEntrySuccess}
             />
           </DialogContent>
         </Dialog>
