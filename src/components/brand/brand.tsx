@@ -4,14 +4,14 @@ import { cn } from '@/lib/utils'
 type BrandMarkProps = {
   size?: number
   className?: string
-  priority?: boolean
+  preload?: boolean
   alt?: string
 }
 
 export function BrandMark({
   size = 40,
   className,
-  priority = false,
+  preload = false,
   alt = '',
 }: BrandMarkProps) {
   return (
@@ -20,7 +20,7 @@ export function BrandMark({
       width={size}
       height={size}
       alt={alt}
-      priority={priority}
+      preload={preload}
       unoptimized
       className={cn('shrink-0', className)}
     />
@@ -33,7 +33,7 @@ type BrandLockupProps = {
   className?: string
   nameClassName?: string
   subtitleClassName?: string
-  priority?: boolean
+  preload?: boolean
 }
 
 export function BrandLockup({
@@ -42,11 +42,11 @@ export function BrandLockup({
   className,
   nameClassName,
   subtitleClassName,
-  priority = false,
+  preload = false,
 }: BrandLockupProps) {
   return (
     <div className={cn('flex items-center gap-3', className)}>
-      <BrandMark size={markSize} priority={priority} alt="" />
+      <BrandMark size={markSize} preload={preload} alt="" />
       <div className="min-w-0">
         <div className={cn('font-semibold leading-tight tracking-tight', nameClassName)}>
           Care-Book

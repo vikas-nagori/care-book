@@ -38,7 +38,7 @@ export function Sidebar({ canViewBilling }: SidebarProps) {
     >
       {/* Brand */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px 22px' }}>
-        <BrandMark size={28} priority />
+        <BrandMark size={28} preload />
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '-0.01em', lineHeight: 1.2, color: 'var(--ph-ink)' }}>
             Care-Book

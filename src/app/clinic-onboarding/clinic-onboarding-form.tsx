@@ -61,7 +61,7 @@ export function ClinicOnboardingForm() {
       <CardHeader>
         <BrandLockup
           markSize={36}
-          priority
+          preload
           className="mb-3 justify-center"
           nameClassName="text-lg"
         />

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -16,6 +17,16 @@ function sha256(path: string) {
   return existsSync(absolutePath)
     ? createHash('sha256').update(readFileSync(absolutePath)).digest('hex')
     : ''
+}
+
+function getTrackedTsxSources() {
+  return execFileSync('git', ['ls-files', '--', 'src/app', 'src/components'], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+    .trim()
+    .split('\n')
+    .filter((path) => path.endsWith('.tsx'))
 }
 
 const expectedAssetHashes: Record<string, string> = {
@@ -43,21 +54,39 @@ test('brand component uses the supplied SVG with a decorative lockup mark', () =
   assert.match(brandSource, /export function BrandLockup/)
   assert.match(brandSource, /alt=""/)
   assert.match(brandSource, />\s*Care-Book\s*</)
+  assert.match(brandSource, /preload\?: boolean/)
+  assert.match(brandSource, /preload=\{preload\}/)
+  assert.doesNotMatch(brandSource, /\bpriority\b/)
 })
 
 test('brand identity appears only on the approved chrome and auth surfaces', () => {
+  const brandedSourcePaths = getTrackedTsxSources()
+    .filter((path) => /\bBrand(?:Mark|Lockup)\b/.test(readSource(path)))
+    .sort()
   const sidebarSource = readSource('src/components/layout/sidebar.tsx')
   const loginSource = readSource('src/app/login/page.tsx')
   const onboardingSource = readSource('src/app/clinic-onboarding/clinic-onboarding-form.tsx')
   const inviteSource = readSource('src/app/auth/complete-invite/complete-invite-form.tsx')
   const updatePasswordSource = readSource('src/app/auth/update-password/update-password-form.tsx')
 
+  assert.deepEqual(brandedSourcePaths, [
+    'src/app/auth/complete-invite/complete-invite-form.tsx',
+    'src/app/auth/update-password/update-password-form.tsx',
+    'src/app/clinic-onboarding/clinic-onboarding-form.tsx',
+    'src/app/login/page.tsx',
+    'src/components/brand/brand.tsx',
+    'src/components/layout/sidebar.tsx',
+  ])
   assert.match(sidebarSource, /<BrandMark size=\{28\}/)
   assert.doesNotMatch(sidebarSource, />\s*अ\s*</)
   assert.equal((loginSource.match(/<BrandLockup/g) ?? []).length, 2)
   assert.match(onboardingSource, /<BrandLockup/)
   assert.match(inviteSource, /<BrandLockup/)
   assert.match(updatePasswordSource, /<BrandLockup/)
+  assert.doesNotMatch(
+    brandedSourcePaths.map((path) => readSource(path)).join('\n'),
+    /\bpriority\b/,
+  )
 })
 
 test('metadata and manifest declare the Care-Book PWA identity', () => {
@@ -66,7 +95,7 @@ test('metadata and manifest declare the Care-Book PWA identity', () => {
 
   assert.match(layoutSource, /themeColor: '#2f5d5a'/)
   assert.match(layoutSource, /icons:/)
-  assert.match(layoutSource, /\/favicon\.ico/)
+  assert.doesNotMatch(layoutSource, /\/favicon\.ico/)
   assert.match(layoutSource, /\/icons\/icon\.svg/)
   assert.match(layoutSource, /\/icons\/icon-16\.png/)
   assert.match(layoutSource, /\/icons\/icon-32\.png/)

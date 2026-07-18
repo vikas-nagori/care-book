@@ -94,7 +94,7 @@ export function CompleteInviteForm({ email }: Props) {
     <div className="flex min-h-dvh items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <BrandLockup markSize={36} priority className="mb-3" nameClassName="text-lg" />
+          <BrandLockup markSize={36} preload className="mb-3" nameClassName="text-lg" />
           <CardTitle>Complete your account</CardTitle>
           <CardDescription>
             Finish onboarding for <span className="font-medium text-foreground">{email}</span>.

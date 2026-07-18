@@ -83,7 +83,7 @@ function LoginPageContent() {
         <CardHeader>
           <BrandLockup
             markSize={48}
-            priority
+            preload
             className="justify-center"
             nameClassName="text-2xl"
           />
@@ -171,7 +171,7 @@ function LoginPageFallback() {
         <CardHeader>
           <BrandLockup
             markSize={48}
-            priority
+            preload
             className="justify-center"
             nameClassName="text-2xl"
           />
