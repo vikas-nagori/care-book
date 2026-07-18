@@ -37,6 +37,11 @@ test('staff tutorial advances, announces each step, finishes, and restarts', () 
     'Step 2 of 6: See what needs attention today'
   )
 
+  act(() => findButton(root, 'Back').props.onClick())
+  assert.equal(root.findByProps({ role: 'progressbar' }).props['aria-valuenow'], 1)
+
+  act(() => findButton(root, 'Next').props.onClick())
+
   for (let index = 2; index < steps.length; index += 1) {
     act(() => findButton(root, 'Next').props.onClick())
   }
