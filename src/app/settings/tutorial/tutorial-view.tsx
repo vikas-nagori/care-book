@@ -70,7 +70,13 @@ export function TutorialView({ steps }: TutorialViewProps) {
 
   function moveTo(index: number) {
     setCurrentIndex(clampTutorialStepIndex(index, steps.length))
-    tutorialTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const reduceMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    tutorialTopRef.current?.scrollIntoView({
+      behavior: reduceMotion ? 'auto' : 'smooth',
+      block: 'start',
+    })
   }
 
   return (
@@ -107,6 +113,10 @@ export function TutorialView({ steps }: TutorialViewProps) {
           />
         </div>
       </div>
+
+      <p aria-atomic="true" aria-live="polite" className="sr-only">
+        Step {safeIndex + 1} of {steps.length}: {step.title}
+      </p>
 
       <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
         <div className="border-b bg-[var(--ph-bg-soft)] p-5 sm:p-6">

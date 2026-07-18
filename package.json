@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test:unit": "node --test --experimental-strip-types $(find src/lib -name '*.test.ts' -print)",
+    "test:unit": "node --test --experimental-strip-types $(find src/lib -name '*.test.ts' -print) && tsx --test src/app/**/*.test.tsx",
     "test:integration": "node --test --experimental-strip-types $(find test/integration -name '*.test.ts' -print)"
   },
   "dependencies": {
@@ -42,10 +42,13 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/react-test-renderer": "^19.1.0",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.10",
     "postcss": "^8.5.10",
+    "react-test-renderer": "^18.3.1",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.23.1",
     "typescript": "^5"
   },
   "overrides": {

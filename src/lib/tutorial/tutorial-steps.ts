@@ -170,6 +170,14 @@ function getFinishStep(role: UserRole): TutorialStep {
   }
 }
 
+function cloneStep(step: TutorialStep): TutorialStep {
+  return {
+    ...step,
+    checklist: [...step.checklist],
+    actions: step.actions?.map((action) => ({ ...action })),
+  }
+}
+
 export function getTutorialSteps(role: UserRole): TutorialStep[] {
   const sharedSteps = [
     welcomeStep,
@@ -179,9 +187,11 @@ export function getTutorialSteps(role: UserRole): TutorialStep[] {
     sessionWorkflowStep,
   ]
 
-  return role === 'admin'
+  const steps = role === 'admin'
     ? [...sharedSteps, adminBillingStep, adminClinicSetupStep, getFinishStep(role)]
     : [...sharedSteps, getFinishStep(role)]
+
+  return steps.map(cloneStep)
 }
 
 export function clampTutorialStepIndex(index: number, stepCount: number) {

@@ -68,3 +68,13 @@ test('tutorial progress reports a one-based percentage', () => {
   assert.equal(getTutorialProgress(5, 6), 100)
   assert.equal(getTutorialProgress(0, 0), 0)
 })
+
+test('tutorial builders do not share mutable step data between calls', () => {
+  const first = getTutorialSteps('staff')
+  first[0].checklist.push('Unexpected mutation')
+  first[1].actions?.push({ href: '/unexpected', label: 'Unexpected' })
+
+  const second = getTutorialSteps('staff')
+  assert.equal(second[0].checklist.includes('Unexpected mutation'), false)
+  assert.equal(second[1].actions?.some((action) => action.href === '/unexpected'), false)
+})
