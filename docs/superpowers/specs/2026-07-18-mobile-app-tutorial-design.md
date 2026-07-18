@@ -89,7 +89,7 @@ Add a tutorial card directly after **Your Account** so it is visible before the 
 - Use a compact mobile header with a back link to Settings and the title **App tutorial**.
 - Show `Step n of total` and a labeled progress bar.
 - Present one step at a time in a single card with an icon, title, short explanation, and a small checklist of practical actions.
-- Keep primary navigation controls in a stable footer row: **Back** and **Next**, with **Finish** on the final step.
+- Keep primary navigation controls in a stable footer row: **Back** and **Next**. On the final step, **Finish** replaces **Next** and returns to Settings. A separate **Start again** control resets the tutorial to its first step.
 - Disable Back on the first step rather than hiding it, preventing layout movement.
 - Make all buttons at least 44px tall and keep the content usable at 320px width without horizontal scrolling.
 - On wider screens, center the tutorial at a readable width; do not create a separate desktop information architecture.
