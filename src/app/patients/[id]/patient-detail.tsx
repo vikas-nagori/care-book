@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { format } from 'date-fns'
 import { formatTime12 } from '@/lib/format-time'
+import { getPaginationItems } from '@/lib/patients/appointment-pagination'
 import { TreatmentPlanForm } from './treatment-plan-form'
 import type { Patient, Appointment, TreatmentPlan, Package, Payment, ReferralSource } from '@/lib/supabase/types'
 
@@ -28,6 +29,10 @@ interface PatientDetailProps {
   canViewBilling: boolean
   patient: Patient
   appointments: AppointmentSummary[]
+  appointmentsTotalCount: number
+  appointmentPage: number
+  appointmentPageSize: number
+  initialTab: 'profile' | 'appointments'
   treatmentPlans: TreatmentPlan[]
   packages: Package[]
   payments: Payment[]
@@ -42,12 +47,16 @@ const statusColors: Record<string, string> = {
   discontinued: 'bg-red-100 text-red-800',
 }
 
-const PATIENT_LIST_INITIAL = 20
+const PAYMENT_LIST_INITIAL = 20
 
 export function PatientDetail({
   canViewBilling,
   patient,
   appointments,
+  appointmentsTotalCount,
+  appointmentPage,
+  appointmentPageSize,
+  initialTab,
   treatmentPlans,
   packages,
   payments,
@@ -55,13 +64,15 @@ export function PatientDetail({
 }: PatientDetailProps) {
   const router = useRouter()
   const [planOpen, setPlanOpen] = useState(false)
-  const [showAllAppts, setShowAllAppts] = useState(false)
   const [showAllPayments, setShowAllPayments] = useState(false)
 
   const totalBilled = packages.reduce((sum, p) => sum + Number(p.total_amount), 0)
   const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0)
-  const visibleAppts = showAllAppts ? appointments : appointments.slice(0, PATIENT_LIST_INITIAL)
-  const visiblePayments = showAllPayments ? payments : payments.slice(0, PATIENT_LIST_INITIAL)
+  const visiblePayments = showAllPayments ? payments : payments.slice(0, PAYMENT_LIST_INITIAL)
+  const appointmentTotalPages = Math.max(1, Math.ceil(appointmentsTotalCount / appointmentPageSize))
+  const appointmentPaginationItems = getPaginationItems(appointmentPage, appointmentTotalPages)
+  const appointmentPageHref = (page: number) =>
+    `/patients/${patient.id}?tab=appointments&appointments_page=${page}`
 
   return (
     <>
@@ -90,7 +101,7 @@ export function PatientDetail({
         </Button>
       </div>
 
-      <Tabs defaultValue="profile" className="space-y-4">
+      <Tabs defaultValue={initialTab} className="space-y-4">
         <div className="overflow-x-auto">
         <TabsList className={`w-full grid min-w-max ${canViewBilling ? 'grid-cols-4' : 'grid-cols-3'}`}>
           <TabsTrigger value="profile">Profile</TabsTrigger>
@@ -192,7 +203,7 @@ export function PatientDetail({
               <p className="text-center text-muted-foreground py-8">No appointments yet.</p>
             ) : (
               <>
-                {visibleAppts.map((appt) => (
+                {appointments.map((appt) => (
                   <Card key={appt.id}>
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
@@ -207,13 +218,48 @@ export function PatientDetail({
                     </CardContent>
                   </Card>
                 ))}
-                {appointments.length > PATIENT_LIST_INITIAL && (
-                  <button
-                    onClick={() => setShowAllAppts((v) => !v)}
-                    className="text-sm text-muted-foreground w-full text-center py-2 hover:underline"
+                {appointmentTotalPages > 1 && (
+                  <nav
+                    aria-label="Appointment history pages"
+                    className="flex flex-wrap items-center justify-center gap-1 pt-3"
                   >
-                    {showAllAppts ? 'Show less' : `Show all ${appointments.length} appointments`}
-                  </button>
+                    {appointmentPage > 1 ? (
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href={appointmentPageHref(appointmentPage - 1)}>Previous</Link>
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="sm" disabled>Previous</Button>
+                    )}
+
+                    {appointmentPaginationItems.map((item, index) =>
+                      item === 'ellipsis' ? (
+                        <span key={`ellipsis-${index}`} className="px-2 text-sm text-muted-foreground">…</span>
+                      ) : (
+                        <Button
+                          key={item}
+                          variant={item === appointmentPage ? 'default' : 'outline'}
+                          size="sm"
+                          className="min-w-10"
+                          asChild
+                        >
+                          <Link
+                            href={appointmentPageHref(item)}
+                            aria-current={item === appointmentPage ? 'page' : undefined}
+                          >
+                            {item}
+                          </Link>
+                        </Button>
+                      ),
+                    )}
+
+                    {appointmentPage < appointmentTotalPages ? (
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href={appointmentPageHref(appointmentPage + 1)}>Next</Link>
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="sm" disabled>Next</Button>
+                    )}
+                  </nav>
                 )}
               </>
             )}
@@ -322,7 +368,7 @@ export function PatientDetail({
                       </CardContent>
                     </Card>
                   ))}
-                  {payments.length > PATIENT_LIST_INITIAL && (
+                  {payments.length > PAYMENT_LIST_INITIAL && (
                     <button
                       onClick={() => setShowAllPayments((v) => !v)}
                       className="text-sm text-muted-foreground w-full text-center py-2 hover:underline"
