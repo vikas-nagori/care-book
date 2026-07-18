@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
 import { AppointmentForm } from './appointment-form'
-import type { Appointment, AppointmentAssigneeOption, ExternalStaff } from '@/lib/supabase/types'
+import type { Appointment, AppointmentAssigneeOption, Doctor, ExternalStaff } from '@/lib/supabase/types'
 import Link from 'next/link'
 import { formatTime12 } from '@/lib/format-time'
 
@@ -30,6 +30,7 @@ interface ScheduleViewProps {
     external_staff?: Pick<ExternalStaff, 'id' | 'name' | 'phone' | 'status' | 'linked_profile_id'> | null
   })[]
   patients: { id: string; name: string }[]
+  doctors: Doctor[]
   assigneeOptions: AppointmentAssigneeOption[]
   externalStaffOptions: ExternalStaff[]
   currentProfileId: string | null
@@ -105,6 +106,7 @@ function computeColumns<T extends { id: string; time: string; duration_minutes: 
 export function ScheduleView({
   initialAppointments,
   patients,
+  doctors,
   assigneeOptions,
   externalStaffOptions,
   currentProfileId,
@@ -225,6 +227,7 @@ export function ScheduleView({
               <DialogHeader><DialogTitle>New Appointment</DialogTitle></DialogHeader>
               <AppointmentForm
                 patients={patients}
+                doctors={doctors}
                 assigneeOptions={assigneeOptions}
                 externalStaffOptions={externalStaffOptions}
                 currentProfileId={currentProfileId}
@@ -255,6 +258,7 @@ export function ScheduleView({
               <DialogHeader><DialogTitle>New Appointment</DialogTitle></DialogHeader>
               <AppointmentForm
                 patients={patients}
+                doctors={doctors}
                 assigneeOptions={assigneeOptions}
                 externalStaffOptions={externalStaffOptions}
                 currentProfileId={currentProfileId}
