@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Edit, FileText, IndianRupee, Loader2, MapPin, Phone, Trash2, User, UserRound } from 'lucide-react'
@@ -45,6 +45,10 @@ export function AppointmentDetail({
   const [editOpen, setEditOpen] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
   const [statusPending, startStatusTransition] = useTransition()
+  // Synchronous re-entrancy guard for the status Select (which stays enabled
+  // mid-selection by design — see updateStatus). isPending updates async and can
+  // be stale during a rapid burst, so a ref is used to block stacked submits.
+  const statusInFlight = useRef(false)
   const [deletePending, setDeletePending] = useState(false)
   const assignedProfile = appointment.assigned_to
     ? assigneeOptions.find((assignee) => assignee.id === appointment.assigned_to)
@@ -54,17 +58,23 @@ export function AppointmentDetail({
 
   function updateStatus(status: string) {
     if (status === appointment.status) return
+    if (statusInFlight.current) return
+    statusInFlight.current = true
     // Route through the server action (preferred mutation path) inside a
     // transition so the refresh is non-blocking — the old direct client
     // write + synchronous disable of the Select mid-selection was locking
     // the page when changing status from the calendar.
     startStatusTransition(async () => {
-      const result = await updateAppointmentStatus({ appointmentId: appointment.id, status })
-      if (result.success) {
-        toast({ title: 'Status updated' })
-        router.refresh()
-      } else {
-        toast({ title: 'Error', description: result.message, variant: 'destructive' })
+      try {
+        const result = await updateAppointmentStatus({ appointmentId: appointment.id, status })
+        if (result.success) {
+          toast({ title: 'Status updated' })
+          router.refresh()
+        } else {
+          toast({ title: 'Error', description: result.message, variant: 'destructive' })
+        }
+      } finally {
+        statusInFlight.current = false
       }
     })
   }
@@ -266,12 +276,13 @@ export function AppointmentDetail({
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel disabled={deletePending}>Cancel</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={handleDelete}
+                  onClick={(event) => { event.preventDefault(); handleDelete() }}
+                  disabled={deletePending}
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 >
-                  Delete
+                  {deletePending ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Deleting…</> : 'Delete'}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
