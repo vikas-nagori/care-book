@@ -32,7 +32,13 @@ function formatTimestamp(value: string | null) {
   }).format(new Date(value))
 }
 
-export function UserInvitesList({ invites }: { invites: UserInvite[] }) {
+export function UserInvitesList({
+  invites,
+  variant = 'card',
+}: {
+  invites: UserInvite[]
+  variant?: 'card' | 'sheet'
+}) {
   const router = useRouter()
   const { toast } = useToast()
   const [busyInviteId, setBusyInviteId] = useState<string | null>(null)
@@ -81,16 +87,10 @@ export function UserInvitesList({ invites }: { invites: UserInvite[] }) {
     setBusyInviteId(null)
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Invites</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {invites.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No invites have been sent yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
+  const emptyState = <p className="text-sm text-muted-foreground">No invites have been sent yet.</p>
+
+  const desktopList = invites.length === 0 ? emptyState : (
+    <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -152,8 +152,70 @@ export function UserInvitesList({ invites }: { invites: UserInvite[] }) {
                 })}
               </TableBody>
             </Table>
-          </div>
-        )}
+    </div>
+  )
+
+  const mobileList = invites.length === 0 ? emptyState : (
+    <div className="space-y-3">
+      {invites.map((invite) => {
+        const isBusy = busyInviteId === invite.id
+        const dateLabel = invite.status === 'accepted'
+          ? `Accepted ${formatTimestamp(invite.accepted_at)}`
+          : invite.status === 'pending'
+            ? `Sent ${formatTimestamp(invite.created_at)}`
+            : `Updated ${formatTimestamp(invite.updated_at)}`
+
+        return (
+          <section key={invite.id} className="space-y-3 rounded-lg border border-[var(--ph-line)] p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <p className="min-w-0 break-all text-sm font-semibold text-[var(--ph-ink)]">
+                {invite.email}
+              </p>
+              <Badge className="shrink-0" variant={getInviteBadgeVariant(invite.status)}>
+                {invite.status}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <Badge variant={invite.role === 'admin' ? 'default' : 'secondary'}>{invite.role}</Badge>
+              <span className="text-right">{dateLabel}</span>
+            </div>
+            {invite.status === 'pending' && (
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11"
+                  disabled={isBusy}
+                  onClick={() => handleResend(invite.id)}
+                >
+                  {isBusy ? 'Working...' : 'Resend'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-11"
+                  disabled={isBusy}
+                  onClick={() => handleRevoke(invite.id)}
+                >
+                  Revoke
+                </Button>
+              </div>
+            )}
+          </section>
+        )
+      })}
+    </div>
+  )
+
+  if (variant === 'sheet') return mobileList
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Invites</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {desktopList}
       </CardContent>
     </Card>
   )

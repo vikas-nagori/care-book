@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Plus, Trash2, Pencil, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -19,19 +19,24 @@ import {
 
 type Props = {
   appointmentTypes: AppointmentType[]
+  variant?: 'card' | 'sheet'
 }
 
 const EMPTY = { name: '', sessionRate: '', isShared: 'shared' as 'shared' | 'restricted' }
 
-export function AppointmentTypesList({ appointmentTypes }: Props) {
+export function AppointmentTypesList({ appointmentTypes, variant = 'card' }: Props) {
   const router = useRouter()
   const { toast } = useToast()
+  const instanceId = useId()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const sorted = sortAppointmentTypes(appointmentTypes)
+  const nameId = `${instanceId}-type-name`
+  const rateId = `${instanceId}-type-rate`
+  const visibilityId = `${instanceId}-type-visibility`
 
   function startAdd() {
     setEditingId('new')
@@ -90,112 +95,151 @@ export function AppointmentTypesList({ appointmentTypes }: Props) {
     router.refresh()
   }
 
+  const addButton = editingId === null && (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className={variant === 'sheet' ? 'h-11' : undefined}
+      onClick={startAdd}
+    >
+      <Plus size={14} /> Add
+    </Button>
+  )
+
+  const content = (
+    <>
+      <p className="text-sm text-muted-foreground">
+        Types shown when booking, each with its own session rate. <strong>Shared</strong> types are
+        visible to all staff and need no assignee; <strong>staff-restricted</strong> types are seen
+        only by their creator and assignee and require an assignee.
+      </p>
+
+      {editingId !== null && (
+        <form onSubmit={handleSave} className="space-y-3 rounded-lg border p-3">
+          <div className="space-y-2">
+            <Label htmlFor={nameId}>Name</Label>
+            <Input
+              id={nameId}
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Clinic"
+              required
+            />
+          </div>
+          <div className={variant === 'sheet'
+            ? 'grid grid-cols-1 gap-3 min-[390px]:grid-cols-2'
+            : 'grid grid-cols-2 gap-3'}>
+            <div className="space-y-2">
+              <Label htmlFor={rateId}>Session rate (₹)</Label>
+              <Input
+                id={rateId}
+                type="number"
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                value={form.sessionRate}
+                onChange={(e) => setForm((f) => ({ ...f, sessionRate: e.target.value }))}
+                placeholder="800"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={visibilityId}>Visibility</Label>
+              <Select
+                value={form.isShared}
+                onValueChange={(value) => setForm((f) => ({ ...f, isShared: value as 'shared' | 'restricted' }))}
+              >
+                <SelectTrigger id={visibilityId}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="shared">Shared (all staff)</SelectItem>
+                  <SelectItem value="restricted">Staff-restricted</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="submit"
+              size="sm"
+              className={variant === 'sheet' ? 'h-11' : undefined}
+              disabled={saving}
+            >
+              {saving ? <><Loader2 className="animate-spin" size={14} /> Saving…</> : 'Save'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={variant === 'sheet' ? 'h-11' : undefined}
+              onClick={cancel}
+              disabled={saving}
+            >
+              <X size={14} /> Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {sorted.length === 0 && editingId === null ? (
+        <p className="text-sm text-muted-foreground">No appointment types yet.</p>
+      ) : (
+        <ul className="divide-y">
+          {sorted.map((type) => (
+            <li key={type.id} className="flex items-center justify-between gap-2 py-2.5">
+              <div className={variant === 'sheet' ? 'min-w-0' : undefined}>
+                <div className={variant === 'sheet' ? 'truncate text-sm font-medium' : 'text-sm font-medium'}>
+                  {type.name}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  ₹{type.session_rate.toLocaleString('en-IN')}/session · {type.is_shared ? 'Shared' : 'Staff-restricted'}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => startEdit(type)}
+                  aria-label={`Edit ${type.name}`}
+                  className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Pencil size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(type)}
+                  disabled={deletingId === type.id}
+                  aria-label={`Delete ${type.name}`}
+                  className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {deletingId === type.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+
+  if (variant === 'sheet') {
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-end">{addButton}</div>
+        {content}
+      </div>
+    )
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle>Appointment Types</CardTitle>
-        {editingId === null && (
-          <Button type="button" variant="outline" size="sm" onClick={startAdd}>
-            <Plus size={14} /> Add
-          </Button>
-        )}
+        {addButton}
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Types shown when booking, each with its own session rate. <strong>Shared</strong> types are
-          visible to all staff and need no assignee; <strong>staff-restricted</strong> types are seen
-          only by their creator and assignee and require an assignee.
-        </p>
-
-        {editingId !== null && (
-          <form onSubmit={handleSave} className="space-y-3 rounded-lg border p-3">
-            <div className="space-y-2">
-              <Label htmlFor="type-name">Name</Label>
-              <Input
-                id="type-name"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Clinic"
-                required
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="type-rate">Session rate (₹)</Label>
-                <Input
-                  id="type-rate"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  inputMode="decimal"
-                  value={form.sessionRate}
-                  onChange={(e) => setForm((f) => ({ ...f, sessionRate: e.target.value }))}
-                  placeholder="800"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="type-visibility">Visibility</Label>
-                <Select
-                  value={form.isShared}
-                  onValueChange={(value) => setForm((f) => ({ ...f, isShared: value as 'shared' | 'restricted' }))}
-                >
-                  <SelectTrigger id="type-visibility">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="shared">Shared (all staff)</SelectItem>
-                    <SelectItem value="restricted">Staff-restricted</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button type="submit" size="sm" disabled={saving}>
-                {saving ? <><Loader2 className="animate-spin" size={14} /> Saving…</> : 'Save'}
-              </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={cancel} disabled={saving}>
-                <X size={14} /> Cancel
-              </Button>
-            </div>
-          </form>
-        )}
-
-        {sorted.length === 0 && editingId === null ? (
-          <p className="text-sm text-muted-foreground">No appointment types yet.</p>
-        ) : (
-          <ul className="divide-y">
-            {sorted.map((type) => (
-              <li key={type.id} className="flex items-center justify-between gap-2 py-2.5">
-                <div>
-                  <div className="text-sm font-medium">{type.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    ₹{type.session_rate.toLocaleString('en-IN')}/session · {type.is_shared ? 'Shared' : 'Staff-restricted'}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => startEdit(type)}
-                    aria-label={`Edit ${type.name}`}
-                    className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  >
-                    <Pencil size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(type)}
-                    disabled={deletingId === type.id}
-                    aria-label={`Delete ${type.name}`}
-                    className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
-                  >
-                    {deletingId === type.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        {content}
       </CardContent>
     </Card>
   )
