@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { BrandLockup } from '@/components/brand/brand'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -55,6 +56,7 @@ export function UpdatePasswordForm({ email }: Props) {
     <div className="flex min-h-dvh items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
+          <BrandLockup markSize={36} preload className="mb-3" nameClassName="text-lg" />
           <CardTitle>Reset your password</CardTitle>
           <CardDescription>
             Set a new password for <span className="font-medium text-foreground">{email}</span>.

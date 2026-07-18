@@ -2,7 +2,7 @@ import { getCurrentProfile } from '@/lib/auth'
 import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { getAppointmentVisibilityFilter } from '@/lib/access/appointment-visibility'
 import { createClient } from '@/lib/supabase/server'
-import { format, subDays, addDays } from 'date-fns'
+import { resolveScheduleDateRange } from '@/lib/schedule/date-range'
 import { logger } from '@/lib/logger'
 import { ScheduleView } from './schedule-view'
 import type { Appointment, ExternalStaff } from '@/lib/supabase/types'
@@ -18,14 +18,17 @@ type ScheduleAppointmentRow = Pick<
   external_staff?: Pick<ExternalStaff, 'id' | 'name' | 'phone' | 'status' | 'linked_profile_id'>[] | Pick<ExternalStaff, 'id' | 'name' | 'phone' | 'status' | 'linked_profile_id'> | null
 }
 
-export default async function SchedulePage() {
+export default async function SchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string | string[] }>
+}) {
+  const { date } = await searchParams
+  const { selectedDate, rangeStart, rangeEnd } = resolveScheduleDateRange(date)
   const currentProfile = await getCurrentProfile()
   const access = getRestrictedUiAccess(currentProfile)
   const appointmentVisibilityFilter = getAppointmentVisibilityFilter(currentProfile)
   const supabase = await createClient()
-
-  const rangeStart = format(subDays(new Date(), 14), 'yyyy-MM-dd')
-  const rangeEnd = format(addDays(new Date(), 14), 'yyyy-MM-dd')
 
   let appointmentsQuery = access.canViewPaymentSignals
     ? supabase
@@ -92,6 +95,7 @@ export default async function SchedulePage() {
   return (
     <div className="p-4 md:p-6">
       <ScheduleView
+        initialSelectedDate={selectedDate}
         initialAppointments={normalizedAppointments}
         patients={patients ?? []}
         doctors={doctors ?? []}

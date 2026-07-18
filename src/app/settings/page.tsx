@@ -3,14 +3,8 @@ import { normalizeEmail } from '@/lib/onboarding/invite-helpers'
 import { redirect } from 'next/navigation'
 import { getSettingsAccessLevel } from '@/lib/settings/access'
 import { createClient } from '@/lib/supabase/server'
-import { AccountSummary } from './account-summary'
 import { logoutFromSettings } from './actions'
-import { InviteForm } from './invite-form'
-import { AppointmentTypesList } from './appointment-types-list'
-import { PackageTemplatesList } from './package-templates-list'
-import { ExternalStaffList } from './external-staff-list'
-import { UserInvitesList } from './user-invites-list'
-import { UsersList } from './users-list'
+import { SettingsResponsiveView } from './responsive-settings-view'
 
 export default async function SettingsPage() {
   const currentProfile = await getCurrentProfile()
@@ -24,7 +18,11 @@ export default async function SettingsPage() {
     return (
       <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
         <h1 className="text-2xl font-bold">Settings</h1>
-        <AccountSummary profile={currentProfile} logoutAction={logoutFromSettings} />
+        <SettingsResponsiveView
+          accessLevel="profile_only"
+          profile={currentProfile}
+          logoutAction={logoutFromSettings}
+        />
       </div>
     )
   }
@@ -59,23 +57,17 @@ export default async function SettingsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <h1 className="text-2xl font-bold">Settings</h1>
-      <AccountSummary profile={currentProfile} logoutAction={logoutFromSettings} />
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-        <div className="space-y-6">
-          <AppointmentTypesList appointmentTypes={appointmentTypes ?? []} />
-          <PackageTemplatesList templates={packageTemplates ?? []} />
-          <InviteForm />
-        </div>
-        <div className="space-y-6">
-          <ExternalStaffList
-            externalStaff={externalStaff ?? []}
-            invites={invites ?? []}
-            isSchemaMissing={externalStaffError?.code === 'PGRST205'}
-          />
-          <UserInvitesList invites={invites ?? []} />
-          <UsersList profiles={activeProfiles} />
-        </div>
-      </div>
+      <SettingsResponsiveView
+        accessLevel="admin"
+        profile={currentProfile}
+        logoutAction={logoutFromSettings}
+        appointmentTypes={appointmentTypes ?? []}
+        packageTemplates={packageTemplates ?? []}
+        externalStaff={externalStaff ?? []}
+        invites={invites ?? []}
+        profiles={activeProfiles}
+        isExternalStaffSchemaMissing={externalStaffError?.code === 'PGRST205'}
+      />
     </div>
   )
 }

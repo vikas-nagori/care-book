@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
+import { BrandLockup } from '@/components/brand/brand'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -58,6 +59,12 @@ export function ClinicOnboardingForm() {
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
+        <BrandLockup
+          markSize={36}
+          preload
+          className="mb-3 justify-center"
+          nameClassName="text-lg"
+        />
         <CardTitle className="text-center text-2xl">Clinic Onboarding</CardTitle>
       </CardHeader>
       <CardContent>

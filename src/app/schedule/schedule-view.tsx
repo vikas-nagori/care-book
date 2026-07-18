@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, addDays, startOfWeek, isSameDay, parseISO } from 'date-fns'
 import { CalendarIcon, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -11,6 +11,14 @@ import { AppointmentForm } from './appointment-form'
 import type { Appointment, AppointmentAssigneeOption, Doctor, ExternalStaff } from '@/lib/supabase/types'
 import Link from 'next/link'
 import { formatTime12 } from '@/lib/format-time'
+import {
+  buildScheduleRailDates,
+  getScheduleDateNavigation,
+  getScheduleRailDateAccessibility,
+  getScheduleRailCenteringBehavior,
+  isScheduleDateToday,
+  resolveScheduleDateRange,
+} from '@/lib/schedule/date-range'
 
 // Chip/cell accent colors keyed off the type's visibility: shared types (e.g. clinic
 // visits) read as the accent color, restricted types (e.g. home visits) as the warn color.
@@ -21,6 +29,7 @@ function typeColorTokens(isShared: boolean) {
 }
 
 interface ScheduleViewProps {
+  initialSelectedDate: string
   initialAppointments: (Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status'> & {
     payment_status?: Appointment['payment_status']
     assigned_to?: string | null
@@ -104,6 +113,7 @@ function computeColumns<T extends { id: string; time: string; duration_minutes: 
 }
 
 export function ScheduleView({
+  initialSelectedDate,
   initialAppointments,
   patients,
   doctors,
@@ -113,16 +123,85 @@ export function ScheduleView({
   canManageExternalStaff,
   canViewPaymentSignals,
 }: ScheduleViewProps) {
-  const [selectedDate, setSelectedDate] = useState(new Date())
+  const selectedDate = useMemo(() => parseISO(initialSelectedDate), [initialSelectedDate])
+  const mobileRailDates = useMemo(
+    () => buildScheduleRailDates(initialSelectedDate),
+    [initialSelectedDate]
+  )
+  const todayDate = resolveScheduleDateRange(undefined).selectedDate
   const [calView, setCalView] = useState<'day' | 'week'>('day')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [mobileDialogOpen, setMobileDialogOpen] = useState(false)
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [mobileCalendarOpen, setMobileCalendarOpen] = useState(false)
   const [filterType, setFilterType] = useState<'all' | string>('all')
+  const mobileRailRef = useRef<HTMLDivElement>(null)
+  const selectedMobileDateRef = useRef<HTMLButtonElement>(null)
+  const lastCenteredDateRef = useRef<string | null>(null)
+  const lastRailWidthRef = useRef<number | null>(null)
+  const railWasVisibleRef = useRef(false)
   const router = useRouter()
 
-  useEffect(() => { setFilterType('all') }, [selectedDate])
+  useEffect(() => { setFilterType('all') }, [initialSelectedDate])
+
+  useLayoutEffect(() => {
+    const rail = mobileRailRef.current
+    if (!rail) return
+
+    const centerSelectedChip = () => {
+      const selectedChip = selectedMobileDateRef.current
+      const railIsVisible = rail.getClientRects().length > 0
+      const chipIsVisible = selectedChip != null && selectedChip.getClientRects().length > 0
+      const railWidth = railIsVisible ? rail.getBoundingClientRect().width : 0
+      const prefersReducedMotion = railIsVisible && chipIsVisible
+        && typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const centeringBehavior = getScheduleRailCenteringBehavior({
+        railIsVisible,
+        chipIsVisible,
+        selectedDate: initialSelectedDate,
+        lastCenteredDate: lastCenteredDateRef.current,
+        railWidth,
+        lastRailWidth: lastRailWidthRef.current,
+        wasVisible: railWasVisibleRef.current,
+        prefersReducedMotion,
+      })
+
+      if (!railIsVisible || !chipIsVisible) {
+        railWasVisibleRef.current = false
+        return
+      }
+      if (!selectedChip || centeringBehavior === null) return
+
+      selectedChip.scrollIntoView({
+        behavior: centeringBehavior,
+        block: 'nearest',
+        inline: 'center',
+      })
+      lastCenteredDateRef.current = initialSelectedDate
+      lastRailWidthRef.current = railWidth
+      railWasVisibleRef.current = true
+    }
+
+    centerSelectedChip()
+
+    if (typeof window === 'undefined' || typeof window.ResizeObserver !== 'function') return
+
+    const observer = new window.ResizeObserver(centerSelectedChip)
+    observer.observe(rail)
+
+    return () => observer.disconnect()
+  }, [initialSelectedDate])
+
+  const navigateToDateString = (date: string) => {
+    const navigation = getScheduleDateNavigation(date)
+    router.push(navigation.href, navigation.options)
+  }
+
+  const navigateToDate = (date: Date) => {
+    navigateToDateString(format(date, 'yyyy-MM-dd'))
+  }
 
   const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 })
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
@@ -175,19 +254,19 @@ export function ScheduleView({
             <button className={`ph-toggle-opt ${calView === 'week' ? 'active' : ''}`} onClick={() => setCalView('week')}>Week</button>
           </div>
           <button
-            onClick={() => setSelectedDate((d) => addDays(d, calView === 'day' ? -1 : -7))}
+            onClick={() => navigateToDate(addDays(selectedDate, calView === 'day' ? -1 : -7))}
             style={{ width: 28, height: 28, display: 'grid', placeItems: 'center', borderRadius: 6, border: '1px solid var(--ph-line)', background: 'var(--ph-surface)', cursor: 'pointer' }}
           >
             <ChevronLeft size={14} />
           </button>
           <button
-            onClick={() => setSelectedDate(new Date())}
+            onClick={() => navigateToDateString(resolveScheduleDateRange(undefined).selectedDate)}
             style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--ph-line)', background: 'var(--ph-surface)', cursor: 'pointer', color: 'var(--ph-ink-2)' }}
           >
             Today
           </button>
           <button
-            onClick={() => setSelectedDate((d) => addDays(d, calView === 'day' ? 1 : 7))}
+            onClick={() => navigateToDate(addDays(selectedDate, calView === 'day' ? 1 : 7))}
             style={{ width: 28, height: 28, display: 'grid', placeItems: 'center', borderRadius: 6, border: '1px solid var(--ph-line)', background: 'var(--ph-surface)', cursor: 'pointer' }}
           >
             <ChevronRight size={14} />
@@ -205,7 +284,7 @@ export function ScheduleView({
                 mode="single"
                 selected={selectedDate}
                 onSelect={(date) => {
-                  if (date) { setSelectedDate(date); setCalendarOpen(false) }
+                  if (date) { navigateToDate(date); setCalendarOpen(false) }
                 }}
                 initialFocus
               />
@@ -287,7 +366,7 @@ export function ScheduleView({
               mode="single"
               selected={selectedDate}
               onSelect={(date) => {
-                if (date) { setSelectedDate(date); setMobileCalendarOpen(false) }
+                if (date) { navigateToDate(date); setMobileCalendarOpen(false) }
               }}
               initialFocus
             />
@@ -295,39 +374,87 @@ export function ScheduleView({
         </Popover>
       </div>
 
-      {/* Date strip (always visible) */}
-      <div className="ph-date-strip mb-4">
-        {weekDays.map((day, i) => {
-          const isToday = isSameDay(day, new Date())
-          const isSel = isSameDay(day, selectedDate)
-          const count = initialAppointments.filter((a) => isSameDay(parseISO(a.date), day)).length
-          return (
-            <button
-              key={i}
-              onClick={() => { setSelectedDate(day); setCalView('day') }}
-              style={{
-                minWidth: 48, padding: '8px 4px', textAlign: 'center',
-                border: `1px solid ${isSel ? 'var(--ph-accent)' : 'var(--ph-line)'}`,
-                background: isSel ? 'var(--ph-accent-soft)' : 'var(--ph-surface)',
-                borderRadius: 8, cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              <div style={{ fontSize: 9.5, color: isSel ? 'var(--ph-accent-ink)' : 'var(--ph-ink-4)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                {format(day, 'EEE')}
-              </div>
-              <div className="font-mono-data" style={{
-                fontSize: 15, fontWeight: 500, marginTop: 2,
-                color: isToday ? 'var(--ph-accent)' : isSel ? 'var(--ph-accent-ink)' : 'var(--ph-ink)',
-              }}>
-                {format(day, 'd').padStart(2, '0')}
-              </div>
-              <div style={{ fontSize: 9, color: isSel ? 'var(--ph-accent-ink)' : 'var(--ph-ink-4)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-                {count > 0 ? `·${count}·` : '· ·'}
-              </div>
-            </button>
-          )
-        })}
+      {/* Desktop date strip */}
+      <div className="hidden md:block">
+        <div className="ph-date-strip mb-4">
+          {weekDays.map((day, i) => {
+            const isToday = isScheduleDateToday(format(day, 'yyyy-MM-dd'), todayDate)
+            const isSel = isSameDay(day, selectedDate)
+            const count = initialAppointments.filter((a) => isSameDay(parseISO(a.date), day)).length
+            return (
+              <button
+                key={i}
+                onClick={() => { navigateToDate(day); setCalView('day') }}
+                style={{
+                  minWidth: 48, padding: '8px 4px', textAlign: 'center',
+                  border: `1px solid ${isSel ? 'var(--ph-accent)' : 'var(--ph-line)'}`,
+                  background: isSel ? 'var(--ph-accent-soft)' : 'var(--ph-surface)',
+                  borderRadius: 8, cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ fontSize: 9.5, color: isSel ? 'var(--ph-accent-ink)' : 'var(--ph-ink-4)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  {format(day, 'EEE')}
+                </div>
+                <div className="font-mono-data" style={{
+                  fontSize: 15, fontWeight: 500, marginTop: 2,
+                  color: isToday ? 'var(--ph-accent)' : isSel ? 'var(--ph-accent-ink)' : 'var(--ph-ink)',
+                }}>
+                  {format(day, 'd').padStart(2, '0')}
+                </div>
+                <div style={{ fontSize: 9, color: isSel ? 'var(--ph-accent-ink)' : 'var(--ph-ink-4)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+                  {count > 0 ? `·${count}·` : '· ·'}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Mobile rolling date rail */}
+      <div className="md:hidden mb-4">
+        <p className="mb-1 text-right text-[10.5px]" style={{ color: 'var(--ph-ink-4)' }}>
+          Swipe the dates to change week
+        </p>
+        <div ref={mobileRailRef} className="ph-date-strip">
+          {mobileRailDates.map((date) => {
+            const day = parseISO(date)
+            const isToday = isScheduleDateToday(date, todayDate)
+            const isSel = date === initialSelectedDate
+            const count = initialAppointments.filter((appointment) => appointment.date === date).length
+            const accessibility = getScheduleRailDateAccessibility(date, count, isSel)
+            return (
+              <button
+                key={date}
+                ref={isSel ? selectedMobileDateRef : undefined}
+                data-selected={isSel}
+                aria-label={accessibility.ariaLabel}
+                aria-current={accessibility.ariaCurrent}
+                onClick={() => { navigateToDateString(date); setCalView('day') }}
+                style={{
+                  minWidth: 48, padding: '8px 4px', textAlign: 'center',
+                  border: `1px solid ${isSel ? 'var(--ph-accent)' : 'var(--ph-line)'}`,
+                  background: isSel ? 'var(--ph-accent-soft)' : 'var(--ph-surface)',
+                  borderRadius: 8, cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ fontSize: 9.5, color: isSel ? 'var(--ph-accent-ink)' : 'var(--ph-ink-4)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  {format(day, 'EEE')}
+                </div>
+                <div className="font-mono-data" style={{
+                  fontSize: 15, fontWeight: 500, marginTop: 2,
+                  color: isToday ? 'var(--ph-accent)' : isSel ? 'var(--ph-accent-ink)' : 'var(--ph-ink)',
+                }}>
+                  {format(day, 'd').padStart(2, '0')}
+                </div>
+                <div style={{ fontSize: 9, color: isSel ? 'var(--ph-accent-ink)' : 'var(--ph-ink-4)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+                  {count > 0 ? `·${count}·` : '· ·'}
+                </div>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Mobile filter chips */}
@@ -532,23 +659,26 @@ export function ScheduleView({
             minWidth: 640,
           }}>
             <div style={{ borderBottom: '1px solid var(--ph-line)', background: 'var(--ph-surface)' }} />
-            {weekDays.map((day, i) => (
-              <div
-                key={i}
-                style={{
-                  padding: '10px 6px', borderBottom: '1px solid var(--ph-line)',
-                  fontSize: 11, textAlign: 'center',
-                  color: isSameDay(day, new Date()) ? 'var(--ph-accent)' : 'var(--ph-ink-3)',
-                  fontWeight: isSameDay(day, new Date()) ? 600 : 400,
-                  borderLeft: '1px solid var(--ph-line)',
-                }}
-              >
-                <div style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>{format(day, 'EEE')}</div>
-                <div className="font-mono-data" style={{ fontSize: 15, fontWeight: 500, marginTop: 2, color: isSameDay(day, new Date()) ? 'var(--ph-accent)' : 'var(--ph-ink)' }}>
-                  {format(day, 'd')}
+            {weekDays.map((day, i) => {
+              const isToday = isScheduleDateToday(format(day, 'yyyy-MM-dd'), todayDate)
+              return (
+                <div
+                  key={i}
+                  style={{
+                    padding: '10px 6px', borderBottom: '1px solid var(--ph-line)',
+                    fontSize: 11, textAlign: 'center',
+                    color: isToday ? 'var(--ph-accent)' : 'var(--ph-ink-3)',
+                    fontWeight: isToday ? 600 : 400,
+                    borderLeft: '1px solid var(--ph-line)',
+                  }}
+                >
+                  <div style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>{format(day, 'EEE')}</div>
+                  <div className="font-mono-data" style={{ fontSize: 15, fontWeight: 500, marginTop: 2, color: isToday ? 'var(--ph-accent)' : 'var(--ph-ink)' }}>
+                    {format(day, 'd')}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {weekHours.map((h) => (
               <>
                 <div key={`t-${h.label}`} style={{

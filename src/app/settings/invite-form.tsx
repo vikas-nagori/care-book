@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -19,14 +19,19 @@ import { validateInviteInput } from '@/lib/onboarding/invite-helpers'
 import type { UserRole } from '@/lib/supabase/types'
 import { createUserInvite } from './actions'
 
-export function InviteForm() {
+export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' }) {
   const router = useRouter()
   const { toast } = useToast()
+  const instanceId = useId()
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [mobileNumber, setMobileNumber] = useState('')
   const [role, setRole] = useState<UserRole>('staff')
   const [loading, setLoading] = useState(false)
+  const nameId = `${instanceId}-invite-name`
+  const mobileId = `${instanceId}-invite-mobile`
+  const emailId = `${instanceId}-invite-email`
+  const roleId = `${instanceId}-invite-role`
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -66,17 +71,12 @@ export function InviteForm() {
     setLoading(false)
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Invite User</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+  const formContent = (
+    <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="invite-name">Name</Label>
+            <Label htmlFor={nameId}>Name</Label>
             <Input
-              id="invite-name"
+              id={nameId}
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
               placeholder="Asha Patel"
@@ -85,9 +85,9 @@ export function InviteForm() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="invite-mobile">Mobile number</Label>
+            <Label htmlFor={mobileId}>Mobile number</Label>
             <Input
-              id="invite-mobile"
+              id={mobileId}
               value={mobileNumber}
               onChange={(event) => setMobileNumber(event.target.value)}
               placeholder="9876543210"
@@ -97,9 +97,9 @@ export function InviteForm() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="invite-email">Email</Label>
+            <Label htmlFor={emailId}>Email</Label>
             <Input
-              id="invite-email"
+              id={emailId}
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
@@ -108,9 +108,9 @@ export function InviteForm() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="invite-role">Role</Label>
+            <Label htmlFor={roleId}>Role</Label>
             <Select value={role} onValueChange={(value) => setRole(value as UserRole)}>
-              <SelectTrigger id="invite-role">
+              <SelectTrigger id={roleId}>
                 <SelectValue placeholder="Choose a role" />
               </SelectTrigger>
               <SelectContent>
@@ -119,12 +119,23 @@ export function InviteForm() {
               </SelectContent>
             </Select>
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button type="submit" className={variant === 'sheet' ? 'h-11 w-full' : 'w-full'} disabled={loading}>
             {loading ? (
               <><Loader2 className="animate-spin" size={14} /> Sending invite…</>
             ) : 'Send Invite'}
           </Button>
-        </form>
+    </form>
+  )
+
+  if (variant === 'sheet') return formContent
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Invite User</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {formContent}
       </CardContent>
     </Card>
   )

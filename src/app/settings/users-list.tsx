@@ -12,18 +12,51 @@ import {
 } from '@/components/ui/table'
 import type { Profile } from '@/lib/supabase/types'
 
-export function UsersList({ profiles }: { profiles: Profile[] }) {
+export function UsersList({
+  profiles,
+  variant = 'card',
+}: {
+  profiles: Profile[]
+  variant?: 'card' | 'sheet'
+}) {
+  const emptyState = (
+    <p className="text-sm text-muted-foreground">
+      No active users are available yet.
+    </p>
+  )
+
+  if (variant === 'sheet') {
+    if (profiles.length === 0) return emptyState
+
+    return (
+      <div className="divide-y divide-[var(--ph-line)] rounded-lg border border-[var(--ph-line)]">
+        {profiles.map((profile) => (
+          <section key={profile.id} className="space-y-2 p-3.5">
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <p className="min-w-0 break-words text-sm font-semibold text-[var(--ph-ink)] [overflow-wrap:anywhere]">
+                {profile.full_name?.trim() || 'Not added yet'}
+              </p>
+              <Badge className="shrink-0" variant={profile.role === 'admin' ? 'default' : 'secondary'}>
+                {profile.role}
+              </Badge>
+            </div>
+            <div className="space-y-0.5 text-xs text-muted-foreground">
+              <p className="break-all">{profile.email}</p>
+              {profile.mobile_number?.trim() && <p>{profile.mobile_number}</p>}
+            </div>
+          </section>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Active Users</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {profiles.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No active users are available yet.
-          </p>
-        ) : (
+        {profiles.length === 0 ? emptyState : (
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
