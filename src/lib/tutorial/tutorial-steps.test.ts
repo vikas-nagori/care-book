@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { getTutorialSteps } from './tutorial-steps.ts'
+import {
+  clampTutorialStepIndex,
+  getTutorialProgress,
+  getTutorialSteps,
+} from './tutorial-steps.ts'
 
 test('staff tutorial includes the shared daily workflow in order', () => {
   assert.deepEqual(
@@ -50,4 +54,17 @@ test('every tutorial step has practical content and valid internal destinations'
       }
     }
   }
+})
+
+test('tutorial step index stays inside the available range', () => {
+  assert.equal(clampTutorialStepIndex(-1, 6), 0)
+  assert.equal(clampTutorialStepIndex(2, 6), 2)
+  assert.equal(clampTutorialStepIndex(20, 6), 5)
+  assert.equal(clampTutorialStepIndex(2, 0), 0)
+})
+
+test('tutorial progress reports a one-based percentage', () => {
+  assert.equal(getTutorialProgress(0, 6), 100 / 6)
+  assert.equal(getTutorialProgress(5, 6), 100)
+  assert.equal(getTutorialProgress(0, 0), 0)
 })

@@ -183,3 +183,13 @@ export function getTutorialSteps(role: UserRole): TutorialStep[] {
     ? [...sharedSteps, adminBillingStep, adminClinicSetupStep, getFinishStep(role)]
     : [...sharedSteps, getFinishStep(role)]
 }
+
+export function clampTutorialStepIndex(index: number, stepCount: number) {
+  if (stepCount <= 0) return 0
+  return Math.min(Math.max(index, 0), stepCount - 1)
+}
+
+export function getTutorialProgress(index: number, stepCount: number) {
+  if (stepCount <= 0) return 0
+  return (clampTutorialStepIndex(index, stepCount) + 1) * (100 / stepCount)
+}
