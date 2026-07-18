@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -11,6 +11,16 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
 import type { Doctor, Patient, ReferralSource } from '@/lib/supabase/types'
@@ -21,11 +31,32 @@ const REFERRAL_SOURCE_LABEL: Record<ReferralSource, string> = {
   other: 'Other',
 }
 
+type PatientFormValues = {
+  name: string
+  phone: string | null
+  email: string | null
+  dob: string | null
+  gender: string | null
+  address: string | null
+  medical_history: string | null
+  notes: string | null
+  referral_source: string | null
+  referred_by_doctor_id: string | null
+}
+
 export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doctors?: Doctor[] }) {
   const router = useRouter()
   const supabase = createClient()
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
+  // Synchronous re-entrancy guard: blocks a second save (main submit or the
+  // "Add anyway" confirm) while one insert/update is already in flight.
+  const savingRef = useRef(false)
+
+  // When creating a patient whose phone matches an existing record, hold the
+  // pending values here and surface a confirm dialog instead of inserting.
+  const [duplicateNames, setDuplicateNames] = useState<string[]>([])
+  const [pendingData, setPendingData] = useState<PatientFormValues | null>(null)
 
   const [referralSource, setReferralSource] = useState<ReferralSource | ''>(patient?.referral_source ?? '')
   const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(patient?.referred_by_doctor_id ?? null)
@@ -103,6 +134,30 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
     return { doctorId: selectedDoctorId }
   }
 
+  // Persist the patient (insert on create, update on edit) and navigate on success.
+  async function savePatient(data: PatientFormValues) {
+    if (savingRef.current) return
+    savingRef.current = true
+
+    let error
+    if (patient) {
+      ({ error } = await supabase.from('patients').update(data).eq('id', patient.id))
+    } else {
+      ({ error } = await supabase.from('patients').insert(data))
+    }
+
+    if (error) {
+      logger.error('PatientForm/save', error, { patientId: patient?.id })
+      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      savingRef.current = false
+      setLoading(false)
+    } else {
+      toast({ title: patient ? 'Patient updated' : 'Patient added' })
+      router.push('/patients')
+      router.refresh()
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setLoading(true)
@@ -114,7 +169,7 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
     }
 
     const formData = new FormData(e.currentTarget)
-    const data = {
+    const data: PatientFormValues = {
       name: formData.get('name') as string,
       phone: (formData.get('phone') as string) || null,
       email: (formData.get('email') as string) || null,
@@ -127,25 +182,40 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
       referred_by_doctor_id: resolvedDoctor.doctorId,
     }
 
-    let error
-    if (patient) {
-      ({ error } = await supabase.from('patients').update(data).eq('id', patient.id))
-    } else {
-      ({ error } = await supabase.from('patients').insert(data))
+    // On create, warn if an existing patient in this clinic already has this phone.
+    // RLS scopes the lookup to the current clinic; shared family numbers are still
+    // allowed via "Add anyway".
+    if (!patient && data.phone) {
+      const { data: dupes } = await supabase
+        .from('patients')
+        .select('id, name')
+        .eq('phone', data.phone)
+
+      if (dupes && dupes.length > 0) {
+        setDuplicateNames(dupes.map((d) => d.name))
+        setPendingData(data)
+        return
+      }
     }
 
-    if (error) {
-      logger.error('PatientForm/save', error, { patientId: patient?.id })
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
-      setLoading(false)
-    } else {
-      toast({ title: patient ? 'Patient updated' : 'Patient added' })
-      router.push('/patients')
-      router.refresh()
-    }
+    await savePatient(data)
+  }
+
+  function cancelDuplicate() {
+    setPendingData(null)
+    setDuplicateNames([])
+    setLoading(false)
+  }
+
+  async function confirmDuplicate() {
+    const data = pendingData
+    setPendingData(null)
+    setDuplicateNames([])
+    if (data) await savePatient(data)
   }
 
   return (
+    <>
     <Card>
       <CardContent className="pt-6">
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -283,5 +353,24 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
         </form>
       </CardContent>
     </Card>
+
+    <AlertDialog open={pendingData !== null} onOpenChange={(open) => { if (!open) cancelDuplicate() }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Patient may already exist</AlertDialogTitle>
+          <AlertDialogDescription>
+            {duplicateNames.length === 1
+              ? `A patient with this phone number already exists: ${duplicateNames[0]}.`
+              : `${duplicateNames.length} patients with this phone number already exist: ${duplicateNames.join(', ')}.`}
+            {' '}Add this patient anyway?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={cancelDuplicate}>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={confirmDuplicate}>Add anyway</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }
