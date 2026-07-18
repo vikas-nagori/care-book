@@ -50,6 +50,7 @@ export default async function SchedulePage() {
   const [
     { data: appointments, error: appointmentsError },
     { data: patients, error: patientsError },
+    { data: doctors, error: doctorsError },
     { data: assigneeOptions, error: assigneeOptionsError },
     { data: externalStaffOptions, error: externalStaffOptionsError },
   ] = await Promise.all([
@@ -57,6 +58,10 @@ export default async function SchedulePage() {
     supabase
       .from('patients')
       .select('id, name')
+      .order('name'),
+    supabase
+      .from('doctors')
+      .select('*')
       .order('name'),
     supabase
       .from('profiles')
@@ -70,6 +75,7 @@ export default async function SchedulePage() {
 
   if (appointmentsError) logger.error('SchedulePage/appointments', appointmentsError)
   if (patientsError) logger.error('SchedulePage/patients', patientsError)
+  if (doctorsError) logger.error('SchedulePage/doctors', doctorsError)
   if (assigneeOptionsError) logger.error('SchedulePage/assigneeOptions', assigneeOptionsError)
   if (externalStaffOptionsError) logger.error('SchedulePage/externalStaffOptions', externalStaffOptionsError)
 
@@ -88,6 +94,7 @@ export default async function SchedulePage() {
       <ScheduleView
         initialAppointments={normalizedAppointments}
         patients={patients ?? []}
+        doctors={doctors ?? []}
         assigneeOptions={assigneeOptions ?? []}
         externalStaffOptions={externalStaffOptions ?? []}
         currentProfileId={currentProfile?.id ?? null}

@@ -12,10 +12,14 @@ export default async function NewAppointmentPage({
   const { patient_id, from } = await searchParams
   const currentProfile = await getCurrentProfile()
   const supabase = await createClient()
-  const [{ data: patients }, { data: assigneeOptions }, { data: externalStaffOptions }] = await Promise.all([
+  const [{ data: patients }, { data: doctors }, { data: assigneeOptions }, { data: externalStaffOptions }] = await Promise.all([
     supabase
       .from('patients')
       .select('id, name')
+      .order('name'),
+    supabase
+      .from('doctors')
+      .select('*')
       .order('name'),
     supabase
       .from('profiles')
@@ -32,6 +36,7 @@ export default async function NewAppointmentPage({
       <NewAppointmentBackNav from={from} />
       <NewAppointmentForm
         patients={patients ?? []}
+        doctors={doctors ?? []}
         assigneeOptions={assigneeOptions ?? []}
         externalStaffOptions={externalStaffOptions ?? []}
         currentProfileId={currentProfile?.id ?? null}

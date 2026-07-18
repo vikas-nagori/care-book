@@ -95,6 +95,7 @@ export default async function DashboardPage() {
     { data: monthPayments },
     { count: totalPatients },
     { data: patients },
+    { data: doctors },
     { data: assigneeOptions, error: assigneeOptionsError },
     { data: externalStaffOptions, error: externalStaffOptionsError },
   ] = await Promise.all([
@@ -106,6 +107,7 @@ export default async function DashboardPage() {
     monthRevP,
     supabase.from('patients').select('*', { count: 'exact', head: true }),
     supabase.from('patients').select('id, name').order('name'),
+    supabase.from('doctors').select('*').order('name'),
     supabase.from('profiles').select('id, full_name, email, role').order('full_name'),
     supabase
       .from('external_staff')
@@ -157,6 +159,7 @@ export default async function DashboardPage() {
         <div className="hidden md:flex" style={{ gap: 8, alignItems: 'center' }}>
           <DashboardNewAppointmentButton
             patients={patients ?? []}
+            doctors={doctors ?? []}
             assigneeOptions={assigneeOptions ?? []}
             externalStaffOptions={externalStaffOptions ?? []}
             currentProfileId={currentProfile?.id ?? null}
@@ -169,6 +172,7 @@ export default async function DashboardPage() {
       <div className="md:hidden grid grid-cols-2 gap-2">
         <DashboardNewAppointmentMobile
           patients={patients ?? []}
+          doctors={doctors ?? []}
           assigneeOptions={assigneeOptions ?? []}
           externalStaffOptions={externalStaffOptions ?? []}
           currentProfileId={currentProfile?.id ?? null}

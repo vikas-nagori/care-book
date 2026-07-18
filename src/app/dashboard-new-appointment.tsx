@@ -6,10 +6,11 @@ import { format } from 'date-fns'
 import { Plus } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AppointmentForm } from './schedule/appointment-form'
-import type { AppointmentAssigneeOption, ExternalStaff } from '@/lib/supabase/types'
+import type { AppointmentAssigneeOption, Doctor, ExternalStaff } from '@/lib/supabase/types'
 
 interface Props {
   patients: { id: string; name: string }[]
+  doctors: Doctor[]
   assigneeOptions: AppointmentAssigneeOption[]
   externalStaffOptions: ExternalStaff[]
   currentProfileId: string | null
@@ -22,6 +23,7 @@ export function DashboardNewAppointmentButton({
   externalStaffOptions,
   currentProfileId,
   canManageExternalStaff,
+  doctors,
 }: Props) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
@@ -45,6 +47,7 @@ export function DashboardNewAppointmentButton({
           <DialogHeader><DialogTitle>New Appointment</DialogTitle></DialogHeader>
           <AppointmentForm
             patients={patients}
+            doctors={doctors}
             assigneeOptions={assigneeOptions}
             externalStaffOptions={externalStaffOptions}
             currentProfileId={currentProfileId}
@@ -64,6 +67,7 @@ export function DashboardNewAppointmentMobile({
   externalStaffOptions,
   currentProfileId,
   canManageExternalStaff,
+  doctors,
 }: Props) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
@@ -88,6 +92,7 @@ export function DashboardNewAppointmentMobile({
           <DialogHeader><DialogTitle>New Appointment</DialogTitle></DialogHeader>
           <AppointmentForm
             patients={patients}
+            doctors={doctors}
             assigneeOptions={assigneeOptions}
             externalStaffOptions={externalStaffOptions}
             currentProfileId={currentProfileId}

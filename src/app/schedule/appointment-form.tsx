@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/ui/searchable-select'
+import { ReferralFields, useReferralSelection } from '@/components/referral/referral-fields'
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
 import { cn } from '@/lib/utils'
@@ -21,7 +22,7 @@ import {
   type AppointmentPatientDraft,
   type AppointmentPatientOption,
 } from '@/lib/schedule/patient-search'
-import type { Appointment, AppointmentAssigneeOption, AppointmentType, ExternalStaff } from '@/lib/supabase/types'
+import type { Appointment, AppointmentAssigneeOption, AppointmentType, Doctor, ExternalStaff } from '@/lib/supabase/types'
 import { defaultAppointmentType, sortAppointmentTypes } from '@/lib/appointments/appointment-type'
 import { normalizeAppointmentAssignment, parseStaffAssignmentValue } from '@/lib/appointments/assignment'
 
@@ -29,6 +30,7 @@ const UNASSIGNED_ASSIGNEE_VALUE = '__unassigned__'
 
 interface AppointmentFormProps {
   patients: AppointmentPatientOption[]
+  doctors?: Doctor[]
   assigneeOptions?: AppointmentAssigneeOption[]
   externalStaffOptions?: ExternalStaff[]
   currentProfileId?: string | null
@@ -45,6 +47,7 @@ function getAssigneeLabel(assignee: AppointmentAssigneeOption) {
 
 export function AppointmentForm({
   patients,
+  doctors = [],
   assigneeOptions = [],
   externalStaffOptions = [],
   currentProfileId = null,
@@ -78,6 +81,7 @@ export function AppointmentForm({
   const [patientSearchOpen, setPatientSearchOpen] = useState(false)
   const [isCreatingPatient, setIsCreatingPatient] = useState(false)
   const [patientDraft, setPatientDraft] = useState<AppointmentPatientDraft>(createPatientDraftFromName(''))
+  const referral = useReferralSelection()
 
   const filteredPatients = useMemo(
     () => filterAppointmentPatientOptions(patients, patientSearchQuery).slice(0, 8),
@@ -191,9 +195,9 @@ export function AppointmentForm({
     let createdPatient: { id: string; name: string } | null = null
 
     if (!appointment && isCreatingPatient) {
-      const patientData = buildPatientInsertData(patientDraft)
+      const basePatientData = buildPatientInsertData(patientDraft)
 
-      if (!patientData.name || !patientData.phone) {
+      if (!basePatientData.name || !basePatientData.phone) {
         toast({
           title: 'Patient details required',
           description: 'Please enter at least the patient name and phone number.',
@@ -201,6 +205,18 @@ export function AppointmentForm({
         })
         setLoading(false)
         return
+      }
+
+      const resolvedDoctor = await referral.resolveReferredDoctorId()
+      if (!resolvedDoctor) {
+        setLoading(false)
+        return
+      }
+
+      const patientData = {
+        ...basePatientData,
+        referral_source: referral.referralSource || null,
+        referred_by_doctor_id: resolvedDoctor.doctorId,
       }
 
       const { data: insertedPatient, error: patientError } = await supabase
@@ -581,6 +597,8 @@ export function AppointmentForm({
                 onChange={(e) => updatePatientDraft('notes', e.target.value)}
               />
             </div>
+
+            <ReferralFields referral={referral} doctors={doctors} />
           </CardContent>
         </Card>
       )}
