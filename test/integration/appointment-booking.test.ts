@@ -86,6 +86,40 @@ test('booking for a patient with an active package consumes a package slot', { s
   assert.equal(allocated, '1', 'the booked session should be claimed into the package')
 })
 
+test('bulk booking creates every session and runs package allocation for each row', { skip: skipReason() }, () => {
+  const patient = newPatient('Recurring Package Patient')
+
+  query(
+    DB,
+    `insert into packages (patient_id, name, total_sessions, total_amount, per_session_amount, status)
+     values ('${patient}', 'Recurring 10-pack', 10, 8000, 800, 'active')`
+  )
+
+  query(
+    DB,
+    `insert into appointments (patient_id, date, time, type, status, fee)
+     values
+       ('${patient}', current_date + 3, '08:30', 'clinic', 'scheduled', 800),
+       ('${patient}', current_date + 5, '08:30', 'clinic', 'scheduled', 800),
+       ('${patient}', current_date + 7, '08:30', 'clinic', 'scheduled', 800)`
+  )
+
+  const appointmentCount = query(
+    DB,
+    `select count(*) from appointments where patient_id = '${patient}'`
+  )
+  assert.equal(appointmentCount, '3', 'the multi-row insert should create the complete series')
+
+  const allocationCount = query(
+    DB,
+    `select count(*)
+     from package_session_allocations allocation
+     join appointments appointment on appointment.id = allocation.appointment_id
+     where appointment.patient_id = '${patient}'`
+  )
+  assert.equal(allocationCount, '3', 'each inserted session should run package allocation triggers')
+})
+
 test('booking for a patient with no credit succeeds and stays unpaid', { skip: skipReason() }, () => {
   const patient = newPatient('Cash Patient')
 

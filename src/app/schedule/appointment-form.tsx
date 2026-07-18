@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Check, Loader2, Plus, Search } from 'lucide-react'
+import { format, getDay, isValid, parseISO } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -25,8 +26,20 @@ import {
 import type { Appointment, AppointmentAssigneeOption, AppointmentType, Doctor, ExternalStaff } from '@/lib/supabase/types'
 import { defaultAppointmentType, sortAppointmentTypes } from '@/lib/appointments/appointment-type'
 import { normalizeAppointmentAssignment, parseStaffAssignmentValue } from '@/lib/appointments/assignment'
+import { generateRecurringAppointmentDates } from '@/lib/appointments/recurrence'
+import { createAppointment } from './actions'
+import type { NewPatientInput } from './actions'
 
 const UNASSIGNED_ASSIGNEE_VALUE = '__unassigned__'
+const WEEKDAYS = [
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+  { value: 0, label: 'Sun' },
+]
 
 interface AppointmentFormProps {
   patients: AppointmentPatientOption[]
@@ -71,6 +84,10 @@ export function AppointmentForm({
       : UNASSIGNED_ASSIGNEE_VALUE
   const [staffAssignment, setStaffAssignment] = useState(initialStaffAssignment)
   const [fee, setFee] = useState<string>(appointment?.fee?.toString() || '')
+  const [appointmentDate, setAppointmentDate] = useState(appointment?.date || defaultDate || '')
+  const [repeatAppointment, setRepeatAppointment] = useState(false)
+  const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([])
+  const [totalSessions, setTotalSessions] = useState('10')
 
   const selectedType = appointmentTypes.find((type) => type.id === appointmentTypeId) ?? null
   const isSharedType = selectedType?.is_shared ?? false
@@ -88,6 +105,25 @@ export function AppointmentForm({
     [patients, patientSearchQuery],
   )
   const canCreatePatient = shouldOfferCreatePatientOption(patients, patientSearchQuery)
+  const recurringSchedule = useMemo(() => {
+    if (!repeatAppointment) return { dates: [] as string[], error: null as string | null }
+    try {
+      return {
+        dates: generateRecurringAppointmentDates({
+          startDate: appointmentDate,
+          weekdays: selectedWeekdays,
+          totalSessions: Number(totalSessions),
+        }),
+        error: null,
+      }
+    } catch (error) {
+      return {
+        dates: [] as string[],
+        error: error instanceof Error ? error.message : 'The repeat schedule is invalid.',
+      }
+    }
+  }, [appointmentDate, repeatAppointment, selectedWeekdays, totalSessions])
+  const recurringDates = recurringSchedule.dates
 
   // Load the clinic's appointment types once on mount
   useEffect(() => {
@@ -186,13 +222,50 @@ export function AppointmentForm({
     }))
   }
 
+  function toggleRepeatAppointment() {
+    const next = !repeatAppointment
+    if (next && selectedWeekdays.length === 0) {
+      const parsedDate = parseISO(appointmentDate)
+      if (isValid(parsedDate)) setSelectedWeekdays([getDay(parsedDate)])
+    }
+    setRepeatAppointment(next)
+  }
+
+  function toggleWeekday(weekday: number) {
+    setSelectedWeekdays((current) =>
+      current.includes(weekday)
+        ? current.filter((candidate) => candidate !== weekday)
+        : [...current, weekday],
+    )
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    let patientId = selectedPatientId
-    let createdPatient: { id: string; name: string } | null = null
+    const patientId = selectedPatientId
+    let newPatient: NewPatientInput | null = null
+
+    if (!appointmentTypeId) {
+      toast({
+        title: 'Appointment type required',
+        description: 'Choose an appointment type before saving.',
+        variant: 'destructive',
+      })
+      setLoading(false)
+      return
+    }
+
+    if (!appointment && repeatAppointment && recurringSchedule.error) {
+      toast({
+        title: 'Repeat schedule required',
+        description: recurringSchedule.error,
+        variant: 'destructive',
+      })
+      setLoading(false)
+      return
+    }
 
     if (!appointment && isCreatingPatient) {
       const basePatientData = buildPatientInsertData(patientDraft)
@@ -213,49 +286,17 @@ export function AppointmentForm({
         return
       }
 
-      const patientData = {
+      newPatient = {
         ...basePatientData,
         referral_source: referral.referralSource || null,
         referred_by_doctor_id: resolvedDoctor.doctorId,
       }
-
-      const { data: insertedPatient, error: patientError } = await supabase
-        .from('patients')
-        .insert(patientData)
-        .select('id, name')
-        .single()
-
-      if (patientError || !insertedPatient) {
-        logger.error('AppointmentForm/createPatient', patientError, {
-          patientName: patientData.name,
-        })
-        toast({
-          title: 'Patient not added',
-          description: patientError?.message || 'Unable to create the patient record.',
-          variant: 'destructive',
-        })
-        setLoading(false)
-        return
-      }
-
-      patientId = insertedPatient.id
-      createdPatient = insertedPatient
     }
 
-    if (!patientId) {
+    if (!patientId && !newPatient) {
       toast({
         title: 'Patient required',
         description: 'Select an existing patient or create a new patient before booking.',
-        variant: 'destructive',
-      })
-      setLoading(false)
-      return
-    }
-
-    if (!appointmentTypeId) {
-      toast({
-        title: 'Appointment type required',
-        description: 'Choose an appointment type before saving.',
         variant: 'destructive',
       })
       setLoading(false)
@@ -274,53 +315,90 @@ export function AppointmentForm({
         : (appointment?.external_staff_id ?? null),
     })
 
-    const data = {
-      patient_id: patientId,
-      date: formData.get('date') as string,
-      time: formData.get('time') as string,
-      duration_minutes: parseInt(formData.get('duration_minutes') as string) || 45,
-      appointment_type_id: appointmentTypeId,
-      status: (formData.get('status') as string) || 'scheduled',
-      fee: parseFloat(formData.get('fee') as string) || null,
-      assigned_to: assignment.assigned_to,
-      external_staff_id: assignment.external_staff_id,
-      notes: (formData.get('notes') as string) || null,
-    }
+    const time = formData.get('time') as string
+    const durationMinutes = parseInt(formData.get('duration_minutes') as string) || 45
+    const parsedFee = fee.trim() === '' ? null : Number(fee)
+    const normalizedFee = Number.isFinite(parsedFee) ? parsedFee : null
+    const notes = (formData.get('notes') as string) || null
 
-    let error
     if (appointment) {
-      ({ error } = await supabase.from('appointments').update(data).eq('id', appointment.id))
-    } else {
-      ({ error } = await supabase.from('appointments').insert(data))
+      const { error } = await supabase
+        .from('appointments')
+        .update({
+          patient_id: patientId,
+          date: appointmentDate,
+          time,
+          duration_minutes: durationMinutes,
+          appointment_type_id: appointmentTypeId,
+          status: (formData.get('status') as string) || 'scheduled',
+          fee: normalizedFee,
+          assigned_to: assignment.assigned_to,
+          external_staff_id: assignment.external_staff_id,
+          notes,
+        })
+        .eq('id', appointment.id)
+
+      if (error) {
+        logger.error('AppointmentForm/save', error, { appointmentId: appointment.id, patientId })
+        toast({ title: 'Error', description: error.message, variant: 'destructive' })
+        setLoading(false)
+        return
+      }
+
+      toast({
+        title: 'Appointment updated',
+      })
+      setLoading(false)
+      onSuccess?.()
+      return
     }
 
-    if (error) {
-      logger.error('AppointmentForm/save', error, { appointmentId: appointment?.id, patientId })
-      if (createdPatient) {
-        setSelectedPatientId(createdPatient.id)
-        setPatientSearchQuery(createdPatient.name)
+    const result = await createAppointment({
+      patientId: patientId || undefined,
+      newPatient,
+      date: appointmentDate,
+      time,
+      durationMinutes,
+      appointmentTypeId,
+      fee: normalizedFee,
+      assignedTo: assignment.assigned_to,
+      externalStaffId: assignment.external_staff_id,
+      notes,
+      recurrence: repeatAppointment
+        ? { weekdays: selectedWeekdays, totalSessions: Number(totalSessions) }
+        : null,
+    })
+
+    if (!result.success) {
+      const conflictDetails = result.conflictingDates?.length
+        ? ` Conflicting dates: ${result.conflictingDates.map((date) => format(parseISO(date), 'dd MMM yyyy')).join(', ')}.`
+        : ''
+      if (result.createdPatientId && newPatient) {
+        setSelectedPatientId(result.createdPatientId)
+        setPatientSearchQuery(newPatient.name)
         setIsCreatingPatient(false)
         setPatientDraft(createPatientDraftFromName(''))
       }
       toast({
-        title: createdPatient ? 'Appointment not booked' : 'Error',
-        description: createdPatient
-          ? `Patient was added, but the appointment could not be saved: ${error.message}`
-          : error.message,
+        title: result.createdPatientId ? 'Patient added, appointment not booked' : 'Appointment not booked',
+        description: result.createdPatientId
+          ? `The patient was added, but the appointment could not be saved: ${result.message}${conflictDetails}`
+          : `${result.message}${conflictDetails}`,
         variant: 'destructive',
       })
       setLoading(false)
-    } else {
-      toast({
-        title: appointment
-          ? 'Appointment updated'
-          : createdPatient
-            ? 'Patient added and appointment booked'
-            : 'Appointment booked',
-      })
-      setLoading(false)
-      onSuccess?.()
+      return
     }
+
+    toast({
+      title: result.appointmentIds.length > 1
+        ? `${result.appointmentIds.length} appointments booked`
+        : newPatient
+          ? 'Patient added and appointment booked'
+          : 'Appointment booked',
+    })
+    setLoading(false)
+    onSuccess?.()
   }
 
   return (
@@ -405,13 +483,109 @@ export function AppointmentForm({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="date">Date *</Label>
-          <Input id="date" name="date" type="date" defaultValue={defaultDate || appointment?.date || ''} required />
+          <Input
+            id="date"
+            name="date"
+            type="date"
+            value={appointmentDate}
+            onChange={(event) => setAppointmentDate(event.target.value)}
+            required
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="time">Time *</Label>
           <Input id="time" name="time" type="time" defaultValue={appointment?.time?.slice(0, 5) || '09:00'} required />
         </div>
       </div>
+
+      {!appointment && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium">Repeat appointment</p>
+                <p className="text-xs text-muted-foreground">Book the same time, details, and rate on selected weekdays.</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={repeatAppointment}
+                onClick={toggleRepeatAppointment}
+                className={cn(
+                  'relative h-7 w-12 shrink-0 rounded-full transition-colors',
+                  repeatAppointment ? 'bg-primary' : 'bg-muted-foreground/30',
+                )}
+              >
+                <span
+                  className={cn(
+                    'absolute top-1 h-5 w-5 rounded-full bg-background shadow transition-transform',
+                    repeatAppointment ? 'left-6' : 'left-1',
+                  )}
+                />
+                <span className="sr-only">Toggle repeat appointment</span>
+              </button>
+            </div>
+
+            {repeatAppointment && (
+              <div className="mt-4 space-y-4 border-t pt-4">
+                <div className="space-y-2">
+                  <Label>Repeat on *</Label>
+                  <div className="grid grid-cols-7 gap-1">
+                    {WEEKDAYS.map((weekday) => {
+                      const selected = selectedWeekdays.includes(weekday.value)
+                      return (
+                        <button
+                          key={weekday.value}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => toggleWeekday(weekday.value)}
+                          className={cn(
+                            'min-h-11 rounded-md border text-[11px] font-medium transition-colors',
+                            selected
+                              ? 'border-primary bg-primary/10 text-primary'
+                              : 'border-input bg-background text-muted-foreground',
+                          )}
+                        >
+                          {weekday.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="total_sessions">Total sessions *</Label>
+                  <Input
+                    id="total_sessions"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={100}
+                    step={1}
+                    value={totalSessions}
+                    onChange={(event) => setTotalSessions(event.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Maximum 100 appointments.</p>
+                </div>
+
+                {recurringSchedule.error ? (
+                  <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                    {recurringSchedule.error}
+                  </p>
+                ) : recurringDates.length > 0 ? (
+                  <p className="rounded-md border border-green-200 bg-green-50 p-3 text-xs text-green-800">
+                    <strong>{recurringDates.length} appointments</strong>
+                    {' · '}
+                    {format(parseISO(recurringDates[0]), 'dd MMM yyyy')}
+                    {' – '}
+                    {format(parseISO(recurringDates[recurringDates.length - 1]), 'dd MMM yyyy')}
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -606,7 +780,13 @@ export function AppointmentForm({
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? (
           <><Loader2 className="animate-spin" size={14} /> Saving…</>
-        ) : (appointment ? 'Update' : 'Book Appointment')}
+        ) : appointment ? (
+          'Update'
+        ) : repeatAppointment && recurringDates.length > 0 ? (
+          <>Book {recurringDates.length} appointments</>
+        ) : (
+          'Book Appointment'
+        )}
       </Button>
     </form>
   )
