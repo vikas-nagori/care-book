@@ -51,7 +51,7 @@ Add a server-only accessor that reads and validates the timezone cookie. Server-
 
 ### Dashboard
 
-Create one `Date` per request and derive the user's current calendar-day interval, week range, and month range from the resolved user timezone. Convert that day interval into the overlapping Kolkata clinic date keys needed to query candidate appointments. Convert each returned appointment's Kolkata date/time pair into an absolute timestamp, then retain appointments whose timestamps fall inside the user's current-day interval.
+Create one `Date` per request and derive the user's current calendar-day interval, week range, and month range from the resolved user timezone. Treat the day as a half-open interval from local midnight through, but excluding, the next local midnight. Convert that interval into the overlapping Kolkata clinic date keys needed to query candidate appointments. Convert each returned appointment's Kolkata date/time pair into an absolute timestamp, then retain appointments whose timestamps fall inside the user's current-day interval.
 
 Determine "Up next" by comparing each scheduled appointment timestamp directly with the current timestamp. Timestamps are absolute and do not require string clock comparisons; the browser timezone determines the current-day interval, while the appointment's clinic timezone determines how its stored wall-clock fields become an instant. Appointment times continue displaying as their unchanged clinic wall-clock values.
 
@@ -79,6 +79,7 @@ Add focused unit coverage for:
 - the same instant resolving to 18 July at 14:30 in `America/New_York`;
 - a Kolkata clinic appointment date/time converting to the correct absolute timestamp and comparing correctly with `Date.now()` regardless of browser timezone;
 - a user-local day spanning the correct one or two clinic date keys for the appointment candidate query;
+- appointments at the inclusive start and exclusive end of a user-local day;
 - Monday-based week and month boundaries across timezone day/month transitions;
 - invalid or missing timezones falling back to Kolkata;
 - strict date-only formatting without calendar-day shifts;
