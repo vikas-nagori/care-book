@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import Image from 'next/image'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { ArrowRight, Check, Monitor, ShieldCheck, X } from 'lucide-react'
@@ -23,6 +23,9 @@ type MockupDevice = 'desktop' | 'mobile'
 
 // Matches the Tailwind `md` breakpoint below which the tour renders full-screen.
 const TOUR_DESKTOP_MEDIA_QUERY = '(min-width: 768px)'
+
+// The width the desktop mockups + their step-pin coordinates are authored for.
+const DESIGN_WIDTH = 660
 
 function subscribeToViewport(onChange: () => void) {
   const mediaQuery = window.matchMedia(TOUR_DESKTOP_MEDIA_QUERY)
@@ -71,6 +74,27 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
 
   const chapterHasMobile = current.hasMobile
   const effectiveMobile = device === 'mobile' && chapterHasMobile
+
+  // The desktop illustrations are authored at DESIGN_WIDTH; on screens narrower
+  // than that (mobile webapp, no mobile mockup) we scale the whole stage — art
+  // plus its overlaid step pins — down to fit, so nothing reflows or overflows
+  // and the pins stay glued to the right spots. Mobile mockups are already
+  // phone-shaped and render at full width.
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [availableWidth, setAvailableWidth] = useState<number | null>(null)
+  useEffect(() => {
+    if (!open) return
+    const el = stageRef.current
+    if (!el) return
+    const measure = () => setAvailableWidth(el.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [open])
+  const scaleToFit =
+    !effectiveMobile && availableWidth !== null && availableWidth < DESIGN_WIDTH
+  const stageScale = scaleToFit ? availableWidth / DESIGN_WIDTH : 1
 
   const isLastStep = step === current.steps.length - 1
   const isLastChapter = currentIndex === chapters.length - 1
@@ -278,23 +302,23 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
             </header>
 
             {/* stage */}
-            <div className="relative flex justify-start overflow-auto bg-[linear-gradient(180deg,#f6f2ec,#faf8f5)] px-5 py-[34px] md:justify-center md:px-[30px]">
-              <div
-                className={
-                  'relative w-full max-w-[660px] ' +
-                  // Wide desktop illustrations keep their designed width on
-                  // narrow screens (scroll instead of reflow) so the step pins
-                  // stay aligned; the mobile mockups are already phone-shaped.
-                  (effectiveMobile ? 'min-w-0' : 'min-w-[520px] md:min-w-0')
-                }
-              >
-                {mockupHtml ? (
-                  <div
-                    // Static, developer-authored illustration markup — no user
-                    // input flows into these strings (see tour-mockups.ts).
-                    dangerouslySetInnerHTML={{ __html: mockupHtml }}
-                  />
-                ) : null}
+            <div className="relative flex justify-center overflow-auto bg-[linear-gradient(180deg,#f6f2ec,#faf8f5)] px-5 py-[34px] md:px-[30px]">
+              <div ref={stageRef} className="flex w-full max-w-[660px] justify-center">
+                <div
+                  className="relative"
+                  style={
+                    scaleToFit
+                      ? ({ width: DESIGN_WIDTH, zoom: stageScale } as CSSProperties)
+                      : { width: '100%' }
+                  }
+                >
+                  {mockupHtml ? (
+                    <div
+                      // Static, developer-authored illustration markup — no user
+                      // input flows into these strings (see tour-mockups.ts).
+                      dangerouslySetInnerHTML={{ __html: mockupHtml }}
+                    />
+                  ) : null}
 
                 {/* interactive step hotspots */}
                 <div className="pointer-events-none absolute inset-0">
@@ -321,6 +345,7 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
                       </button>
                     )
                   })}
+                  </div>
                 </div>
               </div>
             </div>
