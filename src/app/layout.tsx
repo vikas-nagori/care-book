@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { BottomNav } from '@/components/layout/bottom-nav'
 import { Toaster } from '@/components/ui/toaster'
 import { ServiceWorkerRegistration } from '@/components/layout/service-worker-registration'
+import { TimezoneSync } from '@/components/layout/timezone-sync'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 
@@ -58,6 +59,7 @@ export default async function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
       <body className={`${inter.variable} ${jetbrainsMono.variable} overflow-hidden font-sans`}>
+        <TimezoneSync />
         <div className="flex h-dvh overflow-hidden">
           <Sidebar canViewBilling={access.canViewBilling} />
           <main className="h-full min-w-0 flex-1 overflow-y-auto overscroll-contain pb-bottom-nav md:pb-0">
