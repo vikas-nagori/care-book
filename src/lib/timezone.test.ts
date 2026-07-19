@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  addCalendarDays,
   appointmentToInstant,
   formatDateOnly,
   getClinicDateRangeForInterval,
   getZonedCalendarContext,
   getZonedDate,
   getZonedDayInterval,
+  getZonedDateInterval,
   getZonedTime,
   isInstantInInterval,
   resolveTimeZone,
@@ -19,6 +21,11 @@ test('resolveTimeZone falls back to Kolkata for missing or invalid values', () =
   assert.equal(resolveTimeZone(undefined), 'Asia/Kolkata')
   assert.equal(resolveTimeZone('Invalid/Zone'), 'Asia/Kolkata')
   assert.equal(resolveTimeZone('America/New_York'), 'America/New_York')
+})
+
+test('calendar day arithmetic is independent of the process timezone', () => {
+  assert.equal(addCalendarDays('2026-07-19', 1), '2026-07-20')
+  assert.equal(addCalendarDays('2026-03-01', -1), '2026-02-28')
 })
 
 test('zoned date and time keys honor the supplied browser timezone', () => {
@@ -52,6 +59,17 @@ test('a New York user day maps to both overlapping Kolkata clinic dates', () => 
     startDate: '2026-07-18',
     endDate: '2026-07-19',
   })
+})
+
+test('zoned date ranges convert calendar boundaries to absolute timestamps', () => {
+  const { start, end } = getZonedDateInterval(
+    '2026-07-13',
+    '2026-07-20',
+    'Asia/Kolkata',
+  )
+
+  assert.equal(start.toISOString(), '2026-07-12T18:30:00.000Z')
+  assert.equal(end.toISOString(), '2026-07-19T18:30:00.000Z')
 })
 
 test('clinic wall-clock appointments convert to absolute timestamps', () => {

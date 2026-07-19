@@ -2,13 +2,13 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { format } from 'date-fns'
 import { Plus } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AppointmentForm } from './schedule/appointment-form'
 import type { AppointmentAssigneeOption, Doctor, ExternalStaff } from '@/lib/supabase/types'
 
 interface Props {
+  defaultDate: string
   patients: { id: string; name: string }[]
   doctors: Doctor[]
   assigneeOptions: AppointmentAssigneeOption[]
@@ -18,6 +18,7 @@ interface Props {
 }
 
 export function DashboardNewAppointmentButton({
+  defaultDate,
   patients,
   assigneeOptions,
   externalStaffOptions,
@@ -52,7 +53,7 @@ export function DashboardNewAppointmentButton({
             externalStaffOptions={externalStaffOptions}
             currentProfileId={currentProfileId}
             canManageExternalStaff={canManageExternalStaff}
-            defaultDate={format(new Date(), 'yyyy-MM-dd')}
+            defaultDate={defaultDate}
             onSuccess={() => { setOpen(false); router.refresh() }}
           />
         </DialogContent>
@@ -62,6 +63,7 @@ export function DashboardNewAppointmentButton({
 }
 
 export function DashboardNewAppointmentMobile({
+  defaultDate,
   patients,
   assigneeOptions,
   externalStaffOptions,
@@ -97,7 +99,7 @@ export function DashboardNewAppointmentMobile({
             externalStaffOptions={externalStaffOptions}
             currentProfileId={currentProfileId}
             canManageExternalStaff={canManageExternalStaff}
-            defaultDate={format(new Date(), 'yyyy-MM-dd')}
+            defaultDate={defaultDate}
             onSuccess={() => { setOpen(false); router.refresh() }}
           />
         </DialogContent>

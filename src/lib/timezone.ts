@@ -61,7 +61,7 @@ function formatUtcDate(date: Date) {
   return `${year}-${month}-${day}`
 }
 
-function addCalendarDays(value: string, amount: number) {
+export function addCalendarDays(value: string, amount: number) {
   const date = dateKeyToUtcDate(value)
   date.setUTCDate(date.getUTCDate() + amount)
   return formatUtcDate(date)
@@ -107,9 +107,21 @@ export function getZonedDayInterval(now: Date, timeZone: string) {
   const resolvedTimeZone = resolveTimeZone(timeZone)
   const date = getZonedDate(now, resolvedTimeZone)
 
+  return getZonedDateInterval(date, addCalendarDays(date, 1), resolvedTimeZone)
+}
+
+export function getZonedDateInterval(
+  startDate: string,
+  endDate: string,
+  timeZone: string,
+) {
+  dateKeyToUtcDate(startDate)
+  dateKeyToUtcDate(endDate)
+  const resolvedTimeZone = resolveTimeZone(timeZone)
+
   return {
-    start: fromZonedTime(`${date}T00:00:00`, resolvedTimeZone),
-    end: fromZonedTime(`${addCalendarDays(date, 1)}T00:00:00`, resolvedTimeZone),
+    start: fromZonedTime(`${startDate}T00:00:00`, resolvedTimeZone),
+    end: fromZonedTime(`${endDate}T00:00:00`, resolvedTimeZone),
   }
 }
 

@@ -2,10 +2,21 @@ import { getCurrentProfile } from '@/lib/auth'
 import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { getAppointmentVisibilityFilter } from '@/lib/access/appointment-visibility'
 import { createClient } from '@/lib/supabase/server'
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
 import { buildPaymentDueRows } from '@/lib/billing/payment-due'
 import { formatTime12 } from '@/lib/format-time'
 import { logger } from '@/lib/logger'
+import {
+  addCalendarDays,
+  getClinicDateRangeForInterval,
+  getZonedCalendarContext,
+  getZonedDateInterval,
+  getZonedDayInterval,
+} from '@/lib/timezone'
+import { getUserTimeZone } from '@/lib/timezone/server'
+import {
+  filterAppointmentsInInterval,
+  findNextScheduledAppointment,
+} from '@/lib/dashboard/appointments'
 import Link from 'next/link'
 import { CalendarDays, Users, IndianRupee, AlertCircle } from 'lucide-react'
 import { DashboardDate } from './dashboard-date'
@@ -42,25 +53,33 @@ export default async function DashboardPage() {
   const access = getRestrictedUiAccess(currentProfile)
   const appointmentVisibilityFilter = getAppointmentVisibilityFilter(currentProfile)
   const supabase = await createClient()
-  const today = format(new Date(), 'yyyy-MM-dd')
-  const weekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
-  const weekEnd = format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
-  const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd')
-  const monthEnd = format(endOfMonth(new Date()), 'yyyy-MM-dd')
+  const userTimeZone = await getUserTimeZone()
+  const now = new Date()
+  const calendar = getZonedCalendarContext(now, userTimeZone)
+  const dayInterval = getZonedDayInterval(now, userTimeZone)
+  const weekInterval = getZonedDateInterval(
+    calendar.weekStart,
+    addCalendarDays(calendar.weekEnd, 1),
+    userTimeZone,
+  )
+  const dayClinicRange = getClinicDateRangeForInterval(dayInterval.start, dayInterval.end)
+  const weekClinicRange = getClinicDateRangeForInterval(weekInterval.start, weekInterval.end)
 
   let apptQuery = supabase
     .from('appointments')
     .select('id, date, time, duration_minutes, type, type_is_shared, status, payment_status, fee, patient:patients(id, name, phone)')
-    .eq('date', today)
+    .gte('date', dayClinicRange.startDate)
+    .lte('date', dayClinicRange.endDate)
+    .order('date')
     .order('time')
 
   if (appointmentVisibilityFilter) apptQuery = apptQuery.or(appointmentVisibilityFilter)
 
   let weekCountQuery = supabase
     .from('appointments')
-    .select('id', { count: 'exact', head: true })
-    .gte('date', weekStart)
-    .lte('date', weekEnd)
+    .select('id, date, time, status')
+    .gte('date', weekClinicRange.startDate)
+    .lte('date', weekClinicRange.endDate)
 
   if (appointmentVisibilityFilter) weekCountQuery = weekCountQuery.or(appointmentVisibilityFilter)
 
@@ -83,12 +102,12 @@ export default async function DashboardPage() {
     : Promise.resolve({ data: [], error: null })
 
   const monthRevP = access.canViewBilling
-    ? supabase.from('payments').select('amount').gte('date', monthStart).lte('date', monthEnd)
+    ? supabase.from('payments').select('amount').gte('date', calendar.monthStart).lte('date', calendar.monthEnd)
     : Promise.resolve({ data: [], error: null })
 
   const [
     { data: rawAppts, error: apptError },
-    { count: weekCount },
+    { data: rawWeekAppointments, error: weekAppointmentsError },
     { data: dueAppointments },
     { data: allPayments },
     { data: appointmentPayments },
@@ -116,18 +135,28 @@ export default async function DashboardPage() {
   ])
 
   if (apptError) logger.error('Dashboard/appts', apptError)
+  if (weekAppointmentsError) logger.error('Dashboard/weekAppointments', weekAppointmentsError)
   if (assigneeOptionsError) logger.error('Dashboard/assigneeOptions', assigneeOptionsError)
   if (externalStaffOptionsError) logger.error('Dashboard/externalStaffOptions', externalStaffOptionsError)
 
-  type ApptRow = Pick<Appointment, 'id' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status' | 'payment_status' | 'fee'> & {
+  type ApptRow = Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status' | 'payment_status' | 'fee'> & {
     patient: { id: string; name: string; phone: string } | null
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const appts: ApptRow[] = ((rawAppts ?? []) as any[]).map((a) => ({
-    ...a,
-    patient: Array.isArray(a.patient) ? (a.patient[0] ?? null) : (a.patient ?? null),
-  }))
+  const appts: ApptRow[] = filterAppointmentsInInterval(
+    ((rawAppts ?? []) as any[]).map((a) => ({
+      ...a,
+      patient: Array.isArray(a.patient) ? (a.patient[0] ?? null) : (a.patient ?? null),
+    })),
+    dayInterval.start,
+    dayInterval.end,
+  )
+  const weekCount = filterAppointmentsInInterval(
+    (rawWeekAppointments ?? []) as Pick<Appointment, 'id' | 'date' | 'time' | 'status'>[],
+    weekInterval.start,
+    weekInterval.end,
+  ).length
 
   const paymentDueRows = buildPaymentDueRows({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -140,9 +169,7 @@ export default async function DashboardPage() {
   })
   const outstanding = paymentDueRows.reduce((s, r) => s + r.netDue, 0)
   const monthRevenue = (monthPayments ?? []).reduce((s, p) => s + Number(p.amount), 0)
-  const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
-  const nowTime = `${nowIST.getHours().toString().padStart(2, '0')}:${nowIST.getMinutes().toString().padStart(2, '0')}`
-  const nextAppt = appts.find((a) => a.status === 'scheduled' && a.time.slice(0, 5) >= nowTime)
+  const nextAppt = findNextScheduledAppointment(appts, now)
   const cancelledCount = appts.filter((a) => a.status === 'cancelled').length
 
   return (
@@ -158,6 +185,7 @@ export default async function DashboardPage() {
         </div>
         <div className="hidden md:flex" style={{ gap: 8, alignItems: 'center' }}>
           <DashboardNewAppointmentButton
+            defaultDate={calendar.date}
             patients={patients ?? []}
             doctors={doctors ?? []}
             assigneeOptions={assigneeOptions ?? []}
@@ -171,6 +199,7 @@ export default async function DashboardPage() {
       {/* Mobile quick-actions */}
       <div className={`md:hidden grid gap-2 ${access.canViewBilling ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <DashboardNewAppointmentMobile
+          defaultDate={calendar.date}
           patients={patients ?? []}
           doctors={doctors ?? []}
           assigneeOptions={assigneeOptions ?? []}

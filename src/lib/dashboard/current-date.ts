@@ -12,6 +12,7 @@ export function formatDashboardDate(date: Date, timeZone: string) {
   try {
     return getFormatter(timeZone).format(date)
   } catch {
-    return getFormatter('UTC').format(date)
+    return getFormatter(DEFAULT_TIME_ZONE).format(date)
   }
 }
+import { DEFAULT_TIME_ZONE } from '../timezone.ts'

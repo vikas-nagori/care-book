@@ -13,8 +13,8 @@ test('formatDashboardDate respects the requested timezone when formatting the da
   )
 })
 
-test('formatDashboardDate falls back to UTC when the timezone is invalid', () => {
-  const date = new Date('2026-01-01T00:30:00.000Z')
+test('formatDashboardDate falls back to Kolkata when the timezone is invalid', () => {
+  const date = new Date('2025-12-31T18:30:00.000Z')
 
   assert.equal(formatDashboardDate(date, 'Invalid/Timezone'), 'Thursday, 01 Jan 2026')
 })
