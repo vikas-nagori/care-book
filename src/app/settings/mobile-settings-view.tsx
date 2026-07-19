@@ -31,6 +31,7 @@ import type {
   UserInvite,
 } from '@/lib/supabase/types'
 import { cn } from '@/lib/utils'
+import { GuidedTourLauncher } from '@/components/tour/guided-tour-launcher'
 import { AccountSummary } from './account-summary'
 import { AppointmentTypesList } from './appointment-types-list'
 import { ExternalStaffList } from './external-staff-list'
@@ -114,6 +115,9 @@ export function MobileSettingsView({
 
   return (
     <>
+      <div className="mb-4">
+        <GuidedTourLauncher />
+      </div>
       <div className="overflow-hidden rounded-[12px] border border-[var(--ph-line)] bg-[var(--ph-surface)]">
         {sections.map((section, index) => {
           const Icon = sectionIcons[section.key]

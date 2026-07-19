@@ -12,6 +12,7 @@ import type {
   Profile,
   UserInvite,
 } from '@/lib/supabase/types'
+import { GuidedTourLauncher } from '@/components/tour/guided-tour-launcher'
 import { AccountSummary } from './account-summary'
 import { AppointmentTypesList } from './appointment-types-list'
 import { ExternalStaffList } from './external-staff-list'
@@ -67,6 +68,7 @@ export function SettingsResponsiveView({
   if (isDesktop) {
     return (
       <div className="hidden space-y-6 md:block">
+        <GuidedTourLauncher />
         <AccountSummary profile={profile} logoutAction={logoutAction} />
         {accessLevel === 'admin' && (
           <div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
