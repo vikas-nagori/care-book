@@ -142,10 +142,12 @@ export default async function DashboardPage() {
   type ApptRow = Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status' | 'payment_status' | 'fee'> & {
     patient: { id: string; name: string; phone: string } | null
   }
+  type RawApptRow = Omit<ApptRow, 'patient'> & {
+    patient: ApptRow['patient'] | Exclude<ApptRow['patient'], null>[]
+  }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const appts: ApptRow[] = filterAppointmentsInInterval(
-    ((rawAppts ?? []) as any[]).map((a) => ({
+    ((rawAppts ?? []) as RawApptRow[]).map((a) => ({
       ...a,
       patient: Array.isArray(a.patient) ? (a.patient[0] ?? null) : (a.patient ?? null),
     })),
