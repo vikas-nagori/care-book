@@ -35,6 +35,19 @@ test('resolveScheduleDateRange falls back to the current Kolkata date for missin
   }
 })
 
+test('resolveScheduleDateRange honors the supplied browser timezone for its fallback date', () => {
+  const now = new Date('2026-01-01T18:30:00.000Z')
+
+  assert.equal(
+    resolveScheduleDateRange(undefined, now, 'America/New_York').selectedDate,
+    '2026-01-01',
+  )
+  assert.equal(
+    resolveScheduleDateRange('2026-02-03', now, 'America/New_York').selectedDate,
+    '2026-02-03',
+  )
+})
+
 test('buildScheduleRailDates returns the inclusive selected date plus or minus 21 days', () => {
   const dates = buildScheduleRailDates('2026-01-15')
 

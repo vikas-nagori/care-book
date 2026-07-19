@@ -6,14 +6,16 @@ import { join } from 'node:path'
 const schedulePagePath = join(process.cwd(), 'src/app/schedule/page.tsx')
 const scheduleViewPath = join(process.cwd(), 'src/app/schedule/schedule-view.tsx')
 
-test('schedule page normalizes the URL date and queries the rolling date range', () => {
+test('schedule page resolves the browser timezone and queries the rolling date range', () => {
   const source = readFileSync(schedulePagePath, 'utf8')
 
   assert.match(source, /searchParams: Promise<\{ date\?: string \| string\[\] \}>/)
-  assert.match(source, /resolveScheduleDateRange\(date\)/)
+  assert.match(source, /const userTimeZone = await getUserTimeZone\(\)/)
+  assert.match(source, /resolveScheduleDateRange\(date, now, userTimeZone\)/)
   assert.match(source, /\.gte\('date', rangeStart\)/)
   assert.match(source, /\.lte\('date', rangeEnd\)/)
   assert.match(source, /initialSelectedDate=\{selectedDate\}/)
+  assert.match(source, /todayDate=\{todayDate\}/)
 })
 
 test('schedule view pushes date changes into browser history and renders a separate mobile rail', () => {
@@ -32,13 +34,15 @@ test('schedule view pushes date changes into browser history and renders a separ
   assert.match(source, /Swipe the dates to change week/)
 })
 
-test('schedule view compares Today using Kolkata date keys throughout', () => {
+test('schedule view compares Today using the server-derived user date throughout', () => {
   const source = readFileSync(scheduleViewPath, 'utf8')
 
   assert.equal(
     source.match(/isScheduleDateToday\(format\(day, 'yyyy-MM-dd'\), todayDate\)/g)?.length,
     2
   )
+  assert.match(source, /todayDate: string/)
+  assert.doesNotMatch(source, /resolveScheduleDateRange\(undefined\)/)
   assert.doesNotMatch(source, /isSameDay\(day, new Date\(\)\)/)
 })
 

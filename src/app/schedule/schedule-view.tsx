@@ -17,7 +17,6 @@ import {
   getScheduleRailDateAccessibility,
   getScheduleRailCenteringBehavior,
   isScheduleDateToday,
-  resolveScheduleDateRange,
 } from '@/lib/schedule/date-range'
 
 // Chip/cell accent colors keyed off the type's visibility: shared types (e.g. clinic
@@ -30,6 +29,7 @@ function typeColorTokens(isShared: boolean) {
 
 interface ScheduleViewProps {
   initialSelectedDate: string
+  todayDate: string
   initialAppointments: (Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status'> & {
     payment_status?: Appointment['payment_status']
     assigned_to?: string | null
@@ -114,6 +114,7 @@ function computeColumns<T extends { id: string; time: string; duration_minutes: 
 
 export function ScheduleView({
   initialSelectedDate,
+  todayDate,
   initialAppointments,
   patients,
   doctors,
@@ -128,7 +129,6 @@ export function ScheduleView({
     () => buildScheduleRailDates(initialSelectedDate),
     [initialSelectedDate]
   )
-  const todayDate = resolveScheduleDateRange(undefined).selectedDate
   const [calView, setCalView] = useState<'day' | 'week'>('day')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [mobileDialogOpen, setMobileDialogOpen] = useState(false)
@@ -260,7 +260,7 @@ export function ScheduleView({
             <ChevronLeft size={14} />
           </button>
           <button
-            onClick={() => navigateToDateString(resolveScheduleDateRange(undefined).selectedDate)}
+            onClick={() => navigateToDateString(todayDate)}
             style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--ph-line)', background: 'var(--ph-surface)', cursor: 'pointer', color: 'var(--ph-ink-2)' }}
           >
             Today

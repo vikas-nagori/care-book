@@ -3,6 +3,7 @@ import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { getAppointmentVisibilityFilter } from '@/lib/access/appointment-visibility'
 import { createClient } from '@/lib/supabase/server'
 import { resolveScheduleDateRange } from '@/lib/schedule/date-range'
+import { getUserTimeZone } from '@/lib/timezone/server'
 import { logger } from '@/lib/logger'
 import { ScheduleView } from './schedule-view'
 import type { Appointment, ExternalStaff } from '@/lib/supabase/types'
@@ -24,7 +25,10 @@ export default async function SchedulePage({
   searchParams: Promise<{ date?: string | string[] }>
 }) {
   const { date } = await searchParams
-  const { selectedDate, rangeStart, rangeEnd } = resolveScheduleDateRange(date)
+  const userTimeZone = await getUserTimeZone()
+  const now = new Date()
+  const { selectedDate, rangeStart, rangeEnd } = resolveScheduleDateRange(date, now, userTimeZone)
+  const todayDate = resolveScheduleDateRange(undefined, now, userTimeZone).selectedDate
   const currentProfile = await getCurrentProfile()
   const access = getRestrictedUiAccess(currentProfile)
   const appointmentVisibilityFilter = getAppointmentVisibilityFilter(currentProfile)
@@ -96,6 +100,7 @@ export default async function SchedulePage({
     <div className="p-4 md:p-6">
       <ScheduleView
         initialSelectedDate={selectedDate}
+        todayDate={todayDate}
         initialAppointments={normalizedAppointments}
         patients={patients ?? []}
         doctors={doctors ?? []}

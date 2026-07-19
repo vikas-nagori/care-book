@@ -2,7 +2,8 @@ import { getCurrentProfile } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { NewAppointmentBackNav } from './back-nav'
 import { NewAppointmentForm } from './new-appointment-form'
-import { format } from 'date-fns'
+import { getZonedDate } from '@/lib/timezone'
+import { getUserTimeZone } from '@/lib/timezone/server'
 
 export default async function NewAppointmentPage({
   searchParams,
@@ -10,6 +11,8 @@ export default async function NewAppointmentPage({
   searchParams: Promise<{ patient_id?: string; from?: string }>
 }) {
   const { patient_id, from } = await searchParams
+  const userTimeZone = await getUserTimeZone()
+  const defaultDate = getZonedDate(new Date(), userTimeZone)
   const currentProfile = await getCurrentProfile()
   const supabase = await createClient()
   const [{ data: patients }, { data: doctors }, { data: assigneeOptions }, { data: externalStaffOptions }] = await Promise.all([
@@ -41,7 +44,7 @@ export default async function NewAppointmentPage({
         externalStaffOptions={externalStaffOptions ?? []}
         currentProfileId={currentProfile?.id ?? null}
         canManageExternalStaff={currentProfile?.role === 'admin'}
-        defaultDate={format(new Date(), 'yyyy-MM-dd')}
+        defaultDate={defaultDate}
         defaultPatientId={patient_id}
         from={from}
       />
