@@ -12,14 +12,15 @@ The affected mobile fallbacks are Roles and Permissions for all relevant users, 
 - Mobile users do not see a Desktop/Mobile selector and cannot retain or create a desktop override.
 - Desktop users retain the Desktop/Mobile selector and can inspect either version.
 - Every tour chapter has both desktop and mobile artwork. Roles, Permissions, and Billing receive genuine phone-oriented illustrations based on the application's mobile navigation and settings/billing layouts.
-- Changing viewport size resolves the displayed device from the current viewport policy. A desktop-only override is ignored on mobile and becomes relevant again only when the viewport is desktop-width.
+- Entering a mobile viewport clears any stored Desktop/Mobile override. Returning to a desktop viewport therefore uses the normal desktop default until the user chooses again.
 - Closing and reopening the tour cannot cause desktop artwork to appear on a mobile viewport.
+- While the viewport remains desktop-width, the user's selected mockup may persist when the tour is closed and reopened, matching the existing resume behavior.
 
 ## Architecture
 
 Move device selection into a small pure helper in `src/lib/tour/device.ts`. It accepts the viewport class and optional desktop-view choice, and returns the effective mockup device. The helper makes the invariant explicit: mobile viewport always returns `mobile`; desktop viewport returns the user's selected view or defaults to `desktop`.
 
-`GuidedTour` continues to observe the 768px media query. It uses the helper for rendering, shows the selector only on desktop viewports, and uses the resolved device consistently for the label, mockup lookup, hotspot placement, and stage sizing. Existing desktop scaling remains useful only for narrow embedded contexts but is no longer a mobile fallback path.
+`GuidedTour` continues to observe the 768px media query. It uses the helper for rendering, shows the selector only on desktop viewports, clears the override whenever the viewport becomes mobile, and uses the resolved device consistently for the label, mockup lookup, hotspot placement, and stage sizing. Existing desktop scaling remains useful only for narrow embedded contexts but is no longer a mobile fallback path.
 
 The content model no longer needs `hasMobile`. `MOBILE_MOCKUPS` becomes `Record<TourChapterId, string>` so TypeScript requires artwork for every chapter. This removes the possibility of silently falling back when a new chapter is introduced.
 
