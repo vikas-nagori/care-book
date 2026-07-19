@@ -11,6 +11,7 @@ import {
   type TourChapterId,
   type TourRole,
 } from '@/lib/tour/content'
+import { resolveTourDevice, type TourMockupDevice } from '@/lib/tour/device'
 import { DESKTOP_MOCKUPS, MOBILE_MOCKUPS } from './tour-mockups'
 
 type GuidedTourProps = {
@@ -18,8 +19,6 @@ type GuidedTourProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
-
-type MockupDevice = 'desktop' | 'mobile'
 
 // Matches the Tailwind `md` breakpoint below which the tour renders full-screen.
 const TOUR_DESKTOP_MEDIA_QUERY = '(min-width: 768px)'
@@ -55,11 +54,15 @@ function useIsDesktopViewport() {
 export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
   const [chapterId, setChapterId] = useState<TourChapterId | null>(null)
   const [stepIndex, setStepIndex] = useState(0)
-  // `null` follows the viewport (mobile viewport → mobile mockup); a non-null
-  // value is an explicit choice from the Desktop/Mobile toggle.
-  const [deviceOverride, setDeviceOverride] = useState<MockupDevice | null>(null)
+  // A preview choice is available only while the viewport remains desktop-width.
+  const [deviceOverride, setDeviceOverride] = useState<TourMockupDevice | null>(null)
   const isDesktopViewport = useIsDesktopViewport()
-  const device: MockupDevice = deviceOverride ?? (isDesktopViewport ? 'desktop' : 'mobile')
+  const device = resolveTourDevice(isDesktopViewport, deviceOverride)
+  const isMobile = device === 'mobile'
+
+  useEffect(() => {
+    if (!isDesktopViewport) setDeviceOverride(null)
+  }, [isDesktopViewport])
 
   const chapters = getChaptersForRole(role)
   const groups = getGroupsForRole(role)
@@ -72,14 +75,9 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
   const step = Math.min(stepIndex, current.steps.length - 1)
   const activeStep = current.steps[step]
 
-  const chapterHasMobile = current.hasMobile
-  const effectiveMobile = device === 'mobile' && chapterHasMobile
-
   // The desktop illustrations are authored at DESIGN_WIDTH; on screens narrower
-  // than that (mobile webapp, no mobile mockup) we scale the whole stage — art
-  // plus its overlaid step pins — down to fit, so nothing reflows or overflows
-  // and the pins stay glued to the right spots. Mobile mockups are already
-  // phone-shaped and render at full width.
+  // than that we scale the whole preview — art plus its overlaid step pins — so
+  // nothing reflows and the pins stay aligned. Mobile mockups are phone-shaped.
   const stageRef = useRef<HTMLDivElement>(null)
   const [availableWidth, setAvailableWidth] = useState<number | null>(null)
   useEffect(() => {
@@ -93,7 +91,7 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
     return () => observer.disconnect()
   }, [open])
   const scaleToFit =
-    !effectiveMobile && availableWidth !== null && availableWidth < DESIGN_WIDTH
+    !isMobile && availableWidth !== null && availableWidth < DESIGN_WIDTH
   const stageScale = scaleToFit ? availableWidth / DESIGN_WIDTH : 1
 
   const isLastStep = step === current.steps.length - 1
@@ -136,7 +134,7 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
       : 'Next chapter'
     : 'Next'
 
-  const mockupHtml = effectiveMobile
+  const mockupHtml = isMobile
     ? MOBILE_MOCKUPS[current.id]
     : DESKTOP_MOCKUPS[current.id]
 
@@ -261,7 +259,7 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
                   <span className="h-[3px] w-[3px] rounded-full bg-[var(--ph-ink-4)]" />
                   <span className="inline-flex items-center gap-1">
                     <Monitor size={12} strokeWidth={2} aria-hidden="true" />
-                    {effectiveMobile ? 'Mobile' : 'Desktop'}
+                    {isMobile ? 'Mobile' : 'Desktop'}
                   </span>
                 </div>
                 <DialogPrimitive.Title asChild>
@@ -275,19 +273,19 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
                   </p>
                 </DialogPrimitive.Description>
               </div>
-              {chapterHasMobile ? (
+              {isDesktopViewport ? (
                 <div className="mt-0.5 inline-flex shrink-0 rounded-[9px] border border-[var(--ph-line)] bg-[var(--ph-bg-soft)] p-0.5">
                   <button
                     type="button"
                     onClick={() => setDeviceOverride('desktop')}
-                    className={segmentClass(!effectiveMobile)}
+                    className={segmentClass(!isMobile)}
                   >
                     Desktop
                   </button>
                   <button
                     type="button"
                     onClick={() => setDeviceOverride('mobile')}
-                    className={segmentClass(effectiveMobile)}
+                    className={segmentClass(isMobile)}
                   >
                     Mobile
                   </button>
@@ -320,31 +318,31 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
                     />
                   ) : null}
 
-                {/* interactive step hotspots */}
-                <div className="pointer-events-none absolute inset-0">
-                  {current.steps.map((s, i) => {
-                    const on = i === step
-                    const left = effectiveMobile ? 62 : s.x
-                    const top = effectiveMobile ? 104 + i * 84 : s.y
-                    return (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => setStepIndex(i)}
-                        aria-label={`Step ${i + 1}: ${s.title}`}
-                        aria-current={on ? 'step' : undefined}
-                        className={
-                          'pointer-events-auto absolute grid h-[26px] w-[26px] -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full text-[12px] font-bold transition-transform ' +
-                          (on
-                            ? 'z-[2] animate-[pinpulse_1.8s_ease-out_infinite] border-2 border-white bg-[var(--ph-accent)] text-white shadow-[0_2px_6px_rgba(0,0,0,0.25)]'
-                            : 'z-[1] border-2 border-[var(--ph-accent)] bg-white text-[var(--ph-accent-ink)] shadow-[0_1px_3px_rgba(0,0,0,0.18)]')
-                        }
-                        style={{ left: `${left}%`, top: `${top}px` }}
-                      >
-                        {i + 1}
-                      </button>
-                    )
-                  })}
+                  {/* interactive step hotspots */}
+                  <div className="pointer-events-none absolute inset-0">
+                    {current.steps.map((s, i) => {
+                      const on = i === step
+                      const left = isMobile ? 62 : s.x
+                      const top = isMobile ? 104 + i * 84 : s.y
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setStepIndex(i)}
+                          aria-label={`Step ${i + 1}: ${s.title}`}
+                          aria-current={on ? 'step' : undefined}
+                          className={
+                            'pointer-events-auto absolute grid h-[26px] w-[26px] -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full text-[12px] font-bold transition-transform ' +
+                            (on
+                              ? 'z-[2] animate-[pinpulse_1.8s_ease-out_infinite] border-2 border-white bg-[var(--ph-accent)] text-white shadow-[0_2px_6px_rgba(0,0,0,0.25)]'
+                              : 'z-[1] border-2 border-[var(--ph-accent)] bg-white text-[var(--ph-accent-ink)] shadow-[0_1px_3px_rgba(0,0,0,0.18)]')
+                          }
+                          style={{ left: `${left}%`, top: `${top}px` }}
+                        >
+                          {i + 1}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               </div>
