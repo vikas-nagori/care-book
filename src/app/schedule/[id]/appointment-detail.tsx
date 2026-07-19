@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Edit, FileText, IndianRupee, Loader2, MapPin, Phone, Trash2, User, UserRound } from 'lucide-react'
-import { format } from 'date-fns'
+import { formatDateOnly } from '@/lib/timezone'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -126,7 +126,7 @@ export function AppointmentDetail({
             </div>
           )}
           <div>
-            <p className="font-medium">{format(new Date(appointment.date), 'EEEE, dd MMM yyyy')}</p>
+            <p className="font-medium">{formatDateOnly(appointment.date, 'EEEE, dd MMM yyyy')}</p>
             <p className="text-sm text-muted-foreground">
               {formatTime12(appointment.time)} · {appointment.duration_minutes}min · <span>{appointment.type}</span>
             </p>

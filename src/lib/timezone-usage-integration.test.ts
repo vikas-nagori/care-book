@@ -42,3 +42,26 @@ test('billing allocation previews retain the Kolkata clinic business day', () =>
   assert.match(billingForm, /defaultValue=\{defaultPaymentDate\}/)
   assert.doesNotMatch(billingForm, /const IST = 'Asia\/Kolkata'/)
 })
+
+test('patient flows use the browser date default and preserve date-only calendar values', () => {
+  const patientPage = source('src/app/patients/[id]/page.tsx')
+  const patientDetail = source('src/app/patients/[id]/patient-detail.tsx')
+  const treatmentPlanForm = source('src/app/patients/[id]/treatment-plan-form.tsx')
+  const appointmentDetail = source('src/app/schedule/[id]/appointment-detail.tsx')
+  const billingView = source('src/app/billing/billing-view.tsx')
+
+  assert.match(patientPage, /const userTimeZone = await getUserTimeZone\(\)/)
+  assert.match(patientPage, /const defaultDate = getZonedDate\(new Date\(\), userTimeZone\)/)
+  assert.match(patientPage, /defaultDate=\{defaultDate\}/)
+  assert.match(patientDetail, /defaultDate: string/)
+  assert.match(patientDetail, /<TreatmentPlanForm[\s\S]*defaultDate=\{defaultDate\}/)
+  assert.match(treatmentPlanForm, /defaultDate: string/)
+  assert.match(treatmentPlanForm, /plan\?\.start_date \?\? defaultDate/)
+
+  assert.match(patientDetail, /formatDateOnly\(patient\.dob, 'dd MMM yyyy'\)/)
+  assert.match(appointmentDetail, /formatDateOnly\(appointment\.date, 'EEEE, dd MMM yyyy'\)/)
+  assert.match(billingView, /formatDateOnly\(item\.sortDate, 'dd MMM yyyy'\)/)
+  assert.doesNotMatch(patientDetail, /format\(new Date\(/)
+  assert.doesNotMatch(appointmentDetail, /format\(new Date\(appointment\.date\)/)
+  assert.doesNotMatch(billingView, /format\(new Date\(item\.sortDate\)/)
+})

@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import { logger } from '@/lib/logger'
 import { PatientDetail } from './patient-detail'
+import { getZonedDate } from '@/lib/timezone'
+import { getUserTimeZone } from '@/lib/timezone/server'
 
 const APPOINTMENTS_PAGE_SIZE = 20
 
@@ -25,6 +27,8 @@ export default async function PatientPage({
   const access = getRestrictedUiAccess(currentProfile)
   const appointmentVisibilityFilter = getAppointmentVisibilityFilter(currentProfile)
   const supabase = await createClient()
+  const userTimeZone = await getUserTimeZone()
+  const defaultDate = getZonedDate(new Date(), userTimeZone)
 
   const { data: patient, error: patientError } = await supabase
     .from('patients')
@@ -109,6 +113,7 @@ export default async function PatientPage({
   return (
     <div className="px-4 pb-4 md:p-6">
       <PatientDetail
+        defaultDate={defaultDate}
         canViewBilling={access.canViewBilling}
         patient={normalizedPatient}
         appointments={appointments ?? []}

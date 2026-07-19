@@ -9,16 +9,16 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
-import { format } from 'date-fns'
 import type { TreatmentPlan } from '@/lib/supabase/types'
 
 interface Props {
   patientId: string
+  defaultDate: string
   plan?: TreatmentPlan
   onSuccess?: () => void
 }
 
-export function TreatmentPlanForm({ patientId, plan, onSuccess }: Props) {
+export function TreatmentPlanForm({ patientId, defaultDate, plan, onSuccess }: Props) {
   const supabase = createClient()
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
@@ -66,7 +66,7 @@ export function TreatmentPlanForm({ patientId, plan, onSuccess }: Props) {
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>Start Date *</Label>
-          <Input name="start_date" type="date" defaultValue={plan?.start_date ?? format(new Date(), 'yyyy-MM-dd')} required />
+          <Input name="start_date" type="date" defaultValue={plan?.start_date ?? defaultDate} required />
         </div>
         <div className="space-y-2">
           <Label>Expected End</Label>

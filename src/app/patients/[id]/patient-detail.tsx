@@ -11,8 +11,8 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { format } from 'date-fns'
 import { formatTime12 } from '@/lib/format-time'
+import { formatDateOnly } from '@/lib/timezone'
 import { getPaginationItems } from '@/lib/patients/appointment-pagination'
 import { TreatmentPlanForm } from './treatment-plan-form'
 import type { Patient, Appointment, TreatmentPlan, Package, Payment, ReferralSource } from '@/lib/supabase/types'
@@ -26,6 +26,7 @@ const REFERRAL_SOURCE_LABEL: Record<ReferralSource, string> = {
 type AppointmentSummary = Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'status'>
 
 interface PatientDetailProps {
+  defaultDate: string
   canViewBilling: boolean
   patient: Patient
   appointments: AppointmentSummary[]
@@ -50,6 +51,7 @@ const statusColors: Record<string, string> = {
 const PAYMENT_LIST_INITIAL = 20
 
 export function PatientDetail({
+  defaultDate,
   canViewBilling,
   patient,
   appointments,
@@ -144,7 +146,7 @@ export function PatientDetail({
               {patient.dob && (
                 <div className="flex items-center gap-2">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span>{format(new Date(patient.dob), 'dd MMM yyyy')}</span>
+                  <span>{formatDateOnly(patient.dob, 'dd MMM yyyy')}</span>
                   {patient.gender && <Badge variant="secondary" className="capitalize">{patient.gender}</Badge>}
                 </div>
               )}
@@ -208,7 +210,7 @@ export function PatientDetail({
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium">{format(new Date(appt.date), 'dd MMM yyyy')} at {formatTime12(appt.time)}</p>
+                          <p className="font-medium">{formatDateOnly(appt.date, 'dd MMM yyyy')} at {formatTime12(appt.time)}</p>
                           <p className="text-sm text-muted-foreground">{appt.type} · {appt.duration_minutes}min</p>
                         </div>
                         <Badge className={statusColors[appt.status] || ''}>
@@ -279,7 +281,11 @@ export function PatientDetail({
                 <DialogHeader>
                   <DialogTitle>New Treatment Plan</DialogTitle>
                 </DialogHeader>
-                <TreatmentPlanForm patientId={patient.id} onSuccess={() => { setPlanOpen(false); router.refresh() }} />
+                <TreatmentPlanForm
+                  patientId={patient.id}
+                  defaultDate={defaultDate}
+                  onSuccess={() => { setPlanOpen(false); router.refresh() }}
+                />
               </DialogContent>
             </Dialog>
             {treatmentPlans.length === 0 ? (
@@ -294,8 +300,8 @@ export function PatientDetail({
                     </div>
                     {plan.goals && <p className="text-sm text-muted-foreground">{plan.goals}</p>}
                     <p className="text-xs text-muted-foreground mt-1">
-                      Started {format(new Date(plan.start_date), 'dd MMM yyyy')}
-                      {plan.expected_end_date && ` · Target: ${format(new Date(plan.expected_end_date), 'dd MMM yyyy')}`}
+                      Started {formatDateOnly(plan.start_date, 'dd MMM yyyy')}
+                      {plan.expected_end_date && ` · Target: ${formatDateOnly(plan.expected_end_date, 'dd MMM yyyy')}`}
                     </p>
                   </CardContent>
                 </Card>
@@ -363,7 +369,7 @@ export function PatientDetail({
                             <p className="font-medium">₹{Number(payment.amount).toLocaleString()}</p>
                             <p className="text-sm text-muted-foreground">{payment.payment_method}</p>
                           </div>
-                          <p className="text-sm text-muted-foreground">{format(new Date(payment.date), 'dd MMM yyyy')}</p>
+                          <p className="text-sm text-muted-foreground">{formatDateOnly(payment.date, 'dd MMM yyyy')}</p>
                         </div>
                       </CardContent>
                     </Card>
