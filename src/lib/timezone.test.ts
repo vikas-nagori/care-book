@@ -72,6 +72,18 @@ test('zoned date ranges convert calendar boundaries to absolute timestamps', () 
   assert.equal(end.toISOString(), '2026-07-19T18:30:00.000Z')
 })
 
+test('zoned date ranges start at the first representable instant after a midnight DST jump', () => {
+  const { start, end } = getZonedDateInterval(
+    '2026-09-06',
+    '2026-09-07',
+    'America/Santiago',
+  )
+
+  assert.equal(start.toISOString(), '2026-09-06T04:00:00.000Z')
+  assert.equal(getZonedDate(start, 'America/Santiago'), '2026-09-06')
+  assert.equal(end.toISOString(), '2026-09-07T03:00:00.000Z')
+})
+
 test('clinic wall-clock appointments convert to absolute timestamps', () => {
   assert.equal(
     appointmentToInstant('2026-07-18', '11:30:00').toISOString(),

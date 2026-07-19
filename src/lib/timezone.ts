@@ -5,6 +5,7 @@ export const CLINIC_TIME_ZONE = 'Asia/Kolkata'
 export const USER_TIME_ZONE_COOKIE = 'care_book_timezone'
 
 const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+const ZONED_DATE_SEARCH_WINDOW_MS = 36 * 60 * 60 * 1000
 
 export interface ZonedCalendarContext {
   date: string
@@ -110,6 +111,31 @@ export function getZonedDayInterval(now: Date, timeZone: string) {
   return getZonedDateInterval(date, addCalendarDays(date, 1), resolvedTimeZone)
 }
 
+function getZonedDateBoundary(date: string, timeZone: string) {
+  const approximateNoon = fromZonedTime(`${date}T12:00:00`, timeZone).getTime()
+  let beforeBoundary = approximateNoon - ZONED_DATE_SEARCH_WINDOW_MS
+  let atOrAfterBoundary = approximateNoon + ZONED_DATE_SEARCH_WINDOW_MS
+
+  if (
+    getZonedDate(new Date(beforeBoundary), timeZone) >= date
+    || getZonedDate(new Date(atOrAfterBoundary), timeZone) < date
+  ) {
+    throw new RangeError(`Unable to resolve timezone boundary for ${date}`)
+  }
+
+  while (atOrAfterBoundary - beforeBoundary > 1) {
+    const midpoint = Math.floor((beforeBoundary + atOrAfterBoundary) / 2)
+
+    if (getZonedDate(new Date(midpoint), timeZone) < date) {
+      beforeBoundary = midpoint
+    } else {
+      atOrAfterBoundary = midpoint
+    }
+  }
+
+  return new Date(atOrAfterBoundary)
+}
+
 export function getZonedDateInterval(
   startDate: string,
   endDate: string,
@@ -120,8 +146,8 @@ export function getZonedDateInterval(
   const resolvedTimeZone = resolveTimeZone(timeZone)
 
   return {
-    start: fromZonedTime(`${startDate}T00:00:00`, resolvedTimeZone),
-    end: fromZonedTime(`${endDate}T00:00:00`, resolvedTimeZone),
+    start: getZonedDateBoundary(startDate, resolvedTimeZone),
+    end: getZonedDateBoundary(endDate, resolvedTimeZone),
   }
 }
 
