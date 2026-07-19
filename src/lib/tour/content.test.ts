@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { MOBILE_MOCKUPS } from '../../components/tour/tour-mockups.ts'
 import { getChaptersForRole, getGroupsForRole } from './content.ts'
 
 test('admins get the full 10-chapter track', () => {
@@ -68,11 +69,23 @@ test('every step carries a title, body and hotspot position', () => {
   }
 })
 
-test('only appointment and patients expose a mobile view in the staff track', () => {
-  const mobile = getChaptersForRole('staff')
-    .filter((chapter) => chapter.hasMobile)
-    .map((chapter) => chapter.id)
-  assert.deepEqual(mobile, ['appointment', 'patients'])
+test('every role-accessible chapter has a mobile mockup', () => {
+  for (const role of ['admin', 'staff'] as const) {
+    for (const chapter of getChaptersForRole(role)) {
+      assert.ok(MOBILE_MOCKUPS[chapter.id]?.trim(), `${chapter.id} needs a mobile mockup`)
+    }
+  }
+})
+
+test('formerly desktop-only chapters have dedicated mobile mockups', () => {
+  for (const chapterId of ['roles', 'permissions', 'billing'] as const) {
+    assert.ok(MOBILE_MOCKUPS[chapterId]?.trim(), `${chapterId} needs a mobile mockup`)
+  }
+})
+
+test('roles mobile mockup does not show billing in the shared phone navigation', () => {
+  assert.match(MOBILE_MOCKUPS.roles, /text-decoration:line-through">Billing/)
+  assert.equal(MOBILE_MOCKUPS.roles.match(/>Billing</g)?.length, 2)
 })
 
 test('groups are ordered and de-duplicated per role', () => {
