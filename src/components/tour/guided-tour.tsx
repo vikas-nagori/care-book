@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import Image from 'next/image'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { ArrowRight, Check, Monitor, ShieldCheck, X } from 'lucide-react'
@@ -21,6 +21,27 @@ type GuidedTourProps = {
 
 type MockupDevice = 'desktop' | 'mobile'
 
+// Matches the Tailwind `md` breakpoint below which the tour renders full-screen.
+const TOUR_DESKTOP_MEDIA_QUERY = '(min-width: 768px)'
+
+function subscribeToViewport(onChange: () => void) {
+  const mediaQuery = window.matchMedia(TOUR_DESKTOP_MEDIA_QUERY)
+  mediaQuery.addEventListener('change', onChange)
+  return () => mediaQuery.removeEventListener('change', onChange)
+}
+
+function getViewportSnapshot() {
+  return window.matchMedia(TOUR_DESKTOP_MEDIA_QUERY).matches
+}
+
+/**
+ * `true` when the viewport is desktop-width. Mobile webapp users start on the
+ * mobile mockup automatically; the SSR fallback assumes desktop.
+ */
+function useIsDesktopViewport() {
+  return useSyncExternalStore(subscribeToViewport, getViewportSnapshot, () => true)
+}
+
 /**
  * Role-aware guided tour modal. Chapters and copy come from
  * {@link getChaptersForRole}; the screen recreations are static illustrations
@@ -31,7 +52,11 @@ type MockupDevice = 'desktop' | 'mobile'
 export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
   const [chapterId, setChapterId] = useState<TourChapterId | null>(null)
   const [stepIndex, setStepIndex] = useState(0)
-  const [device, setDevice] = useState<MockupDevice>('desktop')
+  // `null` follows the viewport (mobile viewport → mobile mockup); a non-null
+  // value is an explicit choice from the Desktop/Mobile toggle.
+  const [deviceOverride, setDeviceOverride] = useState<MockupDevice | null>(null)
+  const isDesktopViewport = useIsDesktopViewport()
+  const device: MockupDevice = deviceOverride ?? (isDesktopViewport ? 'desktop' : 'mobile')
 
   const chapters = getChaptersForRole(role)
   const groups = getGroupsForRole(role)
@@ -230,14 +255,14 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
                 <div className="mt-0.5 inline-flex shrink-0 rounded-[9px] border border-[var(--ph-line)] bg-[var(--ph-bg-soft)] p-0.5">
                   <button
                     type="button"
-                    onClick={() => setDevice('desktop')}
+                    onClick={() => setDeviceOverride('desktop')}
                     className={segmentClass(!effectiveMobile)}
                   >
                     Desktop
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDevice('mobile')}
+                    onClick={() => setDeviceOverride('mobile')}
                     className={segmentClass(effectiveMobile)}
                   >
                     Mobile
@@ -253,8 +278,16 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
             </header>
 
             {/* stage */}
-            <div className="relative flex justify-center overflow-auto bg-[linear-gradient(180deg,#f6f2ec,#faf8f5)] px-[30px] py-[34px]">
-              <div className="relative w-full min-w-0 max-w-[660px]">
+            <div className="relative flex justify-start overflow-auto bg-[linear-gradient(180deg,#f6f2ec,#faf8f5)] px-5 py-[34px] md:justify-center md:px-[30px]">
+              <div
+                className={
+                  'relative w-full max-w-[660px] ' +
+                  // Wide desktop illustrations keep their designed width on
+                  // narrow screens (scroll instead of reflow) so the step pins
+                  // stay aligned; the mobile mockups are already phone-shaped.
+                  (effectiveMobile ? 'min-w-0' : 'min-w-[520px] md:min-w-0')
+                }
+              >
                 {mockupHtml ? (
                   <div
                     // Static, developer-authored illustration markup — no user
@@ -294,9 +327,9 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
 
             {/* step bar */}
             <footer className="border-t border-[var(--ph-line)] bg-white px-[26px] pb-[18px] pt-4">
-              <div className="flex items-start gap-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-4">
                 <div className="min-w-0 flex-1">
-                  <div className="mb-[5px] flex items-center gap-[9px]">
+                  <div className="mb-[5px] flex flex-wrap items-center gap-[9px]">
                     <span className="rounded-[5px] bg-[var(--ph-accent-soft)] px-2 py-[3px] text-[10.5px] font-bold uppercase tracking-[0.05em] text-[var(--ph-accent-ink)]">
                       Step {step + 1} of {current.steps.length}
                     </span>
@@ -324,7 +357,7 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
                     ))}
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-[9px] pt-0.5">
+                <div className="flex flex-wrap items-center justify-end gap-[9px] md:shrink-0 md:pt-0.5">
                   {!(isLastStep && isLastChapter) ? (
                     <button
                       type="button"
