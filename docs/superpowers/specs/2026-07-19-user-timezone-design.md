@@ -10,7 +10,7 @@ The application also stores appointments and other calendar fields as separate d
 
 Use the browser/device IANA timezone for user-facing concepts of "now":
 
-- dashboard today, week, month, and current-time filtering;
+- dashboard today, week, and month boundaries;
 - the schedule's default selected date and today marker;
 - user-facing current-month billing ranges and labels;
 - default dates in appointment, payment, billing, and treatment-plan forms.
@@ -20,6 +20,7 @@ Use `Asia/Kolkata` when the browser timezone is unavailable, invalid, or has not
 Preserve these clinic-local or system rules:
 
 - appointment date and time values remain unchanged clinic wall-clock values and are not converted for display;
+- stored appointment date/time fields are interpreted in the Kolkata clinic timezone when an absolute timestamp is required for comparison;
 - date-only values such as dates of birth, treatment-plan dates, payment dates, and appointment dates remain the same calendar date in every timezone;
 - automatic appointment completion, database billing allocation, and other background work continue using `Asia/Kolkata`, because they have no active browser user and must follow one deterministic clinic business day;
 - absolute audit timestamps such as `created_at` and `updated_at` remain UTC ISO timestamps and may be localized only when displayed.
@@ -40,6 +41,8 @@ Add pure utilities that:
 - resolve an invalid or missing value to `Asia/Kolkata`;
 - format an instant into a calendar date or time in a supplied timezone;
 - derive Monday-based week and calendar-month boundaries from the same instant and timezone;
+- derive the absolute start and end timestamps of a calendar day in a supplied user timezone;
+- convert a stored clinic-local appointment date/time pair into an absolute timestamp;
 - format date-only database values without interpreting them as UTC instants.
 
 Add a server-only accessor that reads and validates the timezone cookie. Server-rendered pages use this accessor and pass the resolved timezone or derived date values to Client Components when needed for hydration consistency.
@@ -48,7 +51,9 @@ Add a server-only accessor that reads and validates the timezone cookie. Server-
 
 ### Dashboard
 
-Create one `Date` per request and derive the appointment query date, current time, week range, and month range from the resolved user timezone. The "Up next" filter must consume the same context, eliminating mixed date/time zones.
+Create one `Date` per request and derive the user's current calendar-day interval, week range, and month range from the resolved user timezone. Convert that day interval into the overlapping Kolkata clinic date keys needed to query candidate appointments. Convert each returned appointment's Kolkata date/time pair into an absolute timestamp, then retain appointments whose timestamps fall inside the user's current-day interval.
+
+Determine "Up next" by comparing each scheduled appointment timestamp directly with the current timestamp. Timestamps are absolute and do not require string clock comparisons; the browser timezone determines the current-day interval, while the appointment's clinic timezone determines how its stored wall-clock fields become an instant. Appointment times continue displaying as their unchanged clinic wall-clock values.
 
 ### Schedule and appointment creation
 
@@ -71,7 +76,9 @@ Do not change the database schema, migrate appointment records, convert stored a
 Add focused unit coverage for:
 
 - `2026-07-18T18:30:00.000Z` resolving to 19 July at 00:00 in Kolkata;
-- the same instant resolving correctly in a second browser timezone;
+- the same instant resolving to 18 July at 14:30 in `America/New_York`;
+- a Kolkata clinic appointment date/time converting to the correct absolute timestamp and comparing correctly with `Date.now()` regardless of browser timezone;
+- a user-local day spanning the correct one or two clinic date keys for the appointment candidate query;
 - Monday-based week and month boundaries across timezone day/month transitions;
 - invalid or missing timezones falling back to Kolkata;
 - strict date-only formatting without calendar-day shifts;
