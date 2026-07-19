@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { ArrowRight, Check, Monitor, ShieldCheck, X } from 'lucide-react'
-import { BrandMark } from '@/components/brand/brand'
 import {
   getChaptersForRole,
   getGroupsForRole,
@@ -106,7 +106,14 @@ export function GuidedTour({ role, open, onOpenChange }: GuidedTourProps) {
           {/* ===== Sidebar (chapters) — desktop only ===== */}
           <aside className="hidden min-h-0 flex-col border-r border-[var(--ph-line)] bg-[var(--ph-bg)] md:flex">
             <div className="flex items-center gap-[11px] px-[22px] pb-4 pt-[22px]">
-              <BrandMark size={30} className="rounded-lg" />
+              <Image
+                src="/icons/icon.svg"
+                alt=""
+                width={30}
+                height={30}
+                unoptimized
+                className="shrink-0 rounded-lg"
+              />
               <div>
                 <div className="text-[13.5px] font-semibold leading-tight tracking-tight">
                   Care-Book tour
