@@ -46,8 +46,6 @@ type TourChapterDef = {
   title: string
   group: TourGroup
   roles: TourRole[]
-  /** True when the chapter has a distinct phone-frame mobile mockup. */
-  hasMobile: boolean
   intro: string
   introStaff?: string
   steps: TourStep[]
@@ -59,7 +57,6 @@ export type TourChapter = {
   id: TourChapterId
   title: string
   group: TourGroup
-  hasMobile: boolean
   intro: string
   steps: TourStep[]
 }
@@ -70,7 +67,6 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     title: 'Admin vs Staff — who sees what',
     group: 'Get started',
     roles: ['admin', 'staff'],
-    hasMobile: false,
     intro:
       'Care-Book gives each person one of two roles. Knowing which one you have tells you exactly what you can see and do.',
     introStaff:
@@ -121,7 +117,6 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     title: 'Extra powers admins have',
     group: 'Get started',
     roles: ['admin'],
-    hasMobile: false,
     intro:
       'Beyond everything Staff can do, Admins unlock the clinic’s setup and money tools. Here is what is yours alone.',
     steps: [
@@ -150,7 +145,6 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     title: 'Book an appointment & assign it',
     group: 'Daily work',
     roles: ['admin', 'staff'],
-    hasMobile: true,
     intro:
       'Bookings are the heart of Care-Book. Creating one takes a moment — the important part is who it is assigned to.',
     introStaff: 'Booking a session for your patients is quick. Here is the flow you’ll use most.',
@@ -194,7 +188,6 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     title: 'Patients & their records',
     group: 'Daily work',
     roles: ['admin', 'staff'],
-    hasMobile: true,
     intro:
       'Every patient has one record: their details, treatment plans and session history in one place.',
     introStaff:
@@ -239,7 +232,6 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     title: 'Billing & payments',
     group: 'Daily work',
     roles: ['admin'],
-    hasMobile: false,
     intro:
       'Billing is Admin-only. Record payments, sell session packages, and keep an eye on who owes what.',
     steps: [
@@ -268,7 +260,6 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     title: 'Invite a team member',
     group: 'Admin setup',
     roles: ['admin'],
-    hasMobile: true,
     intro:
       'Bring a colleague into Care-Book. They get an email link to finish setting up their own login.',
     steps: [
@@ -297,7 +288,6 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     title: 'Add & invite external staff',
     group: 'Admin setup',
     roles: ['admin'],
-    hasMobile: true,
     intro:
       'External staff are visiting or part-time people — locums, visiting doctors — you can assign appointments to without giving full access.',
     steps: [
@@ -326,7 +316,6 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     title: 'Appointment types & rates',
     group: 'Admin setup',
     roles: ['admin'],
-    hasMobile: true,
     intro:
       'Appointment types define what you offer and what it costs. Every booking picks one of these.',
     steps: [
@@ -355,7 +344,6 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     title: 'Package templates',
     group: 'Admin setup',
     roles: ['admin'],
-    hasMobile: true,
     intro:
       'Package templates are pre-priced bundles of sessions — e.g. 10 sessions at a set rate — you can sell to patients.',
     steps: [
@@ -378,7 +366,6 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     title: 'Manage pending invites',
     group: 'Admin setup',
     roles: ['admin'],
-    hasMobile: true,
     intro:
       'After you invite someone, track it here until they accept — and fix things if an email goes astray.',
     steps: [
@@ -414,7 +401,6 @@ export function getChaptersForRole(role: TourRole): TourChapter[] {
     id: chapter.id,
     title: chapter.title,
     group: chapter.group,
-    hasMobile: chapter.hasMobile,
     intro: role === 'staff' && chapter.introStaff ? chapter.introStaff : chapter.intro,
     steps: role === 'staff' && chapter.stepsStaff ? chapter.stepsStaff : chapter.steps,
   }))
