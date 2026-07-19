@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from 'react'
 import { format, parseISO } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,24 +21,25 @@ interface Props {
   patients: { id: string; name: string }[]
   packages: (Package & { patient: { id: string; name: string } | null })[]
   appointments: AppointmentSlim[]
+  defaultPaymentDate: string
+  clinicToday: string
   onSuccess?: () => void
 }
 
-const IST = 'Asia/Kolkata'
-
-function getTodayIST() {
-  return formatInTimeZone(new Date(), IST, 'yyyy-MM-dd')
-}
-
-export function PaymentForm({ patients, packages, appointments, onSuccess }: Props) {
+export function PaymentForm({
+  patients,
+  packages,
+  appointments,
+  defaultPaymentDate,
+  clinicToday,
+  onSuccess,
+}: Props) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
   const [selectedPatient, setSelectedPatient] = useState('')
   const [amount, setAmount] = useState('')
 
   const selectedPatientName = patients.find(p => p.id === selectedPatient)?.name
-
-  const todayIST = getTodayIST()
 
   // Mirrors allocate_patient_payment_credit: this payment pays off completed unpaid
   // sessions first (oldest-first), then prepays upcoming scheduled ones, full fee only.
@@ -49,9 +49,9 @@ export function PaymentForm({ patients, packages, appointments, onSuccess }: Pro
         appointments,
         patientId: selectedPatient,
         amount: parseFloat(amount),
-        today: todayIST,
+        today: clinicToday,
       }),
-    [appointments, selectedPatient, amount, todayIST]
+    [appointments, selectedPatient, amount, clinicToday]
   )
 
   const { outstandingSessions, prepaidSessions, allocatedTotal } = allocationPreview
@@ -127,7 +127,7 @@ export function PaymentForm({ patients, packages, appointments, onSuccess }: Pro
         </div>
         <div className="space-y-2">
           <Label>Date *</Label>
-          <Input name="date" type="date" defaultValue={format(new Date(), 'yyyy-MM-dd')} required />
+          <Input name="date" type="date" defaultValue={defaultPaymentDate} required />
         </div>
       </div>
 

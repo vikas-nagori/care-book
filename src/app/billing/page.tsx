@@ -1,9 +1,10 @@
 import { requireAdmin } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
-import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { BillingView } from './billing-view'
 import { buildPaymentDueRows } from '@/lib/billing/payment-due'
+import { CLINIC_TIME_ZONE, getZonedCalendarContext, getZonedDate } from '@/lib/timezone'
+import { getUserTimeZone } from '@/lib/timezone/server'
 
 const PAGE_SIZE = 50
 
@@ -19,13 +20,10 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     ? (tab as BillingTab)
     : 'overview'
 
+  const userTimeZone = await getUserTimeZone()
   const now = new Date()
-  const monthStart = format(startOfMonth(now), 'yyyy-MM-dd')
-  const monthEnd = format(endOfMonth(now), 'yyyy-MM-dd')
-  const lastMonth = subMonths(now, 1)
-  const lastMonthStart = format(startOfMonth(lastMonth), 'yyyy-MM-dd')
-  const lastMonthEnd = format(endOfMonth(lastMonth), 'yyyy-MM-dd')
-  const lastMonthLabel = format(lastMonth, 'MMMM')
+  const calendar = getZonedCalendarContext(now, userTimeZone)
+  const clinicToday = getZonedDate(now, CLINIC_TIME_ZONE)
 
   const [
     { data: packages, error: packagesError, count: packagesCount },
@@ -53,7 +51,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     // advance credit, so the entry form preview reflects pooled FIFO allocation (migration 014).
     supabase.from('payments').select('id, patient_id, amount'),
     // This-month payments — unpaginated — for the "Received (this month)" tile.
-    supabase.from('payments').select('amount').gte('date', monthStart).lte('date', monthEnd),
+    supabase.from('payments').select('amount').gte('date', calendar.monthStart).lte('date', calendar.monthEnd),
     supabase.from('package_templates').select('*').order('created_at', { ascending: false }),
   ])
 
@@ -76,8 +74,8 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
           : total,
       0,
     )
-  const billedThisMonth = sumCompletedFees(monthStart, monthEnd)
-  const billedLastMonth = sumCompletedFees(lastMonthStart, lastMonthEnd)
+  const billedThisMonth = sumCompletedFees(calendar.monthStart, calendar.monthEnd)
+  const billedLastMonth = sumCompletedFees(calendar.previousMonthStart, calendar.previousMonthEnd)
   const receivedThisMonth = (monthPayments ?? []).reduce((s, p) => s + Number(p.amount), 0)
 
   const linkedSessionCounts = (appointmentPayments ?? []).reduce<Record<string, number>>((counts, row) => {
@@ -128,7 +126,10 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
         paymentDueRows={paymentDueRows}
         billedThisMonth={billedThisMonth}
         billedLastMonth={billedLastMonth}
-        billedLastMonthLabel={lastMonthLabel}
+        billedLastMonthLabel={calendar.previousMonthLabel}
+        currentMonthLabel={calendar.monthLabel}
+        defaultPaymentDate={calendar.date}
+        clinicToday={clinicToday}
         receivedThisMonth={receivedThisMonth}
         initialTab={initialTab}
         initialEntryOpen={newEntry === '1'}

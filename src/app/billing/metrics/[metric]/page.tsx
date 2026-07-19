@@ -1,8 +1,9 @@
 import { notFound } from 'next/navigation'
-import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { requireAdmin } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
+import { formatDateOnly, getZonedCalendarContext } from '@/lib/timezone'
+import { getUserTimeZone } from '@/lib/timezone/server'
 import { MetricDetail, type MetricRow } from './metric-detail'
 
 // Drill-down behind a billing money tile: the exact records that sum to the figure, with the total
@@ -27,10 +28,15 @@ export default async function BillingMetricPage({ params }: { params: Promise<{ 
   if (!config) notFound()
 
   const supabase = await createClient()
-  const month = subMonths(new Date(), config.monthsAgo)
-  const from = format(startOfMonth(month), 'yyyy-MM-dd')
-  const to = format(endOfMonth(month), 'yyyy-MM-dd')
-  const periodLabel = format(month, 'MMMM yyyy')
+  const userTimeZone = await getUserTimeZone()
+  const now = new Date()
+  const calendar = getZonedCalendarContext(now, userTimeZone)
+  const isCurrentMonth = config.monthsAgo === 0
+  const from = isCurrentMonth ? calendar.monthStart : calendar.previousMonthStart
+  const to = isCurrentMonth ? calendar.monthEnd : calendar.previousMonthEnd
+  const periodLabel = isCurrentMonth
+    ? calendar.monthLabel
+    : formatDateOnly(calendar.previousMonthStart, 'MMMM yyyy')
 
   let rows: MetricRow[] = []
 

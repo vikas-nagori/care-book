@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import { Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -36,13 +35,9 @@ interface Props {
   appointments: AppointmentSlim[]
   // Each patient's unspent advance credit, so the preview reflects pooled FIFO allocation.
   patientCredit?: Record<string, number>
+  defaultPaymentDate: string
+  clinicToday: string
   onSuccess?: () => void
-}
-
-const IST = 'Asia/Kolkata'
-
-function getTodayIST() {
-  return formatInTimeZone(new Date(), IST, 'yyyy-MM-dd')
 }
 
 function numberFromInput(value: string) {
@@ -64,6 +59,8 @@ export function BillingEntryForm({
   packageTemplates = [],
   appointments,
   patientCredit,
+  defaultPaymentDate,
+  clinicToday,
   onSuccess,
 }: Props) {
   const { toast } = useToast()
@@ -87,7 +84,6 @@ export function BillingEntryForm({
   }
 
   const selectedPatientName = patients.find((patient) => patient.id === selectedPatient)?.name
-  const todayIST = getTodayIST()
   const paymentAmount = numberFromInput(amount)
   const packageTotalSessions = integerFromInput(packageSessions)
   const packageRate = numberFromInput(packagePerSessionAmount)
@@ -99,10 +95,10 @@ export function BillingEntryForm({
         appointments,
         patientId: selectedPatient,
         amount: paymentAmount,
-        today: todayIST,
+        today: clinicToday,
         existingCredit: patientCredit?.[selectedPatient] ?? 0,
       }),
-    [appointments, selectedPatient, paymentAmount, todayIST, patientCredit],
+    [appointments, selectedPatient, paymentAmount, clinicToday, patientCredit],
   )
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -288,7 +284,7 @@ export function BillingEntryForm({
               name="payment_date"
               type="date"
               required
-              defaultValue={format(new Date(), 'yyyy-MM-dd')}
+              defaultValue={defaultPaymentDate}
               className="max-w-full"
             />
           </div>

@@ -54,6 +54,9 @@ interface BillingViewProps {
   billedThisMonth: number
   billedLastMonth: number
   billedLastMonthLabel: string
+  currentMonthLabel: string
+  defaultPaymentDate: string
+  clinicToday: string
   receivedThisMonth: number
   initialTab?: TabId
   initialEntryOpen: boolean
@@ -131,6 +134,9 @@ export function BillingView({
   billedThisMonth,
   billedLastMonth,
   billedLastMonthLabel,
+  currentMonthLabel,
+  defaultPaymentDate,
+  clinicToday,
   receivedThisMonth,
   initialTab = 'overview',
   initialEntryOpen,
@@ -257,7 +263,7 @@ export function BillingView({
             Billing
           </h1>
           <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 2 }}>
-            {format(new Date(), 'MMMM yyyy')}
+            {currentMonthLabel}
           </div>
         </div>
         <Dialog open={entryOpen} onOpenChange={handleEntryOpenChange}>
@@ -280,6 +286,8 @@ export function BillingView({
               packageTemplates={packageTemplates}
               appointments={appointments}
               patientCredit={patientCredit}
+              defaultPaymentDate={defaultPaymentDate}
+              clinicToday={clinicToday}
               onSuccess={handleEntrySuccess}
             />
           </DialogContent>
