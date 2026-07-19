@@ -83,6 +83,11 @@ test('formerly desktop-only chapters have dedicated mobile mockups', () => {
   }
 })
 
+test('roles mobile mockup does not show billing in the shared phone navigation', () => {
+  assert.match(MOBILE_MOCKUPS.roles, /text-decoration:line-through">Billing/)
+  assert.equal(MOBILE_MOCKUPS.roles.match(/>Billing</g)?.length, 2)
+})
+
 test('groups are ordered and de-duplicated per role', () => {
   assert.deepEqual(getGroupsForRole('admin'), ['Get started', 'Daily work', 'Admin setup'])
   assert.deepEqual(getGroupsForRole('staff'), ['Get started', 'Daily work'])

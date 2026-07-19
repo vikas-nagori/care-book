@@ -40,7 +40,7 @@ export const MOBILE_MOCKUPS: Record<TourChapterId, string> = {
                         <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:3px;text-align:center;font-size:8px;color:var(--ph-ink-3)"><span>Home</span><span>Schedule</span><span>Patients</span><span style="color:var(--ph-ink-4);text-decoration:line-through">Billing</span><span>Settings</span></div>
                       </div>
                     </div>
-                    <div style="display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--ph-line);background:#fff;padding:6px 0 9px;color:var(--ph-ink-4);font-size:8px;text-align:center"><div style="color:var(--ph-accent);font-weight:600">Home</div><div>Schedule</div><div>Patients</div><div>Billing</div><div>Settings</div></div>
+                    <div style="border-top:1px solid var(--ph-line);background:#fff;padding:8px 14px 10px;text-align:center;font-size:9px;font-weight:600;color:var(--ph-ink-3)">Your navigation follows your access</div>
                   </div>
                 </div>`,
   permissions: `<div style="width:266px;margin:0 auto;background:#1a1814;border-radius:36px;padding:9px;box-shadow:0 14px 34px rgba(26,24,20,.28)">
