@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { attachErrorGuards } from '../support/assertions'
 
-// Runs last in the single-worker platform project because signOut() intentionally revokes the
-// shared platform account session used by the read-only console smoke specs.
+// Its dedicated project depends on platform-desktop because signOut() intentionally revokes the
+// shared platform account session used by the console smoke specs.
 test('signs out through the platform UI and revokes access to the console', async ({ page }) => {
   const guards = attachErrorGuards(page)
   await page.goto('/platform')

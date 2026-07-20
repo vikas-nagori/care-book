@@ -78,7 +78,7 @@ manifest rather than maintaining duplicate route arrays.
 | --- | --- | --- |
 | Shared clinic admin + staff | desktop + mobile | `/`, `/patients`, `/patients/new`, `/patients/[id]`, `/patients/[id]/edit`, `/schedule`, `/schedule/new`, `/schedule/[id]`, `/settings` |
 | Clinic admin | desktop + mobile | `/billing`, all valid `/billing/metrics/[metric]` slugs, `/billing/payment-due/[patientId]` |
-| Platform allowlist | desktop only | `/platform`, `/platform/clinics`, `/platform/users`, `/platform/clinic-requests` |
+| Platform allowlist | desktop only (`platform-desktop`; dependent `platform-signout`) | `/platform`, `/platform/clinics`, `/platform/users`, `/platform/clinic-requests` |
 | Public | desktop + mobile | `/login`, `/clinic-onboarding`, plus invalid-session redirects for `/auth/complete-invite` and `/auth/update-password` |
 
 The Billing → Packages real-`timestamptz` regression remains a dedicated admin test. Public desktop
@@ -102,7 +102,9 @@ separate pending clinic requests; verifies the approved clinic, owner invite, an
 blocks and unblocks a temporary clinic and user while asserting profile and GoTrue ban state;
 observes password-reset issuance through the auth user's `recovery_sent_at`; and signs out through
 the console before proving `/platform` is no longer accessible. Fixed clinics and seeded accounts
-are never selected by these mutation tests.
+are never selected by these mutation tests. The sign-out spec runs in its own `platform-signout`
+project, which depends on `platform-desktop`; this guarantees every shared-session console spec
+finishes before the real global sign-out revokes that stored session.
 
 Public flows run independently on desktop and mobile. They submit a representative clinic request,
 exercise invalid and valid password login, request recovery from the login form, complete a real

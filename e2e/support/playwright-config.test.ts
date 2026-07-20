@@ -9,10 +9,13 @@ test('Playwright owns the E2E server by default instead of reusing an arbitrary 
   assert.equal(reuseSetting, 'false')
 })
 
-test('platform uses one worker so global sign-out cannot revoke parallel smoke sessions', () => {
+test('platform sign-out runs only after the platform desktop project completes', () => {
   const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
   const platformProject = config.match(/name: 'platform-desktop',[\s\S]*?\n\s*},/)?.[0] ?? ''
+  const signoutProject = config.match(/name: 'platform-signout',[\s\S]*?\n\s*},/)?.[0] ?? ''
 
-  assert.match(platformProject, /fullyParallel:\s*false/)
-  assert.match(platformProject, /workers:\s*1/)
+  assert.match(platformProject, /testIgnore:\s*\['platform\/zz-signout\.spec\.ts'\]/)
+  assert.match(signoutProject, /dependencies:\s*\['platform-desktop'\]/)
+  assert.match(signoutProject, /testMatch:\s*\['platform\/zz-signout\.spec\.ts'\]/)
+  assert.match(signoutProject, /storageState:\s*PLATFORM\.storageState/)
 })

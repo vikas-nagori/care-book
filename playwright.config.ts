@@ -73,10 +73,14 @@ export default defineConfig({
       name: 'platform-desktop',
       dependencies: ['setup'],
       testMatch: ['platform/**/*.spec.ts'],
-      // The real global sign-out flow revokes this project's shared stored session. Keep platform
-      // files serial; zz-signout.spec.ts is intentionally discovered last.
-      fullyParallel: false,
-      workers: 1,
+      testIgnore: ['platform/zz-signout.spec.ts'],
+      use: { ...devices['Desktop Chrome'], storageState: PLATFORM.storageState },
+    },
+    {
+      name: 'platform-signout',
+      // Global sign-out revokes the shared stored session, so it must follow all console specs.
+      dependencies: ['platform-desktop'],
+      testMatch: ['platform/zz-signout.spec.ts'],
       use: { ...devices['Desktop Chrome'], storageState: PLATFORM.storageState },
     },
 
