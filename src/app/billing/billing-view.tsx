@@ -27,7 +27,6 @@ import type { PaymentDueRow } from '@/lib/billing/payment-due'
 import type { PackageTemplate } from '@/lib/supabase/types'
 import { BillingEntryForm } from './billing-entry-form'
 import { deletePackage, deletePayment } from './actions'
-import { formatDateOnly } from '@/lib/timezone'
 
 type TabId = 'overview' | 'payment_due' | 'payments' | 'packages'
 
@@ -659,7 +658,7 @@ export function BillingView({
                       </span>
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--ph-ink-4)', marginTop: 6 }}>
-                      {formatDateOnly(item.sortDate, 'dd MMM yyyy')}
+                      {format(parseISO(item.sortDate), 'dd MMM yyyy')}
                     </div>
                   </div>
                 )
