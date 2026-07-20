@@ -6,6 +6,8 @@ import { SEED } from '../support/ids'
 const ADMIN_ONLY_ROUTES = [
   '/billing',
   '/billing/metrics/billed-this-month',
+  '/billing/metrics/billed-last-month',
+  '/billing/metrics/received-this-month',
   `/billing/payment-due/${SEED.patientPaymentDue}`,
 ] as const
 

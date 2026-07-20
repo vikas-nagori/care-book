@@ -134,3 +134,26 @@ export async function gotoExpectedRedirect(page: Page, route: RouteRuntimeCase):
 export async function gotoDeniedRoute(page: Page, route: RouteRuntimeCase): Promise<Response> {
   return gotoExpectedRedirect(page, route)
 }
+
+/** Load a dynamic App Router route whose intended denial is Next's streamed soft-404 UI. */
+export async function gotoNotFoundRoute(page: Page, requestPath: string): Promise<Response> {
+  const response = await page.goto(requestPath, { waitUntil: 'domcontentloaded' })
+
+  expect(response, `GET ${requestPath} did not return a document response`).not.toBeNull()
+  // These dynamic routes begin streaming their layout before `notFound()` resolves, so Next 16
+  // returns the document as 200 and replaces the route body with its not-found boundary.
+  expect(response!.status(), `GET ${requestPath} did not return Next's streamed response`).toBe(200)
+  expect(
+    response!.request().redirectedFrom(),
+    `GET ${requestPath} unexpectedly redirected to ${page.url()}`,
+  ).toBeNull()
+
+  const requested = new URL(requestPath, page.url())
+  const final = new URL(page.url())
+  expect(`${final.pathname}${final.search}`).toBe(`${requested.pathname}${requested.search}`)
+  await expect(page.getByRole('heading', {
+    name: 'This page could not be found.',
+    exact: true,
+  })).toBeVisible()
+  return response!
+}

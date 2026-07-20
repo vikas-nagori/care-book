@@ -111,9 +111,24 @@ the Sidebar is visible at `md` and above, while BottomNav is visible below `md`.
 the same accessible labels. Admin navigation includes Billing; staff navigation must not contain it.
 
 The access-routing specs separately verify clinic login/platform redirects, the platform account's
-redirect away from clinic pages, staff denial for Billing and both dynamic Billing families, and
-unauthenticated redirects to `/login`. Expected redirects use explicit redirect/denial helpers and
-are never counted as successful page renders.
+redirect away from clinic pages, staff denial for Billing, every valid Billing metric slug, and the
+payment-due detail family, plus unauthenticated redirects to `/login`. Expected redirects use
+explicit redirect/denial helpers and are never counted as successful page renders.
+
+## Security coverage matrix
+
+| Security contract | Positive control | Denial / isolation assertion | Viewports |
+| --- | --- | --- | --- |
+| Billing access | Admin renders `/billing`, all metric families, and seeded payment-due detail | Staff is redirected exactly to `/` from the same direct routes; Billing navigation and dashboard shortcut are absent | desktop + mobile |
+| Payment signals | Admin sees the seeded `₹800` dashboard/detail fee, `prepaid` appointment status, dashboard revenue/outstanding tiles, schedule `Day total`/`Expected`, and Asha's Billing tab, package, `₹8,000`, and payment history | Staff sees none of those exact labels, amounts, badges, links, or patient billing sections | desktop + mobile |
+| Staff private appointments | Staff can see and open Asha's shared appointment | STAFF cannot see STAFF2's Ravi private appointment on dashboard, schedule, or Ravi history; direct detail renders Next's not-found boundary | desktop + mobile |
+| Staff settings | Account Name, Email, Mobile, Role, and Logout remain available | Appointment Types, Package Templates, Invite User, External Staff, Invites, and Active Users are not rendered | desktop + mobile |
+| Clinic tenant isolation | Clinic A admin and staff can find Asha and the shared Clinic A appointment | Clinic B patient is absent from list/search and direct detail/edit render not-found; Clinic B appointment is absent from schedule and direct detail renders not-found | admin + staff, desktop + mobile |
+
+Dynamic App Router pages begin streaming the authenticated layout before `notFound()` resolves in
+the current Next runtime. The denial helper therefore asserts the observed soft-404 contract
+exactly: HTTP 200 document response, no redirect, unchanged requested URL, and the visible
+`This page could not be found.` heading. This outcome is kept distinct from successful route smoke.
 
 ## Route coverage guard
 

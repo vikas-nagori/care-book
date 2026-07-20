@@ -251,7 +251,7 @@ export default async function DashboardPage() {
               {nextAppt.duration_minutes}m session
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {nextAppt.fee != null && <Money n={nextAppt.fee} />}
+              {access.canViewPaymentSignals && nextAppt.fee != null && <Money n={nextAppt.fee} />}
               {access.canViewBilling && <span className="hidden md:inline-flex"><PaymentBadge status={nextAppt.payment_status} /></span>}
             </div>
           </Link>
@@ -344,7 +344,7 @@ export default async function DashboardPage() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-                    {a.fee != null && <Money n={a.fee} />}
+                    {access.canViewPaymentSignals && a.fee != null && <Money n={a.fee} />}
                     {access.canViewBilling && <span className="hidden md:inline-flex"><PaymentBadge status={a.payment_status} /></span>}
                   </div>
                 </Link>
@@ -382,7 +382,7 @@ export default async function DashboardPage() {
                   {nextAppt.duration_minutes}m session
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {nextAppt.fee != null && <Money n={nextAppt.fee} />}
+                  {access.canViewPaymentSignals && nextAppt.fee != null && <Money n={nextAppt.fee} />}
                   {access.canViewBilling && <PaymentBadge status={nextAppt.payment_status} />}
                 </div>
               </Link>
