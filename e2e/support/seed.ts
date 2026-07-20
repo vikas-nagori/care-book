@@ -15,6 +15,7 @@ import {
   type Account,
 } from './accounts.ts'
 import { SEED } from './ids.ts'
+import { clinicDate } from './clinic-date.ts'
 
 async function upsertClinic(db: SupabaseClient, clinic: { id: string; name: string }) {
   const { error } = await db.from('clinics').upsert(
@@ -125,19 +126,6 @@ async function seedPackageTemplate(db: SupabaseClient) {
     { onConflict: 'id' },
   )
   if (error) throw new Error(`seed package template: ${error.message}`)
-}
-
-function clinicDate(dayOffset: number): string {
-  const target = new Date(Date.now() + dayOffset * 86_400_000)
-  const parts = new Intl.DateTimeFormat('en', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(target)
-  const value = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((part) => part.type === type)?.value
-  return `${value('year')}-${value('month')}-${value('day')}`
 }
 
 async function appointmentTypeId(

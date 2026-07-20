@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { test as base, expect, type TestInfo } from '@playwright/test'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { CLINIC_A } from './accounts.ts'
+import { clinicDate } from './clinic-date.ts'
 import { adminClient } from './supabase-admin.ts'
 
 type Row = Record<string, unknown> & { id: string }
@@ -116,7 +117,7 @@ export class E2EFactory {
       patient_id: patientId,
       appointment_type_id: typeId,
       type: 'Clinic',
-      date: new Date().toISOString().slice(0, 10),
+      date: clinicDate(),
       time: '15:00',
       fee: 800,
       status: 'scheduled',
@@ -162,7 +163,7 @@ export class E2EFactory {
       patient_id: patientId,
       amount: 750,
       payment_method: 'UPI',
-      date: new Date().toISOString().slice(0, 10),
+      date: clinicDate(),
       notes: this.uniqueName('payment'),
       ...overrides,
     })
