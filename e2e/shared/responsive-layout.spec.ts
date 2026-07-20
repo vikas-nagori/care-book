@@ -227,8 +227,12 @@ test('new and detail pages expose the breakpoint-appropriate header and Back aff
 
   await page.goto('/schedule/new')
   await assertMdBreakpoint(page, testInfo)
-  await expect(page.getByRole('button', { name: 'Go back', exact: true })).toBeVisible()
+  const newAppointmentBack = page.getByRole('button', { name: 'Go back', exact: true })
+  await expect(newAppointmentBack).toBeVisible()
   if (isMobileProject(testInfo)) {
+    expect(await newAppointmentBack.evaluate((back) => (
+      getComputedStyle(back.parentElement!).position
+    ))).toBe('sticky')
     await expect(page.getByRole('heading', { name: 'New Appointment', exact: true })).toBeHidden()
     await expect(page.getByText('New Appointment', { exact: true }).filter({ visible: true })).toBeVisible()
   } else {
@@ -238,7 +242,11 @@ test('new and detail pages expose the breakpoint-appropriate header and Back aff
   await page.goto(`/schedule/${SEED.appointmentShared}`)
   await assertMdBreakpoint(page, testInfo)
   if (isMobileProject(testInfo)) {
-    await expect(page.getByRole('button', { name: 'Go back', exact: true })).toBeVisible()
+    const appointmentBack = page.getByRole('button', { name: 'Go back', exact: true })
+    await expect(appointmentBack).toBeVisible()
+    expect(await appointmentBack.evaluate((back) => (
+      getComputedStyle(back.parentElement!).position
+    ))).toBe('sticky')
     await expect(page.getByRole('heading', { name: 'Appointment', exact: true })).toBeHidden()
     await expect(page.getByText('Appointment', { exact: true }).filter({ visible: true })).toBeVisible()
   } else {
