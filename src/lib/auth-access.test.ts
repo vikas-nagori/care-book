@@ -10,6 +10,8 @@ const adminProfile: Profile = {
   email: 'admin@example.com',
   role: 'admin',
   status: 'active',
+  full_name: 'Admin User',
+  mobile_number: null,
   created_at: '2026-04-18T00:00:00.000Z',
   updated_at: '2026-04-18T00:00:00.000Z',
 }

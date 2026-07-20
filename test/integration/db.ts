@@ -49,7 +49,9 @@ export function buildDatabase(dbName: string): void {
     shimSql,
     schemaSql,
     ...readdirSync(migrationsDir)
-      .filter((f) => f.endsWith('.sql'))
+      // Skip the base-schema migration — it exists only so the Supabase CLI's migration
+      // chain is self-contained; this harness applies schema.sql explicitly above.
+      .filter((f) => f.endsWith('.sql') && f !== '00000000000000_base_schema.sql')
       .sort()
       .map((f) => join(migrationsDir, f)),
   ]

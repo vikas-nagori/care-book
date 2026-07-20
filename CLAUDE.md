@@ -11,13 +11,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run lint` — ESLint
 - `npm run test:unit` — Run all unit tests (Node built-in runner, no Supabase/auth required)
 - `npm run test:integration` — Run integration tests against a local Postgres (needs `psql` + a superuser via `PG*` env vars; builds throwaway DBs from `supabase/schema.sql` + migrations). Skips cleanly when no Postgres is reachable.
+- `npm run test:component` — Component render tests (vitest + jsdom + testing-library, `src/**/*.component.test.tsx`).
+- `npm run typecheck` — `tsc --noEmit` for app + `e2e/` projects.
+- `npm run test:e2e` — Playwright E2E against a **local Supabase stack** (needs Docker/Colima). See `e2e/README.md`. First: `npm run e2e:db:up` (`supabase start`) then `npm run build:e2e`, then `npm run test:e2e`.
 - Single test file: `node --test --experimental-strip-types src/lib/billing/payment-helpers.test.ts`
+
+## E2E Tests (Playwright)
+- Full guide: `e2e/README.md`. Boots the real app against an isolated local Supabase stack and drives it as **admin/staff × desktop/mobile** plus platform/public flows. This is the only layer that catches full-page render crashes (unit/component tests don't render whole routes).
+- Auth can't be faked (middleware validates `getUser()`): the Playwright `setup` project seeds real auth users + `profiles` (via service role) and saves `storageState` per role. Backend config lives in `supabase/config.toml`; committed local keys are in `.env.e2e` (non-secret, local-only).
+- Schema note: `supabase/migrations/00000000000000_base_schema.sql` mirrors `supabase/schema.sql` so the Supabase CLI migration chain is self-contained; `test/integration/db.ts` skips it. Migration numeric prefixes must be **unique** (the CLI keys migrations by prefix).
+- **Maintenance policy (keep tests in lockstep with features):** any PR that adds/changes a `src/app/**/page.tsx` route, a `*-form.tsx`, a `*/actions.ts` mutation, or role-/viewport-gated UI **must** ship a matching `e2e/` spec — new routes → `e2e/shared/smoke.spec.ts` (or a role dir if gated); new flows → a spec under the role that can perform it; conditional UI → assert both sides (admin vs staff, desktop vs mobile).
 
 ## Branching Policy
 **Always do all fixes and development in a new branch.** Never commit code changes directly to `main`. Create a descriptive branch (e.g. `feat/…`, `fix/…`, `chore/…`) before touching any source file.
 
 ## CI Monitoring
-**Whenever you run `git push`, watch the resulting GitHub Actions run to completion and report pass/fail.** The `Tests` workflow (`.github/workflows/test.yml`) runs `test:unit` + `test:integration` on pushes to `main` and on every PR (a push to a feature branch only triggers a run once a PR exists). After pushing, find the run (`gh run list --branch <branch> --limit 1`), wait for it (`gh run watch <id>` or poll `gh run view <id> --json status`), and surface the conclusion — and if it failed, the failing step/log — to the user without being asked.
+**Whenever you run `git push`, watch the resulting GitHub Actions run to completion and report pass/fail.** The `Tests` workflow (`.github/workflows/test.yml`) has two jobs: `test` (lint + typecheck + `test:unit` + `test:component` + `test:integration`) and `e2e` (Playwright against a local Supabase stack). Both run on pushes to `main` and on every PR (a push to a feature branch only triggers a run once a PR exists). After pushing, find the run (`gh run list --branch <branch> --limit 1`), wait for it (`gh run watch <id>` or poll `gh run view <id> --json status`), and surface the conclusion — and if it failed, the failing step/log — to the user without being asked.
 
 ## Tech Stack
 Next.js 14 (App Router) · TypeScript (strict) · Tailwind CSS 3.4 · shadcn/ui (New York style) · Supabase (Postgres + Auth) · `@supabase/ssr` for cookie-based sessions · PWA enabled

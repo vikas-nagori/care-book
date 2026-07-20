@@ -122,3 +122,7 @@ drop policy if exists "profiles_read_staff_admin" on public.profiles;
 create policy "profiles_read_staff_admin" on public.profiles
   for select
   using (public.has_role(array['admin', 'staff']));
+
+-- ===== formerly 010_make_phone_optional.sql (merged for a unique local migration version) =====
+-- Make phone number optional on patients table
+ALTER TABLE patients ALTER COLUMN phone DROP NOT NULL;

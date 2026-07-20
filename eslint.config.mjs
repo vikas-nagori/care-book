@@ -6,7 +6,17 @@ export default defineConfig([
   ...nextVitals,
   ...nextTypescript,
   {
-    ignores: ['.next/**', 'node_modules/**', 'coverage/**'],
+    // Never lint build output, deps, or embedded git worktrees (separate checkouts that
+    // carry their own history — linting them reports thousands of irrelevant errors).
+    ignores: [
+      '.next/**',
+      'node_modules/**',
+      'coverage/**',
+      '.worktrees/**',
+      '.claude/**',
+      'playwright-report/**',
+      'test-results/**',
+    ],
   },
   {
     rules: {

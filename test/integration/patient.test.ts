@@ -26,7 +26,7 @@ test('a patient with name and phone is created', { skip }, () => {
   assert.match(id, /^[0-9a-f-]{36}$/, 'should return a uuid')
 })
 
-test('phone is optional (migration 010_make_phone_optional)', { skip }, () => {
+test('phone is optional (migration 010_home_visit_assignment_visibility, merged make_phone_optional)', { skip }, () => {
   // buildPatientInsertData converts a blank phone to null; the column must allow it.
   const id = query(DB, `insert into patients (clinic_id, name, phone) values ('${clinicId}', 'No Phone', null) returning id`)
   assert.match(id, /^[0-9a-f-]{36}$/)

@@ -9,7 +9,17 @@
     "lint": "eslint .",
     "test:unit": "node --test --experimental-strip-types $(find src/lib -name '*.test.ts' -print)",
     "test:component": "vitest run",
-    "test:integration": "node --test --experimental-strip-types $(find test/integration -name '*.test.ts' -print)"
+    "test:integration": "node --test --experimental-strip-types $(find test/integration -name '*.test.ts' -print)",
+    "build:e2e": "dotenv -e .env.e2e -- next build",
+    "start:e2e": "dotenv -e .env.e2e -- next start",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p e2e/tsconfig.json",
+    "e2e:db:up": "supabase start",
+    "e2e:db:reset": "supabase db reset",
+    "e2e:db:down": "supabase stop",
+    "prepare": "husky"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -40,14 +50,19 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "dotenv": "^17.4.2",
+    "dotenv-cli": "^11.0.0",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.10",
+    "husky": "^9.1.7",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.10",
+    "supabase": "^2.109.1",
     "tailwindcss": "^3.4.1",
     "typescript": "^5",
     "vitest": "^4.1.10"

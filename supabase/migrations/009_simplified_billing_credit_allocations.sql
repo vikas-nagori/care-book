@@ -1,3 +1,24 @@
+-- NOTE: merged from former 009_remove_no_show_status.sql to give the local Supabase CLI a
+-- unique migration version (it keys migrations by numeric prefix, so two 009_* files collide).
+-- Statements below preserve the original apply order: no_show removal, then simplified billing.
+
+-- ===== formerly 009_remove_no_show_status.sql =====
+-- Convert all historical no_show appointments to cancelled, then tighten the CHECK constraint.
+
+-- 1. Migrate existing data
+update public.appointments
+set status = 'cancelled'
+where status = 'no_show';
+
+-- 2. Replace the CHECK constraint to disallow no_show going forward
+alter table public.appointments
+  drop constraint if exists appointments_status_check;
+
+alter table public.appointments
+  add constraint appointments_status_check
+    check (status in ('scheduled', 'completed', 'cancelled'));
+
+-- ===== formerly 009_simplified_billing_credit_allocations.sql =====
 -- Simplify billing entries by treating payments as patient credit and packages as
 -- independent session entitlements.
 

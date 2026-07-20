@@ -46,8 +46,55 @@ jobs:
 
       - run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Unit tests
         run: npm run test:unit
 
+      - name: Component tests
+        run: npm run test:component
+
       - name: Integration tests
         run: npm run test:integration
+
+  # End-to-end suite: boots the real app against an isolated local Supabase stack (Docker) and
+  # drives it as admin/staff on desktop/mobile. No secrets — the local stack uses fixed dev keys.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Start local Supabase
+        # Only the services the suite needs (db + auth + kong gateway + rest). Docker is
+        # preinstalled on ubuntu runners; the CLI is pinned as a devDependency.
+        run: npx supabase start -x studio,imgproxy,inbucket,edge-runtime,realtime,storage,meta,vector,analytics,functions
+
+      - name: E2E tests
+        # Playwright's webServer builds (build:e2e) and serves (start:e2e) with .env.e2e.
+        run: npm run test:e2e
+
+      - name: Stop local Supabase
+        if: always()
+        run: npx supabase stop --no-backup || true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

@@ -11,6 +11,7 @@ import {
 const packages: BillingTimelinePackage[] = [
   {
     id: 'package-older',
+    clinic_id: 'clinic-1',
     patient_id: 'patient-1',
     name: '8 Session Package',
     total_sessions: 8,
@@ -25,6 +26,7 @@ const packages: BillingTimelinePackage[] = [
   },
   {
     id: 'package-newer',
+    clinic_id: 'clinic-1',
     patient_id: 'patient-2',
     name: 'Post Surgery Rehab',
     total_sessions: 12,
@@ -42,6 +44,7 @@ const packages: BillingTimelinePackage[] = [
 const payments: BillingTimelinePayment[] = [
   {
     id: 'payment-newest',
+    clinic_id: 'clinic-1',
     patient_id: 'patient-1',
     package_id: 'package-older',
     appointment_id: null,
@@ -55,6 +58,7 @@ const payments: BillingTimelinePayment[] = [
   },
   {
     id: 'payment-middle',
+    clinic_id: 'clinic-1',
     patient_id: 'patient-2',
     package_id: null,
     appointment_id: null,

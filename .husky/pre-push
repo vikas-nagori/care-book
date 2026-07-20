@@ -1,0 +1,9 @@
+# Fast pre-push gate: lint + typecheck + unit + component tests (no backend needed).
+# The full Playwright E2E suite is intentionally NOT run here — it needs the local Supabase
+# stack and takes minutes. CI runs E2E on every push/PR (see .github/workflows/test.yml).
+set -e
+
+echo "▶ lint"           && npm run lint
+echo "▶ typecheck"      && npm run typecheck
+echo "▶ unit tests"     && npm run test:unit
+echo "▶ component tests" && npm run test:component
