@@ -55,8 +55,8 @@ npm run e2e:db:down        # supabase stop
 `npm run test:e2e -- --project=admin-desktop` runs a single project.
 
 `npm run test:e2e:support` includes the route-inventory guard and runs in the normal unit-test/CI
-path. `npx playwright test --list` prints the fully expanded project count (currently 125 tests,
-including six setup/authentication tests).
+path. `npx playwright test --list` prints the current fully expanded project count, including the
+setup/authentication tests.
 
 The normal test command never resets the database. It starts the local stack if necessary and
 idempotently restores fixed fixture rows. Use `npm run e2e:db:reset` only when you intentionally
@@ -85,7 +85,18 @@ representative record, searches the list, edits persisted profile fields, and ve
 deterministic duplicate-phone warning. Schedule coverage creates shared and internally assigned
 private appointments, reports an all-or-nothing recurring conflict without inserting any requested
 series rows, completes an appointment, creates and edits a SOAP note, and confirms scheduled
-appointment deletion.
+appointment deletion. Billing coverage records and allocates a standalone payment, creates a
+prepaid package/payment from a seeded template, deletes factory-owned payments and packages,
+asserts real records behind billing metric drill-downs, and verifies the seeded unpaid-session
+tally. Settings coverage creates/edits/deletes appointment types and package templates, creates
+external staff, and exercises unique local user invite → resend → revoke.
+
+Clinic-wide fee mutation is deliberately not covered by a browser write test: `SettingsForm` exists
+in `src/app/settings/settings-form.tsx`, but `src/app/settings/page.tsx` neither fetches global
+settings nor renders that component, and the responsive desktop/mobile settings views expose no
+Session Fees section. The suite does not invent a hidden UI or mutate Clinic A's singleton row in
+parallel. Add the flow only when a real rendered settings surface owns it, then serialize or isolate
+the singleton mutation and restore the original value in `finally`.
 
 ## Navigation and access routing
 
@@ -119,8 +130,9 @@ details.
   `support/seed.ts` (keep it idempotent — upsert by fixed IDs).
 - Mutation specs import `test` and `expect` from `support/factories.ts` and use the injected
   `factory`. Created names are unique across projects/workers/retries, and automatic teardown
-  deletes only UUIDs registered by that test. For browser-created rows, register the exact patient
-  name, appointment patient+notes pair, or session-note appointment ID *before* clicking submit;
-  teardown discovers and tracks matching UUIDs even after a partial browser failure. Service-role
-  find helpers both verify persistence and track returned mutable rows. Never update or delete fixed
-  `SEED` rows.
+  deletes only UUIDs registered by that test. For browser-created rows, register the exact unique
+  patient, appointment, payment, package, appointment-type, package-template, external-staff, or
+  invite identity *before* clicking submit; teardown discovers and tracks matching UUIDs even after
+  a partial browser failure. Invite cleanup also finds and deletes only the auth user with the exact
+  unique email. Service-role find helpers both verify persistence and track returned mutable rows.
+  Never update or delete fixed `SEED` rows.

@@ -570,7 +570,7 @@ export function BillingView({
                       <div style={{ textAlign: 'right' }}><Money n={item.amount} /></div>
                       <div style={{ justifySelf: 'end' }}>
                         <DeleteIconButton
-                          label="Delete payment"
+                          label={`Delete payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`}
                           onClick={() => setPendingDelete({ kind: 'payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })}
                         />
                       </div>
@@ -587,7 +587,7 @@ export function BillingView({
                       <div className="flex items-center gap-1">
                         <Money n={item.amount} />
                         <DeleteIconButton
-                          label="Delete payment"
+                          label={`Delete payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`}
                           onClick={() => setPendingDelete({ kind: 'payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })}
                         />
                       </div>
@@ -641,7 +641,7 @@ export function BillingView({
                       <div className="flex items-start gap-1">
                         <span className={`ph-badge ${pkgStatusCls[item.status] ?? ''}`}>{item.status}</span>
                         <DeleteIconButton
-                          label="Delete package"
+                          label={`Delete package for ${item.patientName} · ${item.packageName}`}
                           onClick={() => setPendingDelete({ kind: 'package', id: item.id, label: `${item.patientName} · ${item.packageName}` })}
                         />
                       </div>

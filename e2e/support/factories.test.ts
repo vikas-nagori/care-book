@@ -7,6 +7,7 @@ import { E2EFactory } from './factories.ts'
 
 type MockRow = Record<string, unknown> & { id: string }
 type DeleteCall = { table: string; ids: string[] }
+type AuthDeleteCall = { id: string }
 
 function testInfo(): TestInfo {
   return {
@@ -19,8 +20,21 @@ function testInfo(): TestInfo {
 function queryableDb(
   rows: Record<string, MockRow[]>,
   deletes: DeleteCall[],
+  authUsers: { id: string; email: string }[] = [],
+  authDeletes: AuthDeleteCall[] = [],
 ): SupabaseClient {
   return {
+    auth: {
+      admin: {
+        async listUsers() {
+          return { data: { users: authUsers }, error: null }
+        },
+        async deleteUser(id: string) {
+          authDeletes.push({ id })
+          return { data: { user: null }, error: null }
+        },
+      },
+    },
     from(table: string) {
       const filters = new Map<string, unknown>()
       const result = () => ({
@@ -126,6 +140,73 @@ test('watched UI values discover partial-failure rows without deleting fixed bas
     { table: 'appointments', ids: ['ui-appointment-id'] },
     { table: 'patients', ids: ['ui-patient-id'] },
   ])
+  assert.deepEqual(
+    deletes.flatMap(({ ids }) => ids).filter((id) => baselineIds.includes(id)),
+    [],
+  )
+})
+
+test('billing and settings UI watchers clean only exact matching rows and invited auth users', async () => {
+  const deletes: DeleteCall[] = []
+  const authDeletes: AuthDeleteCall[] = []
+  const invitedEmail = 'exact-invite@carebook.test'
+  const baselineIds = [
+    'baseline-payment-id',
+    'baseline-package-id',
+    'baseline-type-id',
+    'baseline-template-id',
+    'baseline-staff-id',
+    'baseline-invite-id',
+    'baseline-auth-id',
+  ]
+  const db = queryableDb({
+    payments: [
+      { id: 'ui-payment-id', clinic_id: CLINIC_A.id, patient_id: 'patient-id', notes: 'exact payment' },
+      { id: baselineIds[0], clinic_id: CLINIC_A.id, patient_id: 'patient-id', notes: 'other payment' },
+    ],
+    packages: [
+      { id: 'ui-package-id', clinic_id: CLINIC_A.id, patient_id: 'patient-id', name: 'Exact package' },
+      { id: baselineIds[1], clinic_id: CLINIC_A.id, patient_id: 'patient-id', name: 'Other package' },
+    ],
+    appointment_types: [
+      { id: 'ui-type-id', clinic_id: CLINIC_A.id, name: 'Exact type' },
+      { id: baselineIds[2], clinic_id: CLINIC_A.id, name: 'Other type' },
+    ],
+    package_templates: [
+      { id: 'ui-template-id', clinic_id: CLINIC_A.id, name: 'Exact template' },
+      { id: baselineIds[3], clinic_id: CLINIC_A.id, name: 'Other template' },
+    ],
+    external_staff: [
+      { id: 'ui-staff-id', clinic_id: CLINIC_A.id, name: 'Exact staff', phone: '9000000001' },
+      { id: baselineIds[4], clinic_id: CLINIC_A.id, name: 'Exact staff', phone: '9000000002' },
+    ],
+    user_invites: [
+      { id: 'ui-invite-id', clinic_id: CLINIC_A.id, email: invitedEmail },
+      { id: baselineIds[5], clinic_id: CLINIC_A.id, email: 'baseline@carebook.test' },
+    ],
+  }, deletes, [
+    { id: 'ui-auth-id', email: invitedEmail },
+    { id: baselineIds[6], email: 'baseline@carebook.test' },
+  ], authDeletes)
+  const factory = new E2EFactory(testInfo(), db)
+
+  factory.watchUiPayment({ patientId: 'patient-id', notes: 'exact payment' })
+  factory.watchUiPackage({ patientId: 'patient-id', name: 'Exact package' })
+  factory.watchUiAppointmentType('Exact type')
+  factory.watchUiPackageTemplate('Exact template')
+  factory.watchUiExternalStaff({ name: 'Exact staff', phone: '9000000001' })
+  factory.watchUiInvite(invitedEmail)
+  await factory.cleanup()
+
+  assert.deepEqual(deletes, [
+    { table: 'user_invites', ids: ['ui-invite-id'] },
+    { table: 'payments', ids: ['ui-payment-id'] },
+    { table: 'packages', ids: ['ui-package-id'] },
+    { table: 'appointment_types', ids: ['ui-type-id'] },
+    { table: 'package_templates', ids: ['ui-template-id'] },
+    { table: 'external_staff', ids: ['ui-staff-id'] },
+  ])
+  assert.deepEqual(authDeletes, [{ id: 'ui-auth-id' }])
   assert.deepEqual(
     deletes.flatMap(({ ids }) => ids).filter((id) => baselineIds.includes(id)),
     [],

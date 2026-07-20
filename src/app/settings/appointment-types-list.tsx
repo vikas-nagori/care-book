@@ -98,6 +98,7 @@ export function AppointmentTypesList({ appointmentTypes, variant = 'card' }: Pro
   const addButton = editingId === null && (
     <Button
       type="button"
+      aria-label="Add appointment type"
       variant="outline"
       size="sm"
       className={variant === 'sheet' ? 'h-11' : undefined}
@@ -121,6 +122,7 @@ export function AppointmentTypesList({ appointmentTypes, variant = 'card' }: Pro
             <Label htmlFor={nameId}>Name</Label>
             <Input
               id={nameId}
+              aria-label="Appointment type name"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               placeholder="Clinic"

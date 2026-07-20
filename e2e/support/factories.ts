@@ -48,6 +48,51 @@ export type E2EProfileRow = Row & {
   full_name: string | null
   role: string
 }
+export type E2EPaymentRow = Row & {
+  clinic_id: string
+  patient_id: string
+  package_id: string | null
+  appointment_id: string | null
+  amount: number
+  payment_method: string
+  date: string
+  notes: string | null
+}
+export type E2EPackageRow = Row & {
+  clinic_id: string
+  patient_id: string
+  name: string
+  total_sessions: number
+  used_sessions: number
+  total_amount: number
+  per_session_amount: number
+  paid_amount: number
+  payment_timing: string
+  status: string
+}
+export type E2EPackageTemplateRow = Row & {
+  clinic_id: string
+  name: string
+  min_sessions: number
+  per_session_amount: number
+}
+export type E2EExternalStaffRow = Row & {
+  clinic_id: string
+  name: string
+  phone: string
+  email: string | null
+  status: string
+}
+export type E2EUserInviteRow = Row & {
+  clinic_id: string
+  email: string
+  role: string
+  status: string
+  auth_user_id: string | null
+  full_name: string | null
+  mobile_number: string | null
+  updated_at: string
+}
 type CleanupTable =
   | 'appointment_payments'
   | 'package_session_allocations'
@@ -59,12 +104,15 @@ type CleanupTable =
   | 'patients'
   | 'appointment_types'
   | 'package_templates'
+  | 'external_staff'
+  | 'user_invites'
   | 'clinic_onboarding_requests'
 
 const cleanupOrder: CleanupTable[] = [
   'appointment_payments',
   'package_session_allocations',
   'session_notes',
+  'user_invites',
   'payments',
   'packages',
   'appointments',
@@ -72,6 +120,7 @@ const cleanupOrder: CleanupTable[] = [
   'patients',
   'appointment_types',
   'package_templates',
+  'external_staff',
   'clinic_onboarding_requests',
 ]
 
@@ -100,6 +149,12 @@ export class E2EFactory {
   private readonly watchedPatientNames = new Set<string>()
   private readonly watchedAppointments = new Map<string, { patientId: string; notes: string }>()
   private readonly watchedSessionNoteAppointments = new Set<string>()
+  private readonly watchedPayments = new Map<string, { patientId: string; notes: string }>()
+  private readonly watchedPackages = new Map<string, { patientId: string; name: string }>()
+  private readonly watchedAppointmentTypeNames = new Set<string>()
+  private readonly watchedPackageTemplateNames = new Set<string>()
+  private readonly watchedExternalStaff = new Map<string, { name: string; phone: string }>()
+  private readonly watchedInviteEmails = new Set<string>()
 
   constructor(testInfo: TestInfo, db: SupabaseClient = adminClient()) {
     this.token = uniqueRunToken(testInfo)
@@ -155,6 +210,31 @@ export class E2EFactory {
     this.watchedSessionNoteAppointments.add(appointmentId)
   }
 
+  watchUiPayment(input: { patientId: string; notes: string }): void {
+    this.watchedPayments.set(`${input.patientId}\u0000${input.notes}`, input)
+  }
+
+  watchUiPackage(input: { patientId: string; name: string }): void {
+    this.watchedPackages.set(`${input.patientId}\u0000${input.name}`, input)
+  }
+
+  watchUiAppointmentType(name: string): void {
+    this.watchedAppointmentTypeNames.add(name)
+  }
+
+  watchUiPackageTemplate(name: string): void {
+    this.watchedPackageTemplateNames.add(name)
+  }
+
+  watchUiExternalStaff(input: { name: string; phone: string }): void {
+    this.watchedExternalStaff.set(`${input.name}\u0000${input.phone}`, input)
+  }
+
+  /** Tracks both the exact invite row and the exact local auth user created for that email. */
+  watchUiInvite(email: string): void {
+    this.watchedInviteEmails.add(email.trim().toLowerCase())
+  }
+
   async findPatientByName(name: string): Promise<E2EPatientRow | null> {
     const { data, error } = await this.db
       .from('patients')
@@ -196,6 +276,82 @@ export class E2EFactory {
     if (error) throw new Error(`factory find session note: ${error.message}`)
     if (data) this.trackSessionNote(data.id)
     return data as E2ESessionNoteRow | null
+  }
+
+  async findPayment(input: { patientId: string; notes: string }): Promise<E2EPaymentRow | null> {
+    const { data, error } = await this.db
+      .from('payments')
+      .select('*')
+      .eq('clinic_id', CLINIC_A.id)
+      .eq('patient_id', input.patientId)
+      .eq('notes', input.notes)
+      .maybeSingle()
+    if (error) throw new Error(`factory find payment: ${error.message}`)
+    if (data) this.track('payments', data.id)
+    return data as E2EPaymentRow | null
+  }
+
+  async findPackage(input: { patientId: string; name: string }): Promise<E2EPackageRow | null> {
+    const { data, error } = await this.db
+      .from('packages')
+      .select('*')
+      .eq('clinic_id', CLINIC_A.id)
+      .eq('patient_id', input.patientId)
+      .eq('name', input.name)
+      .maybeSingle()
+    if (error) throw new Error(`factory find package: ${error.message}`)
+    if (data) this.track('packages', data.id)
+    return data as E2EPackageRow | null
+  }
+
+  async findAppointmentTypeByName(name: string): Promise<E2EAppointmentTypeRow | null> {
+    const { data, error } = await this.db
+      .from('appointment_types')
+      .select('*')
+      .eq('clinic_id', CLINIC_A.id)
+      .eq('name', name)
+      .maybeSingle()
+    if (error) throw new Error(`factory find appointment type by name: ${error.message}`)
+    if (data) this.track('appointment_types', data.id)
+    return data as E2EAppointmentTypeRow | null
+  }
+
+  async findPackageTemplateByName(name: string): Promise<E2EPackageTemplateRow | null> {
+    const { data, error } = await this.db
+      .from('package_templates')
+      .select('*')
+      .eq('clinic_id', CLINIC_A.id)
+      .eq('name', name)
+      .maybeSingle()
+    if (error) throw new Error(`factory find package template: ${error.message}`)
+    if (data) this.track('package_templates', data.id)
+    return data as E2EPackageTemplateRow | null
+  }
+
+  async findExternalStaff(input: { name: string; phone: string }): Promise<E2EExternalStaffRow | null> {
+    const { data, error } = await this.db
+      .from('external_staff')
+      .select('*')
+      .eq('clinic_id', CLINIC_A.id)
+      .eq('name', input.name)
+      .eq('phone', input.phone)
+      .maybeSingle()
+    if (error) throw new Error(`factory find external staff: ${error.message}`)
+    if (data) this.track('external_staff', data.id)
+    return data as E2EExternalStaffRow | null
+  }
+
+  async findInviteByEmail(email: string): Promise<E2EUserInviteRow | null> {
+    const normalizedEmail = email.trim().toLowerCase()
+    const { data, error } = await this.db
+      .from('user_invites')
+      .select('*')
+      .eq('clinic_id', CLINIC_A.id)
+      .eq('email', normalizedEmail)
+      .maybeSingle()
+    if (error) throw new Error(`factory find invite: ${error.message}`)
+    if (data) this.track('user_invites', data.id)
+    return data as E2EUserInviteRow | null
   }
 
   async findAppointmentType(isShared: boolean): Promise<E2EAppointmentTypeRow> {
@@ -379,6 +535,63 @@ export class E2EFactory {
       if (error) failures.push(`discover session note ${appointmentId}: ${error.message}`)
       for (const row of data ?? []) this.trackSessionNote(row.id)
     }
+    for (const { patientId, notes } of this.watchedPayments.values()) {
+      const { data, error } = await this.db
+        .from('payments')
+        .select('id')
+        .eq('clinic_id', CLINIC_A.id)
+        .eq('patient_id', patientId)
+        .eq('notes', notes)
+      if (error) failures.push(`discover payment ${notes}: ${error.message}`)
+      for (const row of data ?? []) this.track('payments', row.id)
+    }
+    for (const { patientId, name } of this.watchedPackages.values()) {
+      const { data, error } = await this.db
+        .from('packages')
+        .select('id')
+        .eq('clinic_id', CLINIC_A.id)
+        .eq('patient_id', patientId)
+        .eq('name', name)
+      if (error) failures.push(`discover package ${name}: ${error.message}`)
+      for (const row of data ?? []) this.track('packages', row.id)
+    }
+    for (const name of this.watchedAppointmentTypeNames) {
+      const { data, error } = await this.db
+        .from('appointment_types')
+        .select('id')
+        .eq('clinic_id', CLINIC_A.id)
+        .eq('name', name)
+      if (error) failures.push(`discover appointment type ${name}: ${error.message}`)
+      for (const row of data ?? []) this.track('appointment_types', row.id)
+    }
+    for (const name of this.watchedPackageTemplateNames) {
+      const { data, error } = await this.db
+        .from('package_templates')
+        .select('id')
+        .eq('clinic_id', CLINIC_A.id)
+        .eq('name', name)
+      if (error) failures.push(`discover package template ${name}: ${error.message}`)
+      for (const row of data ?? []) this.track('package_templates', row.id)
+    }
+    for (const { name, phone } of this.watchedExternalStaff.values()) {
+      const { data, error } = await this.db
+        .from('external_staff')
+        .select('id')
+        .eq('clinic_id', CLINIC_A.id)
+        .eq('name', name)
+        .eq('phone', phone)
+      if (error) failures.push(`discover external staff ${name}: ${error.message}`)
+      for (const row of data ?? []) this.track('external_staff', row.id)
+    }
+    for (const email of this.watchedInviteEmails) {
+      const { data, error } = await this.db
+        .from('user_invites')
+        .select('id')
+        .eq('clinic_id', CLINIC_A.id)
+        .eq('email', email)
+      if (error) failures.push(`discover invite ${email}: ${error.message}`)
+      for (const row of data ?? []) this.track('user_invites', row.id)
+    }
 
     for (const table of cleanupOrder) {
       const ids = [...(this.created.get(table) ?? [])]
@@ -386,10 +599,31 @@ export class E2EFactory {
       const { error } = await this.db.from(table).delete().in('id', ids)
       if (error) failures.push(`${table}: ${error.message}`)
     }
+    if (this.watchedInviteEmails.size > 0) {
+      for (let page = 1; page <= 20; page += 1) {
+        const { data, error } = await this.db.auth.admin.listUsers({ page, perPage: 200 })
+        if (error) {
+          failures.push(`list invited auth users: ${error.message}`)
+          break
+        }
+        for (const user of data.users) {
+          if (!user.email || !this.watchedInviteEmails.has(user.email.toLowerCase())) continue
+          const { error: deleteError } = await this.db.auth.admin.deleteUser(user.id)
+          if (deleteError) failures.push(`delete invited auth user ${user.id}: ${deleteError.message}`)
+        }
+        if (data.users.length < 200) break
+      }
+    }
     this.created.clear()
     this.watchedPatientNames.clear()
     this.watchedAppointments.clear()
     this.watchedSessionNoteAppointments.clear()
+    this.watchedPayments.clear()
+    this.watchedPackages.clear()
+    this.watchedAppointmentTypeNames.clear()
+    this.watchedPackageTemplateNames.clear()
+    this.watchedExternalStaff.clear()
+    this.watchedInviteEmails.clear()
     if (failures.length > 0) throw new Error(`factory cleanup failed: ${failures.join('; ')}`)
   }
 }

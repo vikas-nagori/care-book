@@ -152,8 +152,9 @@ export function BillingEntryForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <Label>Patient *</Label>
+        <Label htmlFor="billing_patient">Patient *</Label>
         <SearchableSelect
+          id="billing_patient"
           options={patients.map((patient) => ({ value: patient.id, label: patient.name }))}
           value={selectedPatient || null}
           onChange={setSelectedPatient}
@@ -199,9 +200,9 @@ export function BillingEntryForm({
 
           {packageTemplates.length > 0 && (
             <div className="space-y-2">
-              <Label>Package Template</Label>
+              <Label htmlFor="package_template">Package Template</Label>
               <Select onValueChange={handleTemplateSelect}>
-                <SelectTrigger>
+                <SelectTrigger id="package_template">
                   <SelectValue placeholder="Select a template (optional)" />
                 </SelectTrigger>
                 <SelectContent>
@@ -354,9 +355,9 @@ export function BillingEntryForm({
         )}
 
         <div className="space-y-2">
-          <Label>Payment Method *</Label>
+          <Label htmlFor="payment_method">Payment Method *</Label>
           <Select name="payment_method" defaultValue="cash" required>
-            <SelectTrigger>
+            <SelectTrigger id="payment_method">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

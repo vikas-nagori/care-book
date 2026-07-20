@@ -161,6 +161,7 @@ export function ExternalStaffList({
           <Label htmlFor={emailId}>Email</Label>
           <Input
             id={emailId}
+            aria-label="External staff email"
             type="email"
             value={newStaff.email}
             onChange={(event) => setNewStaff((current) => ({ ...current, email: event.target.value }))}

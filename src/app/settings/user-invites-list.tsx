@@ -120,6 +120,7 @@ export function UserInvitesList({
                 <div className="grid grid-cols-2 gap-2">
                   <Button
                     type="button"
+                    aria-label={`Resend invite to ${invite.email}`}
                     variant="outline"
                     className="h-11"
                     disabled={isBusy}
@@ -129,6 +130,7 @@ export function UserInvitesList({
                   </Button>
                   <Button
                     type="button"
+                    aria-label={`Revoke invite to ${invite.email}`}
                     variant="ghost"
                     className="h-11"
                     disabled={isBusy}
@@ -184,6 +186,7 @@ export function UserInvitesList({
                           <div className="flex justify-end gap-2">
                             <Button
                               type="button"
+                              aria-label={`Resend invite to ${invite.email}`}
                               variant="outline"
                               size="sm"
                               disabled={isBusy}
@@ -193,6 +196,7 @@ export function UserInvitesList({
                             </Button>
                             <Button
                               type="button"
+                              aria-label={`Revoke invite to ${invite.email}`}
                               variant="ghost"
                               size="sm"
                               disabled={isBusy}

@@ -77,6 +77,7 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
             <Label htmlFor={nameId}>Name</Label>
             <Input
               id={nameId}
+              aria-label="Invitee name"
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
               placeholder="Asha Patel"
@@ -100,6 +101,7 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
             <Label htmlFor={emailId}>Email</Label>
             <Input
               id={emailId}
+              aria-label="Invite email"
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}

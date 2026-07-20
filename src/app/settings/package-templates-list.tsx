@@ -101,6 +101,7 @@ export function PackageTemplatesList({ templates, variant = 'card' }: Props) {
   const addButton = editingId === null && (
     <Button
       type="button"
+      aria-label="Add package template"
       variant="outline"
       size="sm"
       className={variant === 'sheet' ? 'h-11' : undefined}
@@ -123,6 +124,7 @@ export function PackageTemplatesList({ templates, variant = 'card' }: Props) {
             <Label htmlFor={nameId}>Name</Label>
             <Input
               id={nameId}
+              aria-label="Package template name"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               placeholder="10-session package"
