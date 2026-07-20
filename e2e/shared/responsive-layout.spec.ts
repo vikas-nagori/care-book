@@ -1,4 +1,5 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test'
+import { addDays, format, parseISO, startOfWeek } from 'date-fns'
 
 import { attachErrorGuards } from '../support/assertions'
 import { clinicDate } from '../support/clinic-date'
@@ -49,6 +50,9 @@ test('schedule switches between the mobile rolling rail and desktop calendar lay
     includeHidden: true,
   })
   const mobileFilter = page.getByRole('button', { name: 'All', exact: true, includeHidden: true })
+  const timelineAppointment = page.getByRole('link', { name: /Asha Rao/ }).filter({ visible: true })
+  const timelineWeekday = page.getByText(format(parseISO(selectedDate), 'EEEE'), { exact: true })
+  const timelineDate = page.getByText(format(parseISO(selectedDate), 'MMM d, yyyy'), { exact: true })
 
   if (!mobile) {
     await expect(rail).toBeHidden()
@@ -57,6 +61,37 @@ test('schedule switches between the mobile rolling rail and desktop calendar lay
     await expect(weekToggle).toBeVisible()
     await expect(desktopFilters).toBeVisible()
     await expect(mobileFilter).toBeHidden()
+    const weekStart = startOfWeek(parseISO(selectedDate), { weekStartsOn: 1 })
+    for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
+      const day = addDays(weekStart, dayOffset)
+      await expect(page.getByRole('button', {
+        name: new RegExp(`^${format(day, 'EEE')}\\s+${format(day, 'd').padStart(2, '0')}\\s+`),
+      })).toBeVisible()
+    }
+    await expect(timelineWeekday).toBeVisible()
+    await expect(timelineDate).toBeVisible()
+    await expect(timelineAppointment).toContainText('11:59 PM')
+    await expect(timelineAppointment).toContainText('Asha Rao')
+    await expect(timelineAppointment).toContainText('Clinic')
+
+    const filtersElement = await desktopFilters.elementHandle()
+    expect(filtersElement).not.toBeNull()
+    const dayLayout = await timelineAppointment.evaluate((appointment, filters) => {
+      let candidate: HTMLElement | null = appointment.parentElement
+      while (candidate && !candidate.contains(filters as Node)) candidate = candidate.parentElement
+      if (!candidate) throw new Error('Schedule timeline/sidebar layout was not found')
+      const style = getComputedStyle(candidate)
+      return {
+        display: style.display,
+        columns: style.gridTemplateColumns.split(' ').length,
+      }
+    }, filtersElement)
+    expect(dayLayout).toEqual({ display: 'grid', columns: 2 })
+    const appointmentBox = await timelineAppointment.boundingBox()
+    const filtersBox = await desktopFilters.boundingBox()
+    expect(appointmentBox).not.toBeNull()
+    expect(filtersBox).not.toBeNull()
+    expect(appointmentBox!.x + appointmentBox!.width).toBeLessThanOrEqual(filtersBox!.x)
     await guards.assertClean()
     return
   }
@@ -67,6 +102,15 @@ test('schedule switches between the mobile rolling rail and desktop calendar lay
   await expect(weekToggle).toBeHidden()
   await expect(desktopFilters).toBeHidden()
   await expect(mobileFilter).toBeVisible()
+  await expect(timelineWeekday).toBeVisible()
+  await expect(timelineDate).toBeVisible()
+  await expect(timelineAppointment).toContainText('11:59 PM')
+  await expect(timelineAppointment).toContainText('Asha Rao')
+  await expect(timelineAppointment).toContainText('Clinic')
+  const timelineBox = await timelineAppointment.boundingBox()
+  expect(timelineBox).not.toBeNull()
+  expect(timelineBox!.x).toBeGreaterThanOrEqual(0)
+  expect(timelineBox!.x + timelineBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
 
   const selected = rail.getByRole('button', {
     name: new RegExp(`^${fullDateLabel(selectedDate)},`),
@@ -113,6 +157,32 @@ test('schedule switches between the mobile rolling rail and desktop calendar lay
   expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
   await page.keyboard.press('Escape')
   await expect(dateDialog).toBeHidden()
+
+  const newAppointmentTrigger = page.getByRole('button', {
+    name: 'New Appointment',
+    exact: true,
+  })
+  await newAppointmentTrigger.click()
+  const appointmentDialog = page.getByRole('dialog', { name: 'New Appointment', exact: true })
+  await expect(appointmentDialog).toBeVisible()
+  await expect(appointmentDialog.getByRole('heading', {
+    name: 'New Appointment',
+    exact: true,
+  })).toBeVisible()
+  await expect(appointmentDialog.getByLabel('Patient *', { exact: true })).toBeVisible()
+  await expect(appointmentDialog.getByLabel('Date *', { exact: true })).toHaveValue(targetDate)
+  const appointmentDialogBox = await appointmentDialog.boundingBox()
+  expect(appointmentDialogBox).not.toBeNull()
+  expect(appointmentDialogBox!.x).toBeGreaterThanOrEqual(0)
+  expect(appointmentDialogBox!.y).toBeGreaterThanOrEqual(0)
+  expect(appointmentDialogBox!.x + appointmentDialogBox!.width).toBeLessThanOrEqual(
+    page.viewportSize()!.width,
+  )
+  expect(appointmentDialogBox!.y + appointmentDialogBox!.height).toBeLessThanOrEqual(
+    page.viewportSize()!.height,
+  )
+  await appointmentDialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(appointmentDialog).toBeHidden()
 
   await guards.assertClean()
 })

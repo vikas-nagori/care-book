@@ -141,7 +141,7 @@ bounding boxes, and document order.
 | Surface | Desktop contract | Mobile contract | Roles |
 | --- | --- | --- | --- |
 | Settings | Persistent account/admin panels; no sheet menu triggers | Semantic section buttons open named bottom sheets, expose `aria-expanded`, close, and restore trigger focus | Admin; staff remains account-only |
-| Schedule | Day/week controls, weekly date strip, timeline, and filter sidebar; rolling rail hidden | Named rolling-date region and swipe instruction; selected date centered, native horizontal wheel scrolling, exact date-query navigation, calendar dialog, and filter chips | Admin + staff |
+| Schedule | Day/week controls, seven-date weekly strip, appointment timeline, and two-column filter sidebar layout; rolling rail hidden | Named rolling-date region and swipe instruction; seeded day timeline, selected date centered, native horizontal wheel scrolling, exact date-query navigation, calendar jump and New Appointment dialogs, and filter chips | Admin + staff |
 | Dashboard | Header `New appointment`; only the desktop `Up next` instance is visible | Quick-action grid is two columns for admin (`New appt`, `New billing`) and one for staff; `Up next` precedes stats | Admin + staff |
 | Patients | `Patient`, `Phone`, and `Joined` table headers with desktop row representation | Compact patient cards with the seeded name, phone, and gender; table headers hidden | Admin + staff |
 | Billing | Balance/payment column headers and a two-column package-card grid | Balance/payment compact rows with desktop headers hidden and a one-column package-card grid | Admin only |

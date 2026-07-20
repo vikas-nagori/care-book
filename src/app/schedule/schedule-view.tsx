@@ -329,7 +329,7 @@ export function ScheduleView({
                 display: 'grid', placeItems: 'center',
                 borderRadius: 8, border: '1px solid var(--ph-accent)',
                 background: 'var(--ph-accent)', color: '#fff', cursor: 'pointer',
-              }}>
+              }} aria-label="New Appointment">
                 <Plus size={15} />
               </button>
             </DialogTrigger>

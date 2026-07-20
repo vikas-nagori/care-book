@@ -1,6 +1,7 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test'
 
 import { attachErrorGuards } from '../support/assertions'
+import { ADMIN } from '../support/accounts'
 import { SEED } from '../support/ids'
 
 function isMobileProject(testInfo: TestInfo) {
@@ -78,6 +79,51 @@ test('admin settings switch between persistent panels and focus-restoring mobile
         includeHidden: true,
       })).toHaveCount(0)
     }
+
+    const logout = page.getByRole('button', { name: 'Logout', exact: true })
+    await expect(logout).toBeVisible()
+    const accountPanelText = await logout.evaluate((button) => {
+      let candidate: HTMLElement | null = button.parentElement
+      while (candidate && !candidate.textContent?.includes('Your Account')) candidate = candidate.parentElement
+      return candidate?.textContent ?? ''
+    })
+    for (const value of ['Name', 'admin', 'Email', ADMIN.email, 'Mobile', 'Role']) {
+      expect(accountPanelText).toContain(value)
+    }
+
+    const clinicType = page.getByRole('button', { name: 'Edit Clinic', exact: true })
+    await expect(clinicType).toBeVisible()
+    expect(await clinicType.evaluate((button) => button.parentElement?.parentElement?.textContent)).toContain(
+      'Clinic',
+    )
+    expect(await clinicType.evaluate((button) => button.parentElement?.parentElement?.textContent)).toContain(
+      'Shared',
+    )
+
+    const template = page.getByRole('button', {
+      name: 'Edit E2E Standard 6 Sessions',
+      exact: true,
+    })
+    await expect(template).toBeVisible()
+    const templateText = await template.evaluate((button) => button.parentElement?.parentElement?.textContent)
+    expect(templateText).toContain('6 sessions')
+    expect(templateText).toContain('₹750/session')
+    expect(templateText).toContain('₹4,500 total')
+
+    await expect(page.getByRole('button', { name: 'Add External Staff', exact: true })).toBeVisible()
+    await expect(page.getByLabel('External staff email', { exact: true })).toBeVisible()
+
+    const invitesTitle = page.getByText('Invites', { exact: true }).filter({ visible: true })
+    const invitesPanelText = await invitesTitle.evaluate((title) => {
+      let candidate: HTMLElement | null = title.parentElement
+      while (
+        candidate
+        && !candidate.textContent?.includes('No invites have been sent yet.')
+        && !candidate.textContent?.includes('Last Updated')
+      ) candidate = candidate.parentElement
+      return candidate?.textContent ?? ''
+    })
+    expect(invitesPanelText).toMatch(/No invites have been sent yet\.|Last Updated/)
     await guards.assertClean()
     return
   }
@@ -215,21 +261,43 @@ test('billing switches balance and payment tables at md and changes package grid
   await guards.assertClean()
 })
 
-test('metric and payment-due pages expose responsive headers with exact Back links', async ({ page }, testInfo) => {
+test('metric and payment-due pages expose responsive titles, content, and exact Back links', async ({ page }, testInfo) => {
   const guards = attachErrorGuards(page)
 
-  for (const route of [
-    '/billing/metrics/received-this-month',
-    `/billing/payment-due/${SEED.patientPaymentDue}`,
+  for (const detail of [
+    {
+      route: '/billing/metrics/received-this-month',
+      mobileTitle: 'Received',
+      desktopTitle: 'Received',
+      content: ['Asha Rao', 'UPI', '₹8,000'],
+    },
+    {
+      route: `/billing/payment-due/${SEED.patientPaymentDue}`,
+      mobileTitle: 'Balance detail',
+      desktopTitle: 'Meera Payment Due',
+      content: ['Meera Payment Due', 'Payments balance detail', 'Unpaid sessions', '₹800'],
+    },
   ]) {
-    await page.goto(route)
+    await page.goto(detail.route)
     await assertMdBreakpoint(page, testInfo)
     if (isMobileProject(testInfo)) {
-      await expect(page.getByRole('link', { name: 'Go back', exact: true })).toBeVisible()
+      const back = page.getByRole('link', { name: 'Go back', exact: true })
+      await expect(back).toBeVisible()
       await expect(page.getByRole('link', { name: 'Back to billing', exact: true })).toBeHidden()
+      expect(await back.evaluate((link) => link.parentElement?.textContent?.trim())).toBe(detail.mobileTitle)
+      expect(await back.evaluate((link) => getComputedStyle(link.parentElement!).position)).toBe('sticky')
     } else {
-      await expect(page.getByRole('link', { name: 'Back to billing', exact: true })).toBeVisible()
+      const back = page.getByRole('link', { name: 'Back to billing', exact: true })
+      await expect(back).toBeVisible()
       await expect(page.getByRole('link', { name: 'Go back', exact: true })).toBeHidden()
+      await expect(page.getByRole('heading', {
+        name: detail.desktopTitle,
+        exact: true,
+      })).toBeVisible()
+      expect(await back.evaluate((link) => link.parentElement?.textContent)).toContain(detail.desktopTitle)
+    }
+    for (const content of detail.content) {
+      await expect(page.getByText(content, { exact: true }).filter({ visible: true }).first()).toBeVisible()
     }
   }
 
