@@ -9,9 +9,6 @@ const CRASH_TEXT = [
   'something went wrong',
 ] as const
 
-// Browser extensions/content blockers can emit this without the application logging an error.
-// Keep this deliberately narrow: HTTP failures, React errors, and application messages must fail.
-const KNOWN_NON_APP_CONSOLE_ERRORS = [/^Failed to load resource: net::ERR_BLOCKED_BY_CLIENT$/] as const
 const LOCAL_VERCEL_OBSERVABILITY_PATHS = ['/_vercel/insights/', '/_vercel/speed-insights/'] as const
 
 function isKnownNonAppConsoleError(
@@ -19,7 +16,6 @@ function isKnownNonAppConsoleError(
   observabilityRedirectTargets: ReadonlySet<string>,
 ): boolean {
   const text = message.text()
-  if (KNOWN_NON_APP_CONSOLE_ERRORS.some((pattern) => pattern.test(text))) return true
 
   // These Vercel-managed scripts are not served by local `next start`. Match both the exact
   // request origin and the narrow failure shape so unrelated application 404s remain failures.

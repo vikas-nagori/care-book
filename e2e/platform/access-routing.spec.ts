@@ -9,3 +9,11 @@ test('platform allowlisted account is redirected from clinic app to platform', a
     landmark: { kind: 'heading', name: 'Overview' },
   })
 })
+
+test('platform allowlisted account leaves /login for the platform console', async ({ page }) => {
+  await gotoDeniedRoute(page, {
+    requestPath: '/login',
+    expected: { kind: 'redirect', pathname: '/platform' },
+    landmark: { kind: 'heading', name: 'Overview' },
+  })
+})
