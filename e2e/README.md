@@ -24,6 +24,7 @@ declared destination instead of treating a redirect target as successful route s
 ```
 e2e/
   setup/global.setup.ts   # seeds the DB + logs each role in, saving storageState (runs first)
+  pages/                  # focused accessible POMs for patient, appointment, and SOAP forms
   support/                # seed harness, route manifest/guard, nav + route assertions
   shared/                 # specs that run under BOTH admin and staff × desktop and mobile
   admin/  staff/          # role-specific specs
@@ -54,7 +55,7 @@ npm run e2e:db:down        # supabase stop
 `npm run test:e2e -- --project=admin-desktop` runs a single project.
 
 `npm run test:e2e:support` includes the route-inventory guard and runs in the normal unit-test/CI
-path. `npx playwright test --list` prints the fully expanded project count (currently 106 tests,
+path. `npx playwright test --list` prints the fully expanded project count (currently 125 tests,
 including six setup/authentication tests).
 
 The normal test command never resets the database. It starts the local stack if necessary and
@@ -78,6 +79,13 @@ The Billing → Packages real-`timestamptz` regression remains a dedicated admin
 also covers unauthenticated redirects for every protected runtime route, invalid/missing callback
 credentials, and unauthorized cron access. The authorized cron branch is intentionally not called:
 its date-based update can mutate scheduled appointments, so it is not a deterministic no-op.
+
+Admin desktop and mobile additionally exercise critical write flows. Patient coverage creates a
+representative record, searches the list, edits persisted profile fields, and verifies the
+deterministic duplicate-phone warning. Schedule coverage creates shared and internally assigned
+private appointments, reports an all-or-nothing recurring conflict without inserting any requested
+series rows, completes an appointment, creates and edits a SOAP note, and confirms scheduled
+appointment deletion.
 
 ## Navigation and access routing
 
@@ -104,9 +112,15 @@ details.
 - New page route → declare it once in `support/route-manifest.ts`; the guard identifies omissions.
 - New access rule → add it to the appropriate role-owned `access-routing.spec.ts`.
 - New flow (`*-form.tsx` / `actions.ts`) → add a spec under the role that can perform it.
+- Heavy forms belong in a focused `pages/` object. Prefer labels, roles, names, URLs, responses,
+  and polling over CSS/class selectors, DOM timing assumptions, or fixed sleeps.
 - Role- or viewport-conditional UI → assert both sides (admin vs staff, desktop vs mobile).
 - Reference seeded data via `support/ids.ts` / `support/accounts.ts`; add new fixtures to
   `support/seed.ts` (keep it idempotent — upsert by fixed IDs).
 - Mutation specs import `test` and `expect` from `support/factories.ts` and use the injected
   `factory`. Created names are unique across projects/workers/retries, and automatic teardown
-  deletes only UUIDs registered by that test. Never update or delete fixed `SEED` rows.
+  deletes only UUIDs registered by that test. For browser-created rows, register the exact patient
+  name, appointment patient+notes pair, or session-note appointment ID *before* clicking submit;
+  teardown discovers and tracks matching UUIDs even after a partial browser failure. Service-role
+  find helpers both verify persistence and track returned mutable rows. Never update or delete fixed
+  `SEED` rows.
