@@ -77,7 +77,13 @@ async function seedAccount(db: SupabaseClient, account: Account): Promise<string
 
 async function seedPatients(db: SupabaseClient) {
   const rows = [
-    { id: SEED.patientAsha, clinic_id: CLINIC_A.id, name: 'Asha Rao', phone: '9876500001' },
+    {
+      id: SEED.patientAsha,
+      clinic_id: CLINIC_A.id,
+      name: 'Asha Rao',
+      phone: '9876500001',
+      gender: 'female',
+    },
     { id: SEED.patientRavi, clinic_id: CLINIC_A.id, name: 'Ravi Kumar', phone: '9876500002' },
     {
       id: SEED.patientPaymentDue,
@@ -171,7 +177,8 @@ async function seedAppointments(
       type: 'Clinic',
       type_is_shared: true,
       date: clinicDate(0),
-      time: '10:00',
+      // Keep one deterministic "Up next" row available throughout the clinic day.
+      time: '23:59',
       fee: 800,
       status: 'scheduled',
       payment_status: 'unpaid',

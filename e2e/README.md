@@ -131,6 +131,27 @@ redirect away from clinic pages, staff denial for Billing, every valid Billing m
 payment-due detail family, plus unauthenticated redirects to `/login`. Expected redirects use
 explicit redirect/denial helpers and are never counted as successful page renders.
 
+## Responsive layout matrix
+
+Responsive specs use the configured project viewport and the browser's real
+`(min-width: 768px)` media-query result; they do not infer layout from the user agent. Visibility
+checks use accessible names and roles, while layout-only contracts use computed styles,
+bounding boxes, and document order.
+
+| Surface | Desktop contract | Mobile contract | Roles |
+| --- | --- | --- | --- |
+| Settings | Persistent account/admin panels; no sheet menu triggers | Semantic section buttons open named bottom sheets, expose `aria-expanded`, close, and restore trigger focus | Admin; staff remains account-only |
+| Schedule | Day/week controls, weekly date strip, timeline, and filter sidebar; rolling rail hidden | Named rolling-date region and swipe instruction; selected date centered, native horizontal wheel scrolling, exact date-query navigation, calendar dialog, and filter chips | Admin + staff |
+| Dashboard | Header `New appointment`; only the desktop `Up next` instance is visible | Quick-action grid is two columns for admin (`New appt`, `New billing`) and one for staff; `Up next` precedes stats | Admin + staff |
+| Patients | `Patient`, `Phone`, and `Joined` table headers with desktop row representation | Compact patient cards with the seeded name, phone, and gender; table headers hidden | Admin + staff |
+| Billing | Balance/payment column headers and a two-column package-card grid | Balance/payment compact rows with desktop headers hidden and a one-column package-card grid | Admin only |
+| Nested headers | Desktop heading/back controls | Sticky mobile title/back controls on representative new, detail, metric, and payment-due pages | Shared + admin |
+
+The Packages tab intentionally uses one responsive card DOM rather than separate desktop/mobile
+duplicates; its contract is the computed two-column versus one-column grid. The schedule gesture
+contract is native horizontal overflow scrolling—the UI does not implement a synthetic week-swipe
+handler.
+
 ## Security coverage matrix
 
 | Security contract | Positive control | Denial / isolation assertion | Viewports |

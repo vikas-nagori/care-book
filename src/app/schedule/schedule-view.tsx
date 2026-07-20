@@ -416,7 +416,12 @@ export function ScheduleView({
         <p className="mb-1 text-right text-[10.5px]" style={{ color: 'var(--ph-ink-4)' }}>
           Swipe the dates to change week
         </p>
-        <div ref={mobileRailRef} className="ph-date-strip">
+        <div
+          ref={mobileRailRef}
+          role="region"
+          aria-label="Schedule dates"
+          className="ph-date-strip"
+        >
           {mobileRailDates.map((date) => {
             const day = parseISO(date)
             const isToday = isScheduleDateToday(date, todayDate)
