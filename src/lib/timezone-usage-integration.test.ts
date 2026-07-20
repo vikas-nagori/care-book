@@ -60,8 +60,12 @@ test('patient flows use the browser date default and preserve date-only calendar
 
   assert.match(patientDetail, /formatDateOnly\(patient\.dob, 'dd MMM yyyy'\)/)
   assert.match(appointmentDetail, /formatDateOnly\(appointment\.date, 'EEEE, dd MMM yyyy'\)/)
-  assert.match(billingView, /formatDateOnly\(item\.sortDate, 'dd MMM yyyy'\)/)
+  // Package timeline items sort by `created_at`, which is a full timestamptz — not a
+  // date-only key — so it must be parsed with parseISO, not formatDateOnly (which throws
+  // "Invalid calendar date" on a timestamp and crashed the whole Packages tab).
+  assert.match(billingView, /format\(parseISO\(item\.sortDate\), 'dd MMM yyyy'\)/)
   assert.doesNotMatch(patientDetail, /format\(new Date\(/)
   assert.doesNotMatch(appointmentDetail, /format\(new Date\(appointment\.date\)/)
   assert.doesNotMatch(billingView, /format\(new Date\(item\.sortDate\)/)
+  assert.doesNotMatch(billingView, /formatDateOnly\(item\.sortDate/)
 })
