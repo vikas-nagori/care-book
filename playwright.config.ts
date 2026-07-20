@@ -25,13 +25,13 @@ export default defineConfig({
     video: 'off',
   },
 
-  // Build once with the local-stack env, then serve the production build. Building inside the
-  // webServer command keeps a single entrypoint; reuseExistingServer skips it locally when a
-  // server is already up. Timeout covers a cold `next build`.
+  // Build once with the local-stack env, then serve the production build. Never reuse an arbitrary
+  // port-3000 process: it may have been built against a hosted Supabase project while the harness
+  // cleanup still targets the local stack. Timeout covers a cold `next build`.
   webServer: {
     command: 'npm run build:e2e && npm run start:e2e',
     url: 'http://localhost:3000',
-    reuseExistingServer: !CI,
+    reuseExistingServer: false,
     timeout: 300_000,
     stdout: 'pipe',
     stderr: 'pipe',

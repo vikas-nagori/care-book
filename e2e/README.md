@@ -18,6 +18,8 @@ declared destination instead of treating a redirect target as successful route s
   export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
   ```
 - Node 22+ and `npm ci`.
+- Port 3000 must be free. Playwright always owns the production E2E server and will not reuse an
+  existing process, because that process may have been built against a different Supabase project.
 
 ## Layout
 
@@ -53,6 +55,10 @@ npm run e2e:db:down        # supabase stop
 ```
 
 `npm run test:e2e -- --project=admin-desktop` runs a single project.
+
+Stop any existing app on port 3000 before running Playwright. The configured server is always built
+with `.env.e2e`; intentionally disabling server reuse prevents mutation specs from driving an
+unrelated local app while their service-role verification and cleanup target local Supabase.
 
 `npm run test:e2e:support` includes the route-inventory guard and runs in the normal unit-test/CI
 path. `npx playwright test --list` prints the current fully expanded project count, including the
