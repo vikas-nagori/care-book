@@ -62,22 +62,33 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
     if (savingRef.current) return
     savingRef.current = true
 
-    let error
-    if (patient) {
-      ({ error } = await supabase.from('patients').update(data).eq('id', patient.id))
-    } else {
-      ({ error } = await supabase.from('patients').insert(data))
-    }
+    try {
+      let error
+      if (patient) {
+        ({ error } = await supabase.from('patients').update(data).eq('id', patient.id))
+      } else {
+        ({ error } = await supabase.from('patients').insert(data))
+      }
 
-    if (error) {
-      logger.error('PatientForm/save', error, { patientId: patient?.id })
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
-      savingRef.current = false
-      setLoading(false)
-    } else {
+      if (error) {
+        logger.error('PatientForm/save', error, { patientId: patient?.id })
+        toast({ title: 'Error', description: error.message, variant: 'destructive' })
+        return
+      }
+
       toast({ title: patient ? 'Patient updated' : 'Patient added' })
       router.push('/patients')
       router.refresh()
+    } catch (error) {
+      logger.error('PatientForm/save', error, { patientId: patient?.id })
+      toast({
+        title: 'Error',
+        description: 'Unable to save patient. Please try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      savingRef.current = false
+      setLoading(false)
     }
   }
 
@@ -86,42 +97,53 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
     const formData = new FormData(e.currentTarget)
     setLoading(true)
 
-    const resolvedDoctor = await referral.resolveReferredDoctorId()
-    if (!resolvedDoctor) {
-      setLoading(false)
-      return
-    }
-
-    const data: PatientFormValues = {
-      name: formData.get('name') as string,
-      phone: (formData.get('phone') as string) || null,
-      email: (formData.get('email') as string) || null,
-      dob: (formData.get('dob') as string) || null,
-      gender: (formData.get('gender') as string) || null,
-      address: (formData.get('address') as string) || null,
-      medical_history: (formData.get('medical_history') as string) || null,
-      notes: (formData.get('notes') as string) || null,
-      referral_source: referral.referralSource || null,
-      referred_by_doctor_id: resolvedDoctor.doctorId,
-    }
-
-    // On create, warn if an existing patient in this clinic already has this phone.
-    // RLS scopes the lookup to the current clinic; shared family numbers are still
-    // allowed via "Add anyway".
-    if (!patient && data.phone) {
-      const { data: dupes } = await supabase
-        .from('patients')
-        .select('id, name')
-        .eq('phone', data.phone)
-
-      if (dupes && dupes.length > 0) {
-        setDuplicateNames(dupes.map((d) => d.name))
-        setPendingData(data)
+    try {
+      const resolvedDoctor = await referral.resolveReferredDoctorId()
+      if (!resolvedDoctor) {
+        setLoading(false)
         return
       }
-    }
 
-    await savePatient(data)
+      const data: PatientFormValues = {
+        name: formData.get('name') as string,
+        phone: (formData.get('phone') as string) || null,
+        email: (formData.get('email') as string) || null,
+        dob: (formData.get('dob') as string) || null,
+        gender: (formData.get('gender') as string) || null,
+        address: (formData.get('address') as string) || null,
+        medical_history: (formData.get('medical_history') as string) || null,
+        notes: (formData.get('notes') as string) || null,
+        referral_source: referral.referralSource || null,
+        referred_by_doctor_id: resolvedDoctor.doctorId,
+      }
+
+      // On create, warn if an existing patient in this clinic already has this phone.
+      // RLS scopes the lookup to the current clinic; shared family numbers are still
+      // allowed via "Add anyway".
+      if (!patient && data.phone) {
+        const { data: dupes } = await supabase
+          .from('patients')
+          .select('id, name')
+          .eq('phone', data.phone)
+
+        if (dupes && dupes.length > 0) {
+          setDuplicateNames(dupes.map((d) => d.name))
+          setPendingData(data)
+          return
+        }
+      }
+
+      await savePatient(data)
+    } catch (error) {
+      logger.error('PatientForm/submit', error, { patientId: patient?.id })
+      toast({
+        title: 'Error',
+        description: 'Unable to save patient. Please try again.',
+        variant: 'destructive',
+      })
+      savingRef.current = false
+      setLoading(false)
+    }
   }
 
   function cancelDuplicate() {

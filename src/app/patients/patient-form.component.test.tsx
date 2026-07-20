@@ -75,4 +75,27 @@ describe('PatientForm submission', () => {
     expect(mocks.push).toHaveBeenCalledWith('/patients')
     expect(mocks.refresh).toHaveBeenCalledOnce()
   })
+
+  it('restores the form when the patient insert throws', async () => {
+    mocks.insert.mockRejectedValueOnce(new Error('network unavailable'))
+    render(<PatientForm />)
+    const nameInput = screen.getByLabelText('Name *')
+    fireEvent.change(nameInput, { target: { value: 'Test Patient' } })
+    fireEvent.submit(nameInput.closest('form')!)
+
+    await waitFor(() => {
+      const submitButton = screen.getByRole('button', { name: 'Add Patient' }) as HTMLButtonElement
+      expect(submitButton.disabled).toBe(false)
+    })
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      'PatientForm/save',
+      expect.any(Error),
+      { patientId: undefined },
+    )
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Error',
+      variant: 'destructive',
+    }))
+  })
 })
