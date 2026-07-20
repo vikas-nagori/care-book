@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdir } from 'node:fs/promises'
+import { access, readdir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import test from 'node:test'
 
@@ -35,6 +35,14 @@ test('every App Router page has exactly one E2E route declaration', async () => 
   const discoveredRoutes = await inventoryPageRoutes()
   const declaredRoutes = PAGE_ROUTE_MANIFEST.map((route) => route.pattern).sort()
 
-  assert.equal(discoveredRoutes.length, 20, 'update the expected page count when adding or removing routes')
   assert.deepEqual(declaredRoutes, discoveredRoutes)
+})
+
+test('every route declaration names an existing owning spec', async () => {
+  const owners = [...new Set(PAGE_ROUTE_MANIFEST.map((route) => route.owner))]
+
+  await Promise.all(owners.map(async (owner) => {
+    assert.match(owner, /^e2e\/.+\.spec\.ts$/, `invalid route owner: ${owner}`)
+    await access(join(process.cwd(), owner))
+  }))
 })

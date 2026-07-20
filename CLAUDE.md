@@ -26,10 +26,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Always do all fixes and development in a new branch.** Never commit code changes directly to `main`. Create a descriptive branch (e.g. `feat/…`, `fix/…`, `chore/…`) before touching any source file.
 
 ## CI Monitoring
-**Whenever you run `git push`, watch the resulting GitHub Actions run to completion and report pass/fail.** The `Tests` workflow (`.github/workflows/test.yml`) has two jobs: `test` (lint + typecheck + `test:unit` + `test:component` + `test:integration`) and `e2e` (Playwright against a local Supabase stack). Both run on pushes to `main` and on every PR (a push to a feature branch only triggers a run once a PR exists). After pushing, find the run (`gh run list --branch <branch> --limit 1`), wait for it (`gh run watch <id>` or poll `gh run view <id> --json status`), and surface the conclusion — and if it failed, the failing step/log — to the user without being asked.
+**Whenever you run `git push`, watch the resulting GitHub Actions run to completion and report pass/fail.** The `Tests` workflow (`.github/workflows/test.yml`) has two required jobs: `test` (lint + typecheck + `test:unit` + `test:component` + `test:integration` + production build) and `e2e` (the full Playwright role/viewport matrix against local Supabase). Both run on every branch push and every pull request. After pushing, find the run (`gh run list --branch <branch> --limit 1`), wait for it (`gh run watch <id>` or poll `gh run view <id> --json status`), and surface the conclusion — and if it failed, the failing step/log — to the user without being asked. Repository administrators must keep both job checks required for `main`; see `.github/BRANCH_PROTECTION.md`.
 
 ## Tech Stack
-Next.js 14 (App Router) · TypeScript (strict) · Tailwind CSS 3.4 · shadcn/ui (New York style) · Supabase (Postgres + Auth) · `@supabase/ssr` for cookie-based sessions · PWA enabled
+Next.js 16 (App Router) · TypeScript (strict) · Tailwind CSS 3.4 · shadcn/ui (New York style) · Supabase (Postgres + Auth) · `@supabase/ssr` for cookie-based sessions · PWA enabled
 
 ## Architecture
 
