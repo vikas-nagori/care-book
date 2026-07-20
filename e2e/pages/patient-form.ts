@@ -21,9 +21,7 @@ export class PatientForm {
   }
 
   private async chooseGender(option: PatientFormData['gender']): Promise<void> {
-    // The Radix gender trigger currently has no accessible name; it is the form's only visible,
-    // unnamed combobox. Keep this workaround in the POM rather than leaking it into every spec.
-    await this.page.getByRole('combobox', { name: '', exact: true }).filter({ visible: true }).first().click()
+    await this.page.getByLabel('Gender', { exact: true }).click()
     await this.page.getByRole('option', { name: option, exact: true }).click()
   }
 

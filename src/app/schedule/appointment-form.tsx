@@ -595,7 +595,7 @@ export function AppointmentForm({
         <div className="space-y-2">
           <Label htmlFor="type">Type</Label>
           <Select value={appointmentTypeId} onValueChange={handleTypeChange}>
-            <SelectTrigger>
+            <SelectTrigger id="type">
               <SelectValue placeholder="Select type" />
             </SelectTrigger>
             <SelectContent>

@@ -187,7 +187,7 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
             <div className="space-y-2">
               <Label htmlFor="gender">Gender</Label>
               <Select name="gender" defaultValue={patient?.gender ?? ''}>
-                <SelectTrigger>
+                <SelectTrigger id="gender">
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
                 <SelectContent>

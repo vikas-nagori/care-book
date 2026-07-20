@@ -2,10 +2,63 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { TestInfo } from '@playwright/test'
+import { CLINIC_A } from './accounts.ts'
 import { E2EFactory } from './factories.ts'
 
+type MockRow = Record<string, unknown> & { id: string }
+type DeleteCall = { table: string; ids: string[] }
+
+function testInfo(): TestInfo {
+  return {
+    project: { name: 'admin-desktop' },
+    workerIndex: 2,
+    retry: 0,
+  } as unknown as TestInfo
+}
+
+function queryableDb(
+  rows: Record<string, MockRow[]>,
+  deletes: DeleteCall[],
+): SupabaseClient {
+  return {
+    from(table: string) {
+      const filters = new Map<string, unknown>()
+      const result = () => ({
+        data: (rows[table] ?? []).filter((row) =>
+          [...filters].every(([column, value]) => row[column] === value)),
+        error: null,
+      })
+      const builder = {
+        select(columns: string) {
+          assert.equal(columns, 'id')
+          return builder
+        },
+        eq(column: string, value: unknown) {
+          filters.set(column, value)
+          return builder
+        },
+        delete() {
+          return {
+            async in(_column: string, ids: string[]) {
+              deletes.push({ table, ids })
+              return { error: null }
+            },
+          }
+        },
+        then<TResult1 = ReturnType<typeof result>, TResult2 = never>(
+          onfulfilled?: ((value: ReturnType<typeof result>) => TResult1 | PromiseLike<TResult1>) | null,
+          onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+        ) {
+          return Promise.resolve(result()).then(onfulfilled, onrejected)
+        },
+      }
+      return builder
+    },
+  } as unknown as SupabaseClient
+}
+
 test('tracked UI row IDs are cleaned in dependency order without touching baseline rows', async () => {
-  const deletes: Array<{ table: string; ids: string[] }> = []
+  const deletes: DeleteCall[] = []
   const db = {
     from(table: string) {
       return {
@@ -20,12 +73,7 @@ test('tracked UI row IDs are cleaned in dependency order without touching baseli
       }
     },
   } as unknown as SupabaseClient
-  const testInfo = {
-    project: { name: 'admin-desktop' },
-    workerIndex: 2,
-    retry: 0,
-  } as unknown as TestInfo
-  const factory = new E2EFactory(testInfo, db)
+  const factory = new E2EFactory(testInfo(), db)
 
   factory.trackPatient('ui-patient-id')
   factory.trackAppointment('ui-appointment-id')
@@ -37,4 +85,49 @@ test('tracked UI row IDs are cleaned in dependency order without touching baseli
     { table: 'appointments', ids: ['ui-appointment-id'] },
     { table: 'patients', ids: ['ui-patient-id'] },
   ])
+})
+
+test('watched UI values discover partial-failure rows without deleting fixed baseline IDs', async () => {
+  const deletes: DeleteCall[] = []
+  const baselineIds = ['baseline-patient-id', 'baseline-appointment-id', 'baseline-note-id']
+  const db = queryableDb({
+    patients: [
+      { id: 'ui-patient-id', clinic_id: CLINIC_A.id, name: 'Watched Patient' },
+      { id: baselineIds[0], clinic_id: CLINIC_A.id, name: 'Seed Patient' },
+    ],
+    appointments: [
+      {
+        id: 'ui-appointment-id',
+        clinic_id: CLINIC_A.id,
+        patient_id: 'ui-patient-id',
+        notes: 'watched-notes',
+      },
+      {
+        id: baselineIds[1],
+        clinic_id: CLINIC_A.id,
+        patient_id: 'ui-patient-id',
+        notes: 'seed-notes',
+      },
+    ],
+    session_notes: [
+      { id: 'ui-note-id', appointment_id: 'ui-appointment-id' },
+      { id: baselineIds[2], appointment_id: baselineIds[1] },
+    ],
+  }, deletes)
+  const factory = new E2EFactory(testInfo(), db)
+
+  factory.watchUiPatient('Watched Patient')
+  factory.watchUiAppointments({ patientId: 'ui-patient-id', notes: 'watched-notes' })
+  factory.watchUiSessionNote('ui-appointment-id')
+  await factory.cleanup()
+
+  assert.deepEqual(deletes, [
+    { table: 'session_notes', ids: ['ui-note-id'] },
+    { table: 'appointments', ids: ['ui-appointment-id'] },
+    { table: 'patients', ids: ['ui-patient-id'] },
+  ])
+  assert.deepEqual(
+    deletes.flatMap(({ ids }) => ids).filter((id) => baselineIds.includes(id)),
+    [],
+  )
 })

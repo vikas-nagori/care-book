@@ -26,12 +26,7 @@ export class AppointmentForm {
     await this.page.getByLabel('Duration (min)', { exact: true }).fill(data.durationMinutes)
     await this.page.getByLabel('Notes', { exact: true }).fill(data.notes)
 
-    // The type trigger currently has no accessible name; it remains the form's only visible,
-    // unnamed combobox even when the private-type assignment field appears.
-    const typeTrigger = this.page
-      .getByRole('combobox', { name: '', exact: true })
-      .filter({ visible: true })
-      .first()
+    const typeTrigger = this.page.getByLabel('Type', { exact: true })
     await typeTrigger.click()
     await this.page.getByRole('option', {
       name: data.appointmentTypeName ?? this.defaultAppointmentTypeName,

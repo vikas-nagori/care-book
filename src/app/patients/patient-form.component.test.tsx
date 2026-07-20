@@ -59,6 +59,12 @@ describe('PatientForm submission', () => {
     cleanup()
   })
 
+  it('associates the Gender label with its combobox trigger', () => {
+    render(<PatientForm />)
+
+    expect(screen.getByLabelText('Gender')).toBe(screen.getByRole('combobox', { name: 'Gender' }))
+  })
+
   it('submits a new patient after asynchronous referral resolution', async () => {
     render(<PatientForm />)
     const nameInput = screen.getByLabelText('Name *')
