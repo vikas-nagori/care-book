@@ -98,4 +98,91 @@ describe('PatientForm submission', () => {
       variant: 'destructive',
     }))
   })
+
+  it('saves the resolved referring doctor', async () => {
+    mocks.referralSource = 'doctor'
+    mocks.resolveReferredDoctorId.mockResolvedValueOnce({ doctorId: 'doctor-1' })
+    render(<PatientForm />)
+    const nameInput = screen.getByLabelText('Name *')
+    fireEvent.change(nameInput, { target: { value: 'Referred Patient' } })
+    fireEvent.submit(nameInput.closest('form')!)
+
+    await waitFor(() => expect(mocks.insert).toHaveBeenCalledOnce())
+    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Referred Patient',
+      referral_source: 'doctor',
+      referred_by_doctor_id: 'doctor-1',
+    }))
+  })
+
+  it('restores the form when Supabase returns an insert error', async () => {
+    const insertError = { message: 'Insert rejected' }
+    mocks.insert.mockResolvedValueOnce({ error: insertError })
+    render(<PatientForm />)
+    const nameInput = screen.getByLabelText('Name *')
+    fireEvent.change(nameInput, { target: { value: 'Test Patient' } })
+    fireEvent.submit(nameInput.closest('form')!)
+
+    await waitFor(() => {
+      const submitButton = screen.getByRole('button', { name: 'Add Patient' }) as HTMLButtonElement
+      expect(submitButton.disabled).toBe(false)
+    })
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      'PatientForm/save',
+      insertError,
+      { patientId: undefined },
+    )
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Error',
+      description: 'Insert rejected',
+      variant: 'destructive',
+    }))
+  })
+
+  it('restores the form when referral resolution fails before saving', async () => {
+    mocks.resolveReferredDoctorId.mockRejectedValueOnce(new Error('referral unavailable'))
+    render(<PatientForm />)
+    const nameInput = screen.getByLabelText('Name *')
+    fireEvent.change(nameInput, { target: { value: 'Test Patient' } })
+    fireEvent.submit(nameInput.closest('form')!)
+
+    await waitFor(() => {
+      const submitButton = screen.getByRole('button', { name: 'Add Patient' }) as HTMLButtonElement
+      expect(submitButton.disabled).toBe(false)
+    })
+    expect(mocks.insert).not.toHaveBeenCalled()
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      'PatientForm/submit',
+      expect.any(Error),
+      { patientId: undefined },
+    )
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Error',
+      description: 'Unable to save patient. Please try again.',
+      variant: 'destructive',
+    }))
+  })
+
+  it('allows retrying after a failed insert', async () => {
+    mocks.insert
+      .mockResolvedValueOnce({ error: { message: 'Temporary failure' } })
+      .mockResolvedValueOnce({ error: null })
+    render(<PatientForm />)
+    const nameInput = screen.getByLabelText('Name *')
+    fireEvent.change(nameInput, { target: { value: 'Retry Patient' } })
+    const form = nameInput.closest('form')!
+    fireEvent.submit(form)
+
+    await waitFor(() => {
+      const submitButton = screen.getByRole('button', { name: 'Add Patient' }) as HTMLButtonElement
+      expect(submitButton.disabled).toBe(false)
+    })
+    fireEvent.submit(form)
+
+    await waitFor(() => expect(mocks.insert).toHaveBeenCalledTimes(2))
+    expect(mocks.push).toHaveBeenCalledWith('/patients')
+    expect(mocks.refresh).toHaveBeenCalledOnce()
+  })
 })
