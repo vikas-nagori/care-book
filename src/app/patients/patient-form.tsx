@@ -83,6 +83,7 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    const formData = new FormData(e.currentTarget)
     setLoading(true)
 
     const resolvedDoctor = await referral.resolveReferredDoctorId()
@@ -91,7 +92,6 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
       return
     }
 
-    const formData = new FormData(e.currentTarget)
     const data: PatientFormValues = {
       name: formData.get('name') as string,
       phone: (formData.get('phone') as string) || null,
