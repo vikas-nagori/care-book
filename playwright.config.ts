@@ -3,7 +3,7 @@ import dotenv from 'dotenv'
 
 // Load the committed local-stack env (URL + well-known local keys) for the seed harness and
 // the app under test. See .env.e2e — these are non-secret local-development keys.
-dotenv.config({ path: '.env.e2e' })
+dotenv.config({ path: '.env.e2e', override: true })
 
 import { ADMIN, STAFF, PLATFORM } from './e2e/support/accounts'
 

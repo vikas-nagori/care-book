@@ -42,13 +42,19 @@ e2e/
 
 ```sh
 npm run e2e:db:up          # supabase start  (first run pulls images)
+npm run e2e:seed           # idempotently restore the fixed local baseline
 npm run build:e2e          # production build against the local stack
-npm run test:e2e           # runs the suite (webServer serves the build)
+npm run test:e2e           # starts/validates Supabase, seeds, builds, and runs the suite
 npm run test:e2e:report    # open the last HTML report
 npm run e2e:db:down        # supabase stop
 ```
 
 `npm run test:e2e -- --project=admin-desktop` runs a single project.
+
+The normal test command never resets the database. It starts the local stack if necessary and
+idempotently restores fixed fixture rows. Use `npm run e2e:db:reset` only when you intentionally
+want to discard all local-stack data. `.env.e2e` overrides exported Supabase variables for every
+seed/build/server entrypoint, and the seed client additionally rejects non-loopback URLs.
 
 ## Adding specs (keep this current with every feature)
 
@@ -57,3 +63,6 @@ npm run e2e:db:down        # supabase stop
 - Role- or viewport-conditional UI → assert both sides (admin vs staff, desktop vs mobile).
 - Reference seeded data via `support/ids.ts` / `support/accounts.ts`; add new fixtures to
   `support/seed.ts` (keep it idempotent — upsert by fixed IDs).
+- Mutation specs import `test` and `expect` from `support/factories.ts` and use the injected
+  `factory`. Created names are unique across projects/workers/retries, and automatic teardown
+  deletes only UUIDs registered by that test. Never update or delete fixed `SEED` rows.
