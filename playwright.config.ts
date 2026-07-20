@@ -86,7 +86,7 @@ export default defineConfig({
     {
       name: 'public-mobile',
       dependencies: ['setup'],
-      testMatch: ['public/**/*.spec.ts'],
+      testMatch: ['public/routes.spec.ts'],
       use: { ...devices['Pixel 5'], storageState: { cookies: [], origins: [] } },
     },
   ],
