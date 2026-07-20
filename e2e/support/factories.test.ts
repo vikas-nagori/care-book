@@ -101,6 +101,29 @@ test('tracked UI row IDs are cleaned in dependency order without touching baseli
   ])
 })
 
+test('disposable platform resources clean exact profile, clinic, request, and auth IDs in FK-safe order', async () => {
+  const deletes: DeleteCall[] = []
+  const authDeletes: AuthDeleteCall[] = []
+  const db = queryableDb({}, deletes, [
+    { id: 'temp-auth-id', email: 'temp-platform-user@carebook.test' },
+    { id: 'baseline-auth-id', email: 'admin@carebook.test' },
+  ], authDeletes)
+  const factory = new E2EFactory(testInfo(), db)
+
+  factory.trackOnboardingRequest('temp-request-id')
+  factory.trackProfile('temp-auth-id')
+  factory.trackClinic('temp-clinic-id')
+  factory.trackAuthUser('temp-auth-id', 'temp-platform-user@carebook.test')
+  await factory.cleanup()
+
+  assert.deepEqual(deletes, [
+    { table: 'clinic_onboarding_requests', ids: ['temp-request-id'] },
+    { table: 'profiles', ids: ['temp-auth-id'] },
+    { table: 'clinics', ids: ['temp-clinic-id'] },
+  ])
+  assert.deepEqual(authDeletes, [{ id: 'temp-auth-id' }])
+})
+
 test('watched UI values discover partial-failure rows without deleting fixed baseline IDs', async () => {
   const deletes: DeleteCall[] = []
   const baselineIds = ['baseline-patient-id', 'baseline-appointment-id', 'baseline-note-id']

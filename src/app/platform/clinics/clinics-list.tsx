@@ -75,6 +75,7 @@ export function ClinicsList({ clinics }: ClinicsListProps) {
                 variant={isBlocked ? 'default' : 'destructive'}
                 onClick={() => toggle(clinic)}
                 disabled={isBusy}
+                aria-label={`${isBlocked ? 'Unblock' : 'Block'} clinic ${clinic.name}`}
               >
                 {isBusy ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
                 {isBlocked ? 'Unblock clinic' : 'Block clinic'}

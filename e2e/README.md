@@ -97,6 +97,20 @@ asserts real records behind billing metric drill-downs, and verifies the seeded 
 tally. Settings coverage creates/edits/deletes appointment types and package templates, creates
 external staff, and exercises unique local user invite → resend → revoke.
 
+Platform desktop management coverage uses only disposable records. It approves and rejects
+separate pending clinic requests; verifies the approved clinic, owner invite, and local auth user;
+blocks and unblocks a temporary clinic and user while asserting profile and GoTrue ban state;
+observes password-reset issuance through the auth user's `recovery_sent_at`; and signs out through
+the console before proving `/platform` is no longer accessible. Fixed clinics and seeded accounts
+are never selected by these mutation tests.
+
+Public flows run independently on desktop and mobile. They submit a representative clinic request,
+exercise invalid and valid password login, request recovery from the login form, complete a real
+pending business invite, and update a password through a real recovery session. The invite and
+recovery setup uses local GoTrue `admin.generateLink`; its returned hashed token is sent through
+the application's supported `/auth/callback?token_hash=...&type=...` contract. Tests never scrape
+or contact an external mailbox.
+
 Clinic-wide fee mutation is deliberately not covered by a browser write test: `SettingsForm` exists
 in `src/app/settings/settings-form.tsx`, but `src/app/settings/page.tsx` neither fetches global
 settings nor renders that component, and the responsive desktop/mobile settings views expose no
@@ -133,7 +147,7 @@ exactly: HTTP 200 document response, no redirect, unchanged requested URL, and t
 ## Route coverage guard
 
 `support/route-manifest.test.ts` recursively inventories `src/app/**/page.tsx` by filename only and
-compares those route patterns with `PAGE_ROUTE_MANIFEST` (20 current pages). Each manifest entry
+compares those route patterns with `PAGE_ROUTE_MANIFEST`. Each manifest entry
 declares its access group, owning spec, runtime path or expected redirect, and visible landmark.
 A new `page.tsx` therefore fails `npm run test:e2e:support` until its route contract and ownership
 are declared. The guard intentionally inventories routes; it does not scan page implementation
@@ -155,5 +169,9 @@ details.
   patient, appointment, payment, package, appointment-type, package-template, external-staff, or
   invite identity *before* clicking submit; teardown discovers and tracks matching UUIDs even after
   a partial browser failure. Invite cleanup also finds and deletes only the auth user with the exact
-  unique email. Service-role find helpers both verify persistence and track returned mutable rows.
-  Never update or delete fixed `SEED` rows.
+  unique email. Platform/public factories additionally track exact onboarding-request, clinic,
+  profile, and auth-user IDs. For a temporary clinic, teardown discovers only rows carrying that
+  exact clinic ID, deletes FK dependents before the profile and clinic, and then deletes only the
+  registered auth IDs. Approval watchers use the unique request email/name and invite email to
+  recover partially-created clinic/settings/type/invite/auth artifacts. Service-role find helpers
+  both verify persistence and track returned mutable rows. Never update or delete fixed `SEED` rows.

@@ -8,3 +8,11 @@ test('Playwright owns the E2E server by default instead of reusing an arbitrary 
 
   assert.equal(reuseSetting, 'false')
 })
+
+test('platform uses one worker so global sign-out cannot revoke parallel smoke sessions', () => {
+  const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
+  const platformProject = config.match(/name: 'platform-desktop',[\s\S]*?\n\s*},/)?.[0] ?? ''
+
+  assert.match(platformProject, /fullyParallel:\s*false/)
+  assert.match(platformProject, /workers:\s*1/)
+})

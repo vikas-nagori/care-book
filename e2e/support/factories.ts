@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { test as base, expect, type TestInfo } from '@playwright/test'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { CLINIC_A } from './accounts.ts'
+import { ADMIN, CLINIC_A, PASSWORD } from './accounts.ts'
+import { generateLocalInviteLink, generateLocalRecoveryLink } from './auth-links.ts'
 import { clinicDate } from './clinic-date.ts'
 import { adminClient } from './supabase-admin.ts'
 
@@ -44,9 +45,32 @@ export type E2EAppointmentTypeRow = Row & {
   is_shared: boolean
 }
 export type E2EProfileRow = Row & {
+  clinic_id: string | null
   email: string
   full_name: string | null
   role: string
+  status: string
+}
+export type E2EClinicRow = Row & {
+  name: string
+  phone: string | null
+  address: string | null
+  status: string
+}
+export type E2EOnboardingRequestRow = Row & {
+  clinic_name: string
+  owner_full_name: string
+  owner_email: string
+  owner_mobile_number: string
+  status: string
+  clinic_id: string | null
+  rejection_reason: string | null
+}
+export type E2EAuthResource = {
+  id: string
+  email: string
+  password: string
+  profile: E2EProfileRow
 }
 export type E2EPaymentRow = Row & {
   clinic_id: string
@@ -107,6 +131,10 @@ type CleanupTable =
   | 'external_staff'
   | 'user_invites'
   | 'clinic_onboarding_requests'
+  | 'doctors'
+  | 'global_settings'
+  | 'profiles'
+  | 'clinics'
 
 const cleanupOrder: CleanupTable[] = [
   'appointment_payments',
@@ -121,7 +149,26 @@ const cleanupOrder: CleanupTable[] = [
   'appointment_types',
   'package_templates',
   'external_staff',
+  'doctors',
   'clinic_onboarding_requests',
+  'global_settings',
+  'profiles',
+  'clinics',
+]
+
+const clinicScopedCleanupTables: CleanupTable[] = [
+  'user_invites',
+  'payments',
+  'packages',
+  'appointments',
+  'treatment_plans',
+  'patients',
+  'appointment_types',
+  'package_templates',
+  'external_staff',
+  'doctors',
+  'global_settings',
+  'profiles',
 ]
 
 function safeSlug(value: string): string {
@@ -155,6 +202,8 @@ export class E2EFactory {
   private readonly watchedPackageTemplateNames = new Set<string>()
   private readonly watchedExternalStaff = new Map<string, { name: string; phone: string }>()
   private readonly watchedInviteEmails = new Set<string>()
+  private readonly watchedOnboardingRequests = new Map<string, { ownerEmail: string; clinicName: string }>()
+  private readonly authUsers = new Map<string, string>()
 
   constructor(testInfo: TestInfo, db: SupabaseClient = adminClient()) {
     this.token = uniqueRunToken(testInfo)
@@ -164,6 +213,15 @@ export class E2EFactory {
   uniqueName(kind: string): string {
     this.sequence += 1
     return `E2E ${this.token} ${kind} ${this.sequence}`
+  }
+
+  uniqueEmail(kind: string): string {
+    return `${safeSlug(kind)}-${this.token}-${randomUUID().slice(0, 8)}@carebook.test`
+  }
+
+  uniqueMobile(): string {
+    const digits = Number.parseInt(randomUUID().replaceAll('-', '').slice(0, 12), 16) % 1_000_000_000
+    return `9${digits.toString().padStart(9, '0')}`
   }
 
   private async insert(table: CleanupTable, values: Row): Promise<Row> {
@@ -194,6 +252,22 @@ export class E2EFactory {
 
   trackSessionNote(id: string): void {
     this.track('session_notes', id)
+  }
+
+  trackOnboardingRequest(id: string): void {
+    this.track('clinic_onboarding_requests', id)
+  }
+
+  trackProfile(id: string): void {
+    this.track('profiles', id)
+  }
+
+  trackClinic(id: string): void {
+    this.track('clinics', id)
+  }
+
+  trackAuthUser(id: string, email: string): void {
+    this.authUsers.set(id, email.trim().toLowerCase())
   }
 
   /** Register exact UI values before submit so teardown can recover rows after partial failures. */
@@ -233,6 +307,14 @@ export class E2EFactory {
   /** Tracks both the exact invite row and the exact local auth user created for that email. */
   watchUiInvite(email: string): void {
     this.watchedInviteEmails.add(email.trim().toLowerCase())
+  }
+
+  watchUiOnboardingRequest(input: { ownerEmail: string; clinicName: string }): void {
+    const ownerEmail = input.ownerEmail.trim().toLowerCase()
+    this.watchedOnboardingRequests.set(`${ownerEmail}\u0000${input.clinicName}`, {
+      ownerEmail,
+      clinicName: input.clinicName,
+    })
   }
 
   async findPatientByName(name: string): Promise<E2EPatientRow | null> {
@@ -346,12 +428,46 @@ export class E2EFactory {
     const { data, error } = await this.db
       .from('user_invites')
       .select('*')
-      .eq('clinic_id', CLINIC_A.id)
       .eq('email', normalizedEmail)
       .maybeSingle()
     if (error) throw new Error(`factory find invite: ${error.message}`)
     if (data) this.track('user_invites', data.id)
     return data as E2EUserInviteRow | null
+  }
+
+  async findClinicById(id: string): Promise<E2EClinicRow | null> {
+    const { data, error } = await this.db.from('clinics').select('*').eq('id', id).maybeSingle()
+    if (error) throw new Error(`factory find clinic: ${error.message}`)
+    if (data) this.trackClinic(data.id)
+    return data as E2EClinicRow | null
+  }
+
+  async findOnboardingRequestByEmail(email: string): Promise<E2EOnboardingRequestRow | null> {
+    const normalizedEmail = email.trim().toLowerCase()
+    const { data, error } = await this.db
+      .from('clinic_onboarding_requests')
+      .select('*')
+      .eq('owner_email', normalizedEmail)
+      .maybeSingle()
+    if (error) throw new Error(`factory find onboarding request: ${error.message}`)
+    if (data) {
+      this.trackOnboardingRequest(data.id)
+      if (data.clinic_id) this.trackClinic(data.clinic_id)
+    }
+    return data as E2EOnboardingRequestRow | null
+  }
+
+  async findProfileById(id: string): Promise<E2EProfileRow | null> {
+    const { data, error } = await this.db.from('profiles').select('*').eq('id', id).maybeSingle()
+    if (error) throw new Error(`factory find profile by id: ${error.message}`)
+    if (data) this.trackProfile(data.id)
+    return data as E2EProfileRow | null
+  }
+
+  async getAuthUser(id: string) {
+    const { data, error } = await this.db.auth.admin.getUserById(id)
+    if (error || !data.user) throw new Error(`factory get auth user: ${error?.message ?? 'missing'}`)
+    return data.user
   }
 
   async findAppointmentType(isShared: boolean): Promise<E2EAppointmentTypeRow> {
@@ -506,8 +622,150 @@ export class E2EFactory {
     })
   }
 
+  async createClinic(overrides: Record<string, unknown> = {}): Promise<E2EClinicRow> {
+    return this.insert('clinics', {
+      id: randomUUID(),
+      name: this.uniqueName('clinic'),
+      status: 'active',
+      ...overrides,
+    }) as Promise<E2EClinicRow>
+  }
+
+  async createAuthUser(input: {
+    clinicId: string
+    email?: string
+    password?: string
+    role?: 'admin' | 'staff'
+    fullName?: string
+    mobileNumber?: string
+    status?: 'active' | 'blocked'
+  }): Promise<E2EAuthResource> {
+    const email = (input.email ?? this.uniqueEmail('user')).trim().toLowerCase()
+    const password = input.password ?? PASSWORD
+    const { data, error } = await this.db.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    })
+    if (error || !data.user) {
+      throw new Error(`factory create auth user: ${error?.message ?? 'user was not returned'}`)
+    }
+    this.trackAuthUser(data.user.id, email)
+    this.trackProfile(data.user.id)
+
+    const { data: profile, error: profileError } = await this.db
+      .from('profiles')
+      .update({
+        clinic_id: input.clinicId,
+        email,
+        role: input.role ?? 'staff',
+        full_name: input.fullName ?? this.uniqueName('user'),
+        mobile_number: input.mobileNumber ?? this.uniqueMobile(),
+        status: input.status ?? 'active',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', data.user.id)
+      .select('*')
+      .single()
+    if (profileError || !profile) {
+      throw new Error(`factory update auth profile: ${profileError?.message ?? 'profile was not returned'}`)
+    }
+
+    return { id: data.user.id, email, password, profile: profile as E2EProfileRow }
+  }
+
+  async createUserInvite(input: {
+    clinicId: string
+    email: string
+    authUserId?: string | null
+    invitedBy?: string
+    role?: 'admin' | 'staff'
+    fullName?: string
+    mobileNumber?: string
+  }): Promise<E2EUserInviteRow> {
+    const invitedBy = input.invitedBy ?? await this.findAuthUserIdByEmail(ADMIN.email)
+    return this.insert('user_invites', {
+      id: randomUUID(),
+      clinic_id: input.clinicId,
+      email: input.email.trim().toLowerCase(),
+      role: input.role ?? 'staff',
+      status: 'pending',
+      auth_user_id: input.authUserId ?? null,
+      invited_by: invitedBy,
+      full_name: input.fullName ?? this.uniqueName('invitee'),
+      mobile_number: input.mobileNumber ?? this.uniqueMobile(),
+      updated_at: new Date().toISOString(),
+    }) as Promise<E2EUserInviteRow>
+  }
+
+  async createInviteAction(input: {
+    clinicId: string
+    email?: string
+    role?: 'admin' | 'staff'
+    fullName?: string
+    mobileNumber?: string
+  }) {
+    const clinicId = input.clinicId
+    const email = (input.email ?? this.uniqueEmail('invite')).trim().toLowerCase()
+    const role = input.role ?? 'staff'
+    const redirectTo = 'http://localhost:3000/auth/callback?next=%2Fauth%2Fcomplete-invite'
+    const link = await generateLocalInviteLink(this.db, {
+      email,
+      redirectTo,
+      data: { role, clinic_id: clinicId },
+    })
+    this.trackAuthUser(link.authUserId, email)
+    this.trackProfile(link.authUserId)
+    const invite = await this.createUserInvite({
+      clinicId,
+      email,
+      authUserId: link.authUserId,
+      role,
+      fullName: input.fullName,
+      mobileNumber: input.mobileNumber,
+    })
+    return { ...link, email, invite }
+  }
+
+  async createRecoveryAction(email: string) {
+    return generateLocalRecoveryLink(this.db, {
+      email: email.trim().toLowerCase(),
+      redirectTo: 'http://localhost:3000/auth/callback?next=%2Fauth%2Fupdate-password',
+    })
+  }
+
+  private async findAuthUserIdByEmail(email: string): Promise<string> {
+    const normalizedEmail = email.trim().toLowerCase()
+    for (let page = 1; page <= 20; page += 1) {
+      const { data, error } = await this.db.auth.admin.listUsers({ page, perPage: 200 })
+      if (error) throw new Error(`factory list auth users: ${error.message}`)
+      const found = data.users.find((user) => user.email?.toLowerCase() === normalizedEmail)
+      if (found) return found.id
+      if (data.users.length < 200) break
+    }
+    throw new Error(`factory auth user not found: ${normalizedEmail}`)
+  }
+
   async cleanup(): Promise<void> {
     const failures: string[] = []
+    for (const { ownerEmail, clinicName } of this.watchedOnboardingRequests.values()) {
+      const { data, error } = await this.db
+        .from('clinic_onboarding_requests')
+        .select('id, clinic_id')
+        .eq('owner_email', ownerEmail)
+        .eq('clinic_name', clinicName)
+      if (error) failures.push(`discover onboarding request ${ownerEmail}: ${error.message}`)
+      for (const row of data ?? []) {
+        this.trackOnboardingRequest(row.id)
+        if (row.clinic_id) this.trackClinic(row.clinic_id)
+      }
+      const { data: clinics, error: clinicError } = await this.db
+        .from('clinics')
+        .select('id')
+        .eq('name', clinicName)
+      if (clinicError) failures.push(`discover approved clinic ${clinicName}: ${clinicError.message}`)
+      for (const clinic of clinics ?? []) this.trackClinic(clinic.id)
+    }
     for (const name of this.watchedPatientNames) {
       const { data, error } = await this.db
         .from('patients')
@@ -587,10 +845,17 @@ export class E2EFactory {
       const { data, error } = await this.db
         .from('user_invites')
         .select('id')
-        .eq('clinic_id', CLINIC_A.id)
         .eq('email', email)
       if (error) failures.push(`discover invite ${email}: ${error.message}`)
       for (const row of data ?? []) this.track('user_invites', row.id)
+    }
+
+    for (const clinicId of this.created.get('clinics') ?? []) {
+      for (const table of clinicScopedCleanupTables) {
+        const { data, error } = await this.db.from(table).select('id').eq('clinic_id', clinicId)
+        if (error) failures.push(`discover ${table} for clinic ${clinicId}: ${error.message}`)
+        for (const row of data ?? []) this.track(table, row.id)
+      }
     }
 
     for (const table of cleanupOrder) {
@@ -608,11 +873,15 @@ export class E2EFactory {
         }
         for (const user of data.users) {
           if (!user.email || !this.watchedInviteEmails.has(user.email.toLowerCase())) continue
-          const { error: deleteError } = await this.db.auth.admin.deleteUser(user.id)
-          if (deleteError) failures.push(`delete invited auth user ${user.id}: ${deleteError.message}`)
+          this.trackAuthUser(user.id, user.email)
+          this.trackProfile(user.id)
         }
         if (data.users.length < 200) break
       }
+    }
+    for (const [id, email] of this.authUsers) {
+      const { error } = await this.db.auth.admin.deleteUser(id)
+      if (error) failures.push(`delete auth user ${id} (${email}): ${error.message}`)
     }
     this.created.clear()
     this.watchedPatientNames.clear()
@@ -624,6 +893,8 @@ export class E2EFactory {
     this.watchedPackageTemplateNames.clear()
     this.watchedExternalStaff.clear()
     this.watchedInviteEmails.clear()
+    this.watchedOnboardingRequests.clear()
+    this.authUsers.clear()
     if (failures.length > 0) throw new Error(`factory cleanup failed: ${failures.join('; ')}`)
   }
 }

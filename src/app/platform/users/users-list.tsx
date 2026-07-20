@@ -91,6 +91,7 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
                   variant="outline"
                   onClick={() => sendReset(user)}
                   disabled={resetBusyId === user.id}
+                  aria-label={`Send reset for ${user.email}`}
                 >
                   {resetBusyId === user.id ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
                   Send reset
@@ -104,6 +105,7 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
                     variant={isBlocked ? 'default' : 'destructive'}
                     onClick={() => toggle(user)}
                     disabled={isBusy}
+                    aria-label={`${isBlocked ? 'Unblock' : 'Block'} user ${user.email}`}
                   >
                     {isBusy ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
                     {isBlocked ? 'Unblock' : 'Block'}

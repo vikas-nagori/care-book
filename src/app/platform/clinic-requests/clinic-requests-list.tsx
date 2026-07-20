@@ -99,10 +99,15 @@ export function ClinicRequestsList({ requests }: ClinicRequestsListProps) {
                       }))
                     }
                     placeholder="Optional rejection reason"
+                    aria-label={`Rejection reason for ${request.clinic_name}`}
                     rows={2}
                   />
                   <div className="flex flex-wrap gap-2">
-                    <Button onClick={() => approve(request.id)} disabled={isBusy}>
+                    <Button
+                      onClick={() => approve(request.id)}
+                      disabled={isBusy}
+                      aria-label={`Approve ${request.clinic_name}`}
+                    >
                       {isBusy ? <Loader2 className="animate-spin" size={14} /> : null}
                       Approve
                     </Button>
@@ -111,6 +116,7 @@ export function ClinicRequestsList({ requests }: ClinicRequestsListProps) {
                       variant="outline"
                       onClick={() => reject(request.id)}
                       disabled={isBusy}
+                      aria-label={`Reject ${request.clinic_name}`}
                     >
                       Reject
                     </Button>
