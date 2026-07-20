@@ -9,7 +9,11 @@ test('shows the seeded appointment fee and payment signals on the admin dashboar
 
   await page.goto('/')
 
-  await expect(page.getByText('₹800', { exact: true }).filter({ visible: true }).first()).toBeVisible()
+  const seededAppointment = page
+    .getByRole('link', { name: /Asha Rao/ })
+    .filter({ hasText: '₹800', visible: true })
+    .first()
+  await expect(seededAppointment).toBeVisible()
   await expect(page.getByRole('link', { name: /This month.*collected/i })).toBeVisible()
   await expect(page.getByRole('link', { name: /Outstanding.*payment due/i })).toBeVisible()
   await guards.assertClean()

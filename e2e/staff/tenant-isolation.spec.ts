@@ -10,6 +10,7 @@ test('isolates Clinic B patient list, detail, and edit routes from Clinic A staf
   await page.goto('/patients')
   const search = page.getByPlaceholder('Search by name or phone…')
   await expect(page.getByText('Asha Rao', { exact: true }).filter({ visible: true })).toBeVisible()
+  await expect(page.getByText('Clinic B Patient', { exact: true })).toHaveCount(0)
   await search.fill('Clinic B Patient')
   await expect(page.getByText('Clinic B Patient', { exact: true })).toHaveCount(0)
   await search.fill('Asha Rao')

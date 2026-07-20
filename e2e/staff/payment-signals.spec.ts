@@ -23,6 +23,7 @@ test('hides schedule and appointment-detail payment signals from staff', async (
   const sharedAppointment = page.getByRole('link', { name: /Asha Rao/ }).filter({ visible: true })
   await expect(sharedAppointment).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Day total', exact: true })).toHaveCount(0)
+  await expect(page.getByText('Expected', { exact: true })).toHaveCount(0)
   await expect(page.getByText('₹800', { exact: true })).toHaveCount(0)
 
   await sharedAppointment.click()
