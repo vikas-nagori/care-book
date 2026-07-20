@@ -10,7 +10,10 @@ afterEach(() => {
   else process.env.NEXT_PUBLIC_SUPABASE_URL = originalUrl
 })
 
-function linkClient(calls: Record<string, unknown>[]): SupabaseClient {
+function linkClient(
+  calls: Record<string, unknown>[],
+  actionLink = 'http://127.0.0.1:54321/auth/v1/verify?token=hashed-link&type=link',
+): SupabaseClient {
   return {
     auth: {
       admin: {
@@ -20,7 +23,7 @@ function linkClient(calls: Record<string, unknown>[]): SupabaseClient {
           return {
             data: {
               properties: {
-                action_link: `http://127.0.0.1:54321/auth/v1/verify?token=hashed-${type}&type=${type}`,
+                action_link: actionLink.replace('hashed-link', `hashed-${type}`).replace('type=link', `type=${type}`),
                 email_otp: '123456',
                 hashed_token: `hashed-${type}`,
                 redirect_to: String((input.options as { redirectTo: string }).redirectTo),
@@ -72,6 +75,51 @@ test('local auth link helpers reject a hosted Supabase target before generating 
       redirectTo: 'http://localhost:3000/auth/callback?next=%2Fauth%2Fupdate-password',
     }),
     /refusing to generate an auth action link for a non-local supabase url/i,
+  )
+  assert.deepEqual(calls, [])
+})
+
+test('hosted generated-link errors expose only the origin, never its secret query', async () => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:54321'
+  const calls: Record<string, unknown>[] = []
+  const secret = 'do-not-leak-this-token'
+
+  await assert.rejects(
+    generateLocalRecoveryLink(
+      linkClient(calls, `https://example.supabase.co/auth/v1/verify?token=${secret}&type=recovery`),
+      {
+        email: 'recover@carebook.test',
+        redirectTo: 'http://localhost:3000/auth/callback?next=%2Fauth%2Fupdate-password',
+      },
+    ),
+    (error: unknown) => {
+      assert.equal(error instanceof Error, true)
+      const message = (error as Error).message
+      assert.match(message, /https:\/\/example\.supabase\.co/)
+      assert.equal(message.includes(secret), false)
+      assert.equal(message.includes('/auth/v1/verify'), false)
+      return true
+    },
+  )
+})
+
+test('local auth link helpers reject non-HTTP protocols without exposing query values', async () => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:54321'
+  const calls: Record<string, unknown>[] = []
+  const secret = 'private-callback-value'
+
+  await assert.rejects(
+    generateLocalRecoveryLink(linkClient(calls), {
+      email: 'recover@carebook.test',
+      redirectTo: `ftp://localhost/auth/callback?secret=${secret}`,
+    }),
+    (error: unknown) => {
+      assert.equal(error instanceof Error, true)
+      const message = (error as Error).message
+      assert.match(message, /http or https/i)
+      assert.equal(message.includes(secret), false)
+      return true
+    },
   )
   assert.deepEqual(calls, [])
 })

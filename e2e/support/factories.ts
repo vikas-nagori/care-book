@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { test as base, expect, type TestInfo } from '@playwright/test'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { ADMIN, CLINIC_A, PASSWORD } from './accounts.ts'
+import { ADMIN, ALL_ACCOUNTS, CLINIC_A, CLINIC_B, PASSWORD } from './accounts.ts'
 import { generateLocalInviteLink, generateLocalRecoveryLink } from './auth-links.ts'
 import { clinicDate } from './clinic-date.ts'
+import { SEED } from './ids.ts'
 import { adminClient } from './supabase-admin.ts'
 
 type Row = Record<string, unknown> & { id: string }
@@ -171,6 +172,28 @@ const clinicScopedCleanupTables: CleanupTable[] = [
   'profiles',
 ]
 
+const protectedIdsByTable: Partial<Record<CleanupTable, ReadonlySet<string>>> = {
+  appointments: new Set([
+    SEED.appointmentShared,
+    SEED.appointmentStaff2Private,
+    SEED.appointmentClinicB,
+    SEED.appointmentPaymentDue,
+  ]),
+  clinics: new Set([CLINIC_A.id, CLINIC_B.id]),
+  clinic_onboarding_requests: new Set([SEED.onboardingPending]),
+  package_templates: new Set([SEED.packageTemplate]),
+  packages: new Set([SEED.packageAsha]),
+  patients: new Set([
+    SEED.patientAsha,
+    SEED.patientRavi,
+    SEED.patientClinicB,
+    SEED.patientPaymentDue,
+  ]),
+  payments: new Set([SEED.paymentAsha]),
+}
+
+const protectedAuthEmails = new Set(ALL_ACCOUNTS.map(({ email }) => email.trim().toLowerCase()))
+
 function safeSlug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 32)
 }
@@ -230,13 +253,12 @@ export class E2EFactory {
       throw new Error(`factory insert ${table}: ${error?.message ?? 'row was not returned'}`)
     }
     const row = data as Row
-    const ids = this.created.get(table) ?? new Set<string>()
-    ids.add(row.id)
-    this.created.set(table, ids)
+    this.track(table, row.id)
     return row
   }
 
   private track(table: CleanupTable, id: string): void {
+    if (protectedIdsByTable[table]?.has(id)) return
     const ids = this.created.get(table) ?? new Set<string>()
     ids.add(id)
     this.created.set(table, ids)
@@ -258,7 +280,8 @@ export class E2EFactory {
     this.track('clinic_onboarding_requests', id)
   }
 
-  trackProfile(id: string): void {
+  trackProfile(id: string, email: string): void {
+    if (protectedAuthEmails.has(email.trim().toLowerCase())) return
     this.track('profiles', id)
   }
 
@@ -267,7 +290,9 @@ export class E2EFactory {
   }
 
   trackAuthUser(id: string, email: string): void {
-    this.authUsers.set(id, email.trim().toLowerCase())
+    const normalizedEmail = email.trim().toLowerCase()
+    if (protectedAuthEmails.has(normalizedEmail)) return
+    this.authUsers.set(id, normalizedEmail)
   }
 
   /** Register exact UI values before submit so teardown can recover rows after partial failures. */
@@ -438,7 +463,6 @@ export class E2EFactory {
   async findClinicById(id: string): Promise<E2EClinicRow | null> {
     const { data, error } = await this.db.from('clinics').select('*').eq('id', id).maybeSingle()
     if (error) throw new Error(`factory find clinic: ${error.message}`)
-    if (data) this.trackClinic(data.id)
     return data as E2EClinicRow | null
   }
 
@@ -450,17 +474,12 @@ export class E2EFactory {
       .eq('owner_email', normalizedEmail)
       .maybeSingle()
     if (error) throw new Error(`factory find onboarding request: ${error.message}`)
-    if (data) {
-      this.trackOnboardingRequest(data.id)
-      if (data.clinic_id) this.trackClinic(data.clinic_id)
-    }
     return data as E2EOnboardingRequestRow | null
   }
 
   async findProfileById(id: string): Promise<E2EProfileRow | null> {
     const { data, error } = await this.db.from('profiles').select('*').eq('id', id).maybeSingle()
     if (error) throw new Error(`factory find profile by id: ${error.message}`)
-    if (data) this.trackProfile(data.id)
     return data as E2EProfileRow | null
   }
 
@@ -651,7 +670,7 @@ export class E2EFactory {
       throw new Error(`factory create auth user: ${error?.message ?? 'user was not returned'}`)
     }
     this.trackAuthUser(data.user.id, email)
-    this.trackProfile(data.user.id)
+    this.trackProfile(data.user.id, email)
 
     const { data: profile, error: profileError } = await this.db
       .from('profiles')
@@ -715,7 +734,7 @@ export class E2EFactory {
       data: { role, clinic_id: clinicId },
     })
     this.trackAuthUser(link.authUserId, email)
-    this.trackProfile(link.authUserId)
+    this.trackProfile(link.authUserId, email)
     const invite = await this.createUserInvite({
       clinicId,
       email,
@@ -874,7 +893,7 @@ export class E2EFactory {
         for (const user of data.users) {
           if (!user.email || !this.watchedInviteEmails.has(user.email.toLowerCase())) continue
           this.trackAuthUser(user.id, user.email)
-          this.trackProfile(user.id)
+          this.trackProfile(user.id, user.email)
         }
         if (data.users.length < 200) break
       }

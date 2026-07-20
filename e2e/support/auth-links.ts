@@ -3,7 +3,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 type LocalActionLink = {
   actionLink: string
   authUserId: string
-  hashedToken: string
 }
 
 type LinkInput = {
@@ -16,14 +15,20 @@ type InviteLinkInput = LinkInput & {
 }
 
 function assertLoopbackUrl(value: string, label: string): void {
-  let hostname: string
+  let parsed: URL
   try {
-    hostname = new URL(value).hostname.toLowerCase()
+    parsed = new URL(value)
   } catch {
-    throw new Error(`${label} is not a valid URL: ${value}`)
+    throw new Error(`${label} is not a valid HTTP(S) URL.`)
   }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`${label} must use HTTP or HTTPS (received ${parsed.protocol}).`)
+  }
+  const hostname = parsed.hostname.toLowerCase()
   if (!['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname)) {
-    throw new Error(`Refusing to generate an auth action link for a non-local ${label}: ${value}`)
+    throw new Error(
+      `Refusing to generate an auth action link for a non-local ${label} origin: ${parsed.origin}`,
+    )
   }
 }
 
@@ -57,7 +62,6 @@ async function generateLocalAuthLink(
     // reach Next's server callback, so drive the callback's supported token_hash contract.
     actionLink: appActionLink.toString(),
     authUserId: data.user.id,
-    hashedToken: data.properties.hashed_token,
   }
 }
 

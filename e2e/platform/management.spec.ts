@@ -25,7 +25,7 @@ test('approves a disposable onboarding request and persists its clinic and owner
   expect(invite).toMatchObject({ clinic_id: approved!.clinic_id, email, role: 'admin', status: 'pending' })
   expect(invite?.auth_user_id).toBeTruthy()
   factory.trackAuthUser(invite!.auth_user_id!, email)
-  factory.trackProfile(invite!.auth_user_id!)
+  factory.trackProfile(invite!.auth_user_id!, email)
   expect((await factory.getAuthUser(invite!.auth_user_id!)).email).toBe(email)
   await guards.assertClean()
 })

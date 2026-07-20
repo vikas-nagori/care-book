@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { TestInfo } from '@playwright/test'
-import { CLINIC_A } from './accounts.ts'
+import { ADMIN, CLINIC_A, CLINIC_B } from './accounts.ts'
 import { E2EFactory } from './factories.ts'
 
 type MockRow = Record<string, unknown> & { id: string }
@@ -43,8 +43,7 @@ function queryableDb(
         error: null,
       })
       const builder = {
-        select(columns: string) {
-          assert.equal(columns, 'id')
+        select() {
           return builder
         },
         eq(column: string, value: unknown) {
@@ -58,6 +57,10 @@ function queryableDb(
               return { error: null }
             },
           }
+        },
+        async maybeSingle() {
+          const matches = result().data
+          return { data: matches[0] ?? null, error: null }
         },
         then<TResult1 = ReturnType<typeof result>, TResult2 = never>(
           onfulfilled?: ((value: ReturnType<typeof result>) => TResult1 | PromiseLike<TResult1>) | null,
@@ -111,7 +114,7 @@ test('disposable platform resources clean exact profile, clinic, request, and au
   const factory = new E2EFactory(testInfo(), db)
 
   factory.trackOnboardingRequest('temp-request-id')
-  factory.trackProfile('temp-auth-id')
+  factory.trackProfile('temp-auth-id', 'temp-platform-user@carebook.test')
   factory.trackClinic('temp-clinic-id')
   factory.trackAuthUser('temp-auth-id', 'temp-platform-user@carebook.test')
   await factory.cleanup()
@@ -122,6 +125,38 @@ test('disposable platform resources clean exact profile, clinic, request, and au
     { table: 'clinics', ids: ['temp-clinic-id'] },
   ])
   assert.deepEqual(authDeletes, [{ id: 'temp-auth-id' }])
+})
+
+test('looking up a seeded clinic and profile never enrolls them for cleanup', async () => {
+  const deletes: DeleteCall[] = []
+  const authDeletes: AuthDeleteCall[] = []
+  const db = queryableDb({
+    clinics: [{ id: CLINIC_A.id, name: CLINIC_A.name }],
+    profiles: [{ id: 'seed-admin-profile-id', email: ADMIN.email }],
+  }, deletes, [], authDeletes)
+  const factory = new E2EFactory(testInfo(), db)
+
+  assert.equal((await factory.findClinicById(CLINIC_A.id))?.id, CLINIC_A.id)
+  assert.equal((await factory.findProfileById('seed-admin-profile-id'))?.id, 'seed-admin-profile-id')
+  await factory.cleanup()
+
+  assert.deepEqual(deletes, [])
+  assert.deepEqual(authDeletes, [])
+})
+
+test('fixed seed clinics cannot be explicitly enrolled for cleanup', async () => {
+  const deletes: DeleteCall[] = []
+  const authDeletes: AuthDeleteCall[] = []
+  const factory = new E2EFactory(testInfo(), queryableDb({}, deletes, [], authDeletes))
+
+  factory.trackClinic(CLINIC_A.id)
+  factory.trackClinic(CLINIC_B.id)
+  factory.trackProfile('seed-admin-profile-id', ADMIN.email)
+  factory.trackAuthUser('seed-admin-profile-id', ADMIN.email)
+  await factory.cleanup()
+
+  assert.deepEqual(deletes, [])
+  assert.deepEqual(authDeletes, [])
 })
 
 test('watched UI values discover partial-failure rows without deleting fixed baseline IDs', async () => {
