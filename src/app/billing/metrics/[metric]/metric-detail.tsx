@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
 import { Button } from '@/components/ui/button'
+import type { AppointmentTypeBreakdownRow } from '@/lib/billing/appointment-type-breakdown'
 
 export type MetricRow = {
   id: string
@@ -18,6 +19,8 @@ type MetricDetailProps = {
   total: number
   rows: MetricRow[]
   emptyLabel: string
+  /** Per-appointment-type subtotals; the strip renders only when there are 2+ types to compare. */
+  breakdown?: AppointmentTypeBreakdownRow[]
 }
 
 function Money({ n, className = '' }: { n: number; className?: string }) {
@@ -30,7 +33,8 @@ function Money({ n, className = '' }: { n: number; className?: string }) {
 }
 
 // Presentational list of the records behind a billing metric tile — prop-driven and side-effect free.
-export function MetricDetail({ title, subtitle, total, rows, emptyLabel }: MetricDetailProps) {
+export function MetricDetail({ title, subtitle, total, rows, emptyLabel, breakdown }: MetricDetailProps) {
+  const showBreakdown = (breakdown?.length ?? 0) >= 2
   return (
     <div className="px-4 pb-4 md:p-6">
       <MobilePageHeader title={title} backHref="/billing" />
@@ -56,6 +60,40 @@ export function MetricDetail({ title, subtitle, total, rows, emptyLabel }: Metri
         <div className="ph-stat-value"><Money n={total} /></div>
         <div className="ph-stat-meta">{rows.length} record{rows.length === 1 ? '' : 's'}</div>
       </div>
+
+      {showBreakdown && breakdown && (
+        <div
+          aria-label="Billed by appointment type"
+          style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden', marginBottom: 20 }}
+        >
+          <div style={{
+            padding: '9px 16px', fontSize: 10.5, color: 'var(--ph-ink-4)',
+            textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600,
+            borderBottom: '1px solid var(--ph-line)',
+          }}>
+            By appointment type
+          </div>
+          {breakdown.map((bucket, index) => (
+            <div
+              key={bucket.type}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                padding: '10px 16px',
+                borderBottom: index < breakdown.length - 1 ? '1px solid var(--ph-line)' : 'none',
+                fontSize: 13,
+              }}
+            >
+              <span style={{ fontWeight: 500, textTransform: 'capitalize' }}>{bucket.type}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>
+                  {bucket.count} session{bucket.count === 1 ? '' : 's'}
+                </span>
+                <Money n={bucket.amount} />
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
         {rows.length === 0 ? (

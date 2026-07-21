@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 import { formatDateOnly, getZonedCalendarContext } from '@/lib/timezone'
 import { getUserTimeZone } from '@/lib/timezone/server'
+import { buildAppointmentTypeBreakdown, type AppointmentTypeBreakdownRow } from '@/lib/billing/appointment-type-breakdown'
 import { MetricDetail, type MetricRow } from './metric-detail'
 
 // Drill-down behind a billing money tile: the exact records that sum to the figure, with the total
@@ -39,6 +40,9 @@ export default async function BillingMetricPage({ params }: { params: Promise<{ 
     : formatDateOnly(calendar.previousMonthStart, 'MMMM yyyy')
 
   let rows: MetricRow[] = []
+  // Only the "billed" drill-downs get the per-appointment-type breakdown strip (each completed
+  // session carries its own type + fee). "Received" lists payments, which have no session type.
+  let breakdown: AppointmentTypeBreakdownRow[] | undefined
 
   if (config.kind === 'billed') {
     const { data, error } = await supabase
@@ -56,6 +60,9 @@ export default async function BillingMetricPage({ params }: { params: Promise<{ 
       meta: a.type,
       amount: Number(a.fee ?? 0),
     }))
+    breakdown = buildAppointmentTypeBreakdown(
+      (data ?? []).map((a) => ({ type: a.type, fee: a.fee })),
+    )
   } else {
     const { data, error } = await supabase
       .from('payments')
@@ -81,6 +88,7 @@ export default async function BillingMetricPage({ params }: { params: Promise<{ 
       subtitle={periodLabel}
       total={total}
       rows={rows}
+      breakdown={breakdown}
       emptyLabel={config.kind === 'billed' ? 'No completed sessions in this period.' : 'No payments received in this period.'}
     />
   )

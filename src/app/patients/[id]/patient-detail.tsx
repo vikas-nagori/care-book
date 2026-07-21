@@ -195,12 +195,19 @@ export function PatientDetail({
 
         <TabsContent value="appointments">
           <div className="space-y-2">
-            <Button size="sm" className="mb-2" asChild>
-              <Link href={`/schedule/new?patient_id=${patient.id}&from=/patients/${patient.id}`}>
-                <Calendar className="h-4 w-4 mr-1" />
-                Book Appointment
-              </Link>
-            </Button>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <Button size="sm" asChild>
+                <Link href={`/schedule/new?patient_id=${patient.id}&from=/patients/${patient.id}`}>
+                  <Calendar className="h-4 w-4 mr-1" />
+                  Book Appointment
+                </Link>
+              </Button>
+              {appointmentsTotalCount > 0 && (
+                <p className="text-sm font-medium text-muted-foreground" data-testid="appointment-count">
+                  {appointmentsTotalCount} appointment{appointmentsTotalCount === 1 ? '' : 's'}
+                </p>
+              )}
+            </div>
             {appointments.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">No appointments yet.</p>
             ) : (

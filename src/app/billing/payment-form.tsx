@@ -191,7 +191,7 @@ export function PaymentForm({
       {/* Payment method */}
       <div className="space-y-2">
         <Label>Payment Method *</Label>
-        <Select name="payment_method" defaultValue="cash" required>
+        <Select name="payment_method" defaultValue="upi" required>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="cash">Cash</SelectItem>

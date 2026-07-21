@@ -356,7 +356,7 @@ export function BillingEntryForm({
 
         <div className="space-y-2">
           <Label htmlFor="payment_method">Payment Method *</Label>
-          <Select name="payment_method" defaultValue="cash" required>
+          <Select name="payment_method" defaultValue="upi" required>
             <SelectTrigger id="payment_method">
               <SelectValue />
             </SelectTrigger>
