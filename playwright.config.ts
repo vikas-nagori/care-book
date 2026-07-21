@@ -80,8 +80,8 @@ export default defineConfig({
     },
     {
       name: 'platform-signout',
-      // Sign in afresh inside every attempt because a failed attempt has already revoked its token.
-      // Keep this dependency so global sign-out still follows all shared-session console specs.
+      // Sign in afresh with a dedicated identity inside every attempt because a failed attempt has
+      // already revoked its token. Keep this dependency so sign-out follows all console specs.
       dependencies: ['platform-desktop'],
       testMatch: ['platform/zz-signout.spec.ts'],
       use: { ...devices['Desktop Chrome'], storageState: { cookies: [], origins: [] } },

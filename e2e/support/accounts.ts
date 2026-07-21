@@ -2,7 +2,7 @@
 // LOCAL Supabase stack by e2e/support/seed.ts and authenticated by e2e/setup/global.setup.ts.
 //
 // IDs are fixed so seeding is idempotent (re-running upserts the same rows) and specs can
-// reference known data. The platform-admin email MUST match PLATFORM_ADMIN_EMAILS in .env.e2e.
+// reference known data. Platform-admin emails MUST match PLATFORM_ADMIN_EMAILS in .env.e2e.
 
 import { join } from 'node:path'
 
@@ -50,11 +50,13 @@ export const STAFF = account({ slug: 'staff', email: 'staff@carebook.test', role
 export const STAFF2 = account({ slug: 'staff2', email: 'staff2@carebook.test', role: 'staff', clinicId: CLINIC_A.id })
 /** Platform super-admin — gated by email allowlist, not clinic role. */
 export const PLATFORM = account({ slug: 'platform', email: 'platform-admin@carebook.test', role: 'admin', clinicId: CLINIC_A.id, platformAdmin: true })
+/** Dedicated platform identity whose session may be globally revoked by the sign-out test. */
+export const PLATFORM_SIGNOUT = account({ slug: 'platform-signout', email: 'platform-signout@carebook.test', role: 'admin', clinicId: CLINIC_A.id, platformAdmin: true })
 /** Clinic B admin — for tenant-isolation checks. */
 export const CLINIC_B_ADMIN = account({ slug: 'clinic-b-admin', email: 'admin-b@carebook.test', role: 'admin', clinicId: CLINIC_B.id })
 
 /** Every account seeded into auth + profiles. */
-export const ALL_ACCOUNTS: Account[] = [ADMIN, STAFF, STAFF2, PLATFORM, CLINIC_B_ADMIN]
+export const ALL_ACCOUNTS: Account[] = [ADMIN, STAFF, STAFF2, PLATFORM, PLATFORM_SIGNOUT, CLINIC_B_ADMIN]
 
-/** Accounts we log in and persist a storageState for (reused across specs). */
-export const AUTHENTICATED_ACCOUNTS: Account[] = ALL_ACCOUNTS
+/** Accounts whose storageState is reused across specs; excludes the destructive sign-out identity. */
+export const AUTHENTICATED_ACCOUNTS: Account[] = [ADMIN, STAFF, STAFF2, PLATFORM, CLINIC_B_ADMIN]

@@ -117,7 +117,8 @@ the console before proving `/platform` is no longer accessible. Fixed clinics an
 are never selected by these mutation tests. The sign-out spec runs in its own `platform-signout`
 project, which depends on `platform-desktop`; this guarantees every shared-session console spec
 finishes before the real global sign-out. Its browser starts empty and signs in within each test
-attempt, so a retry never reuses the refresh token revoked by the preceding failed attempt.
+attempt with a separately seeded, allowlisted identity. A retry never reuses the revoked refresh
+token, and global sign-out never invalidates the primary platform account used by console specs.
 
 Public flows run independently on desktop and mobile. They submit a representative clinic request,
 exercise invalid and valid password login, request recovery from the login form, complete a real
