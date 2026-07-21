@@ -15,7 +15,7 @@ import {
   type Account,
 } from './accounts.ts'
 import { SEED } from './ids.ts'
-import { clinicDate } from './clinic-date.ts'
+import { clinicDate, upcomingClinicSlot } from './clinic-date.ts'
 
 async function upsertClinic(db: SupabaseClient, clinic: { id: string; name: string }) {
   const { error } = await db.from('clinics').upsert(
@@ -162,6 +162,7 @@ async function seedAppointments(
   const clinicASharedType = await appointmentTypeId(db, CLINIC_A.id, true)
   const clinicAPrivateType = await appointmentTypeId(db, CLINIC_A.id, false)
   const clinicBSharedType = await appointmentTypeId(db, CLINIC_B.id, true)
+  const dashboardNext = upcomingClinicSlot()
   const accountId = (account: Account) => {
     const id = accountIds.get(account.slug)
     if (!id) throw new Error(`seed account id missing for ${account.slug}`)
@@ -177,8 +178,22 @@ async function seedAppointments(
       type: 'Clinic',
       type_is_shared: true,
       date: clinicDate(0),
-      // Keep one deterministic "Up next" row available throughout the clinic day.
-      time: '23:59',
+      time: '10:00',
+      fee: 800,
+      status: 'scheduled',
+      payment_status: 'unpaid',
+      created_by: accountId(ADMIN),
+      assigned_to: null,
+    },
+    {
+      id: SEED.appointmentDashboardNext,
+      clinic_id: CLINIC_A.id,
+      patient_id: SEED.patientPaymentDue,
+      appointment_type_id: clinicASharedType,
+      type: 'Clinic',
+      type_is_shared: true,
+      date: dashboardNext.date,
+      time: dashboardNext.time,
       fee: 800,
       status: 'scheduled',
       payment_status: 'unpaid',

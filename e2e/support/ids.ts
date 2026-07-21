@@ -15,6 +15,8 @@ export const SEED = {
   packageTemplate: '00000000-0000-4000-c000-000000000002',
   /** Shared Clinic A appointment visible to all Clinic A staff. */
   appointmentShared: '00000000-0000-4000-d000-000000000001',
+  /** Rolling future shared appointment that keeps the dashboard Up next contract deterministic. */
+  appointmentDashboardNext: '00000000-0000-4000-d000-000000000004',
   /** Private Clinic A appointment owned and assigned to STAFF2. */
   appointmentStaff2Private: '00000000-0000-4000-d000-000000000002',
   /** Clinic B appointment used for tenant-isolation checks. */

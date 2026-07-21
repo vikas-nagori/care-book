@@ -1,9 +1,22 @@
-import { appointmentToInstant, isInstantInInterval } from '../timezone.ts'
+import { addCalendarDays, appointmentToInstant, isInstantInInterval } from '../timezone.ts'
 
 interface AppointmentTimeRow {
   date: string
   time: string
   status: string
+}
+
+interface ClinicDateRange {
+  startDate: string
+  endDate: string
+}
+
+/** Today's rows drive dashboard stats; the following clinic date keeps "Up next" available. */
+export function getDashboardAppointmentQueryRange(range: ClinicDateRange): ClinicDateRange {
+  return {
+    startDate: range.startDate,
+    endDate: addCalendarDays(range.endDate, 1),
+  }
 }
 
 export function filterAppointmentsInInterval<T extends AppointmentTimeRow>(

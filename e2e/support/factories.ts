@@ -181,6 +181,7 @@ const clinicScopedCleanupTables: CleanupTable[] = [
 const protectedIdsByTable: Partial<Record<CleanupTable, ReadonlySet<string>>> = {
   appointments: new Set([
     SEED.appointmentShared,
+    SEED.appointmentDashboardNext,
     SEED.appointmentStaff2Private,
     SEED.appointmentClinicB,
     SEED.appointmentPaymentDue,

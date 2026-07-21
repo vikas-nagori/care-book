@@ -16,6 +16,7 @@ import { getUserTimeZone } from '@/lib/timezone/server'
 import {
   filterAppointmentsInInterval,
   findNextScheduledAppointment,
+  getDashboardAppointmentQueryRange,
 } from '@/lib/dashboard/appointments'
 import Link from 'next/link'
 import { CalendarDays, Users, IndianRupee, AlertCircle } from 'lucide-react'
@@ -63,13 +64,14 @@ export default async function DashboardPage() {
     userTimeZone,
   )
   const dayClinicRange = getClinicDateRangeForInterval(dayInterval.start, dayInterval.end)
+  const appointmentQueryRange = getDashboardAppointmentQueryRange(dayClinicRange)
   const weekClinicRange = getClinicDateRangeForInterval(weekInterval.start, weekInterval.end)
 
   let apptQuery = supabase
     .from('appointments')
     .select('id, date, time, duration_minutes, type, type_is_shared, status, payment_status, fee, patient:patients(id, name, phone)')
-    .gte('date', dayClinicRange.startDate)
-    .lte('date', dayClinicRange.endDate)
+    .gte('date', appointmentQueryRange.startDate)
+    .lte('date', appointmentQueryRange.endDate)
     .order('date')
     .order('time')
 
@@ -146,11 +148,12 @@ export default async function DashboardPage() {
     patient: ApptRow['patient'] | Exclude<ApptRow['patient'], null>[]
   }
 
+  const dashboardAppts: ApptRow[] = ((rawAppts ?? []) as RawApptRow[]).map((a) => ({
+    ...a,
+    patient: Array.isArray(a.patient) ? (a.patient[0] ?? null) : (a.patient ?? null),
+  }))
   const appts: ApptRow[] = filterAppointmentsInInterval(
-    ((rawAppts ?? []) as RawApptRow[]).map((a) => ({
-      ...a,
-      patient: Array.isArray(a.patient) ? (a.patient[0] ?? null) : (a.patient ?? null),
-    })),
+    dashboardAppts,
     dayInterval.start,
     dayInterval.end,
   )
@@ -171,7 +174,7 @@ export default async function DashboardPage() {
   })
   const outstanding = paymentDueRows.reduce((s, r) => s + r.netDue, 0)
   const monthRevenue = (monthPayments ?? []).reduce((s, p) => s + Number(p.amount), 0)
-  const nextAppt = findNextScheduledAppointment(appts, now)
+  const nextAppt = findNextScheduledAppointment(dashboardAppts, now)
   const cancelledCount = appts.filter((a) => a.status === 'cancelled').length
 
   return (

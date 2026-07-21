@@ -5,6 +5,7 @@ import { getZonedDayInterval } from '../timezone.ts'
 import {
   filterAppointmentsInInterval,
   findNextScheduledAppointment,
+  getDashboardAppointmentQueryRange,
 } from './appointments.ts'
 
 interface Row {
@@ -50,4 +51,11 @@ test('next appointment compares absolute timestamps and returns the earliest sch
   ]
 
   assert.equal(findNextScheduledAppointment(appointments, midnightKolkata)?.id, 'next')
+})
+
+test('dashboard appointment query includes the following clinic date for Up next', () => {
+  assert.deepEqual(
+    getDashboardAppointmentQueryRange({ startDate: '2026-07-19', endDate: '2026-07-19' }),
+    { startDate: '2026-07-19', endDate: '2026-07-20' },
+  )
 })
