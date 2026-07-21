@@ -178,7 +178,9 @@ async function seedAppointments(
       type: 'Clinic',
       type_is_shared: true,
       date: clinicDate(0),
-      time: '10:00',
+      // The responsive schedule contract asserts this stable display time. The separate rolling
+      // appointment below owns the dashboard "Up next" guarantee across the clinic-day boundary.
+      time: '23:59',
       fee: 800,
       status: 'scheduled',
       payment_status: 'unpaid',

@@ -44,6 +44,7 @@ export type E2ESessionNoteRow = Row & {
 export type E2EAppointmentTypeRow = Row & {
   name: string
   is_shared: boolean
+  session_rate: number
 }
 export type E2EProfileRow = Row & {
   clinic_id: string | null
@@ -523,7 +524,7 @@ export class E2EFactory {
   async findAppointmentType(isShared: boolean): Promise<E2EAppointmentTypeRow> {
     const { data, error } = await this.db
       .from('appointment_types')
-      .select('id, name, is_shared')
+      .select('id, name, is_shared, session_rate')
       .eq('clinic_id', CLINIC_A.id)
       .eq('is_shared', isShared)
       .order('sort_order')
