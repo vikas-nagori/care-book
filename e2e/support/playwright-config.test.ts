@@ -22,6 +22,23 @@ test('the full local Supabase matrix uses one worker to avoid exhausting GoTrue 
   assert.equal(workersSetting, '1')
 })
 
+test('critical clinic write flows run for both admin and staff projects', () => {
+  const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
+  const patientsSpec = readFileSync(new URL('../shared/patients.spec.ts', import.meta.url), 'utf8')
+  const scheduleSpec = readFileSync(new URL('../shared/schedule-write-flows.spec.ts', import.meta.url), 'utf8')
+
+  for (const projectName of ['admin-desktop', 'admin-mobile', 'staff-desktop', 'staff-mobile']) {
+    const project = config.match(new RegExp(`name: '${projectName}',[\\s\\S]*?\\n\\s*},`))?.[0] ?? ''
+    assert.match(project, /testMatch:\s*\['shared\/\*\*\/\*\.spec\.ts'/, projectName)
+  }
+  assert.match(patientsSpec, /creates a representative patient/)
+  assert.match(patientsSpec, /edits a factory-owned patient/)
+  assert.match(scheduleSpec, /books a shared appointment/)
+  assert.match(scheduleSpec, /changes appointment status/)
+  assert.match(scheduleSpec, /adds a SOAP session note/)
+  assert.match(scheduleSpec, /deletes a scheduled appointment/)
+})
+
 test('platform sign-out runs only after the platform desktop project completes', () => {
   const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
   const signoutSpec = readFileSync(new URL('../platform/zz-signout.spec.ts', import.meta.url), 'utf8')

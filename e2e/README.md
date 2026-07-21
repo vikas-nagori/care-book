@@ -98,12 +98,14 @@ also covers unauthenticated redirects for every protected runtime route, invalid
 credentials, and unauthorized cron access. The authorized cron branch is intentionally not called:
 its date-based update can mutate scheduled appointments, so it is not a deterministic no-op.
 
-Admin desktop and mobile additionally exercise critical write flows. Patient coverage creates a
-representative record, searches the list, edits persisted profile fields, and verifies the
-deterministic duplicate-phone warning. Schedule coverage creates shared and internally assigned
-private appointments, reports an all-or-nothing recurring conflict without inserting any requested
-series rows, completes an appointment, creates and edits a SOAP note, and confirms scheduled
-appointment deletion. Billing coverage records and allocates a standalone payment, creates a
+Admin and staff desktop/mobile projects both exercise the role-safe critical write flows. Patient
+coverage creates a representative record, searches the list, edits persisted profile fields, and
+verifies the deterministic duplicate-phone warning. Schedule coverage creates a shared appointment,
+reports an all-or-nothing recurring conflict without inserting any requested series rows, completes
+an appointment, creates and edits a SOAP note, and confirms scheduled appointment deletion. The
+staff booking path also proves the fee control stays hidden while the persisted appointment derives
+its protected fee from the selected type. Admin additionally creates an internally assigned private
+appointment. Billing coverage records and allocates a standalone payment, creates a
 prepaid package/payment from a seeded template, deletes factory-owned payments and packages,
 asserts real records behind billing metric drill-downs, and verifies the seeded unpaid-session
 tally. Settings coverage creates/edits/deletes appointment types and package templates, creates
