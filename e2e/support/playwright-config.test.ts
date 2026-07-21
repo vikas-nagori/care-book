@@ -34,6 +34,7 @@ test('critical clinic write flows run for both admin and staff projects', () => 
   assert.match(patientsSpec, /creates a representative patient/)
   assert.match(patientsSpec, /edits a factory-owned patient/)
   assert.match(scheduleSpec, /books a shared appointment/)
+  assert.match(scheduleSpec, /books a restricted appointment/)
   assert.match(scheduleSpec, /changes appointment status/)
   assert.match(scheduleSpec, /adds a SOAP session note/)
   assert.match(scheduleSpec, /deletes a scheduled appointment/)

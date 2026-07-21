@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test'
 import { attachErrorGuards } from '../support/assertions'
 
 const ADMIN_SECTION_LABELS = [
+  'Session Fees',
   'Appointment Types',
   'Package Templates',
   'Invite User',
