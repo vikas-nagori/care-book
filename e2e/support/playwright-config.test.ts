@@ -18,11 +18,13 @@ test('the full local Supabase matrix uses one worker to avoid exhausting GoTrue 
 
 test('platform sign-out runs only after the platform desktop project completes', () => {
   const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
+  const signoutSpec = readFileSync(new URL('../platform/zz-signout.spec.ts', import.meta.url), 'utf8')
   const platformProject = config.match(/name: 'platform-desktop',[\s\S]*?\n\s*},/)?.[0] ?? ''
   const signoutProject = config.match(/name: 'platform-signout',[\s\S]*?\n\s*},/)?.[0] ?? ''
 
   assert.match(platformProject, /testIgnore:\s*\['platform\/zz-signout\.spec\.ts'\]/)
   assert.match(signoutProject, /dependencies:\s*\['platform-desktop'\]/)
   assert.match(signoutProject, /testMatch:\s*\['platform\/zz-signout\.spec\.ts'\]/)
-  assert.match(signoutProject, /storageState:\s*PLATFORM\.storageState/)
+  assert.match(signoutProject, /storageState:\s*\{\s*cookies:\s*\[\],\s*origins:\s*\[\]\s*}/)
+  assert.match(signoutSpec, /signIn\(page,\s*PLATFORM\)/)
 })

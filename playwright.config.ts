@@ -80,10 +80,11 @@ export default defineConfig({
     },
     {
       name: 'platform-signout',
-      // Global sign-out revokes the shared stored session, so it must follow all console specs.
+      // Sign in afresh inside every attempt because a failed attempt has already revoked its token.
+      // Keep this dependency so global sign-out still follows all shared-session console specs.
       dependencies: ['platform-desktop'],
       testMatch: ['platform/zz-signout.spec.ts'],
-      use: { ...devices['Desktop Chrome'], storageState: PLATFORM.storageState },
+      use: { ...devices['Desktop Chrome'], storageState: { cookies: [], origins: [] } },
     },
 
     // Public / unauthenticated flows (login, onboarding, auth). No stored session.

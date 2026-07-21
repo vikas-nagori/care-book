@@ -1,9 +1,12 @@
 import { expect, test } from '@playwright/test'
+import { PLATFORM } from '../support/accounts'
 import { attachErrorGuards } from '../support/assertions'
+import { signIn } from '../support/login'
 
-// Its dedicated project depends on platform-desktop because signOut() intentionally revokes the
-// shared platform account session used by the console smoke specs.
 test('signs out through the platform UI and revokes access to the console', async ({ page }) => {
+  // Authenticate inside each attempt: signOut() revokes this refresh token, so a Playwright retry
+  // cannot safely reuse a persisted session from global setup.
+  await signIn(page, PLATFORM)
   const guards = attachErrorGuards(page)
   await page.goto('/platform')
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
