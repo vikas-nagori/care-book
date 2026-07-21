@@ -68,3 +68,46 @@ describe('MetricDetail appointment-type breakdown strip', () => {
     expect(screen.queryByLabelText('Billed by appointment type')).toBeNull()
   })
 })
+
+describe('MetricDetail pagination', () => {
+  it('renders page navigation with whole-period record count and metric-scoped links', () => {
+    render(
+      <MetricDetail
+        title="Received"
+        subtitle="July 2026"
+        total={99000}
+        rows={rows}
+        totalCount={57}
+        pagination={{ page: 2, totalPages: 3, basePath: '/billing/metrics/received-this-month' }}
+        emptyLabel="No payments received in this period."
+      />,
+    )
+
+    // Meta reflects the whole period, not just the page's rows.
+    expect(screen.getByText('57 records')).toBeTruthy()
+
+    const nav = screen.getByRole('navigation', { name: 'Received pages' })
+    const prev = within(nav).getByRole('link', { name: 'Previous' })
+    const next = within(nav).getByRole('link', { name: 'Next' })
+    expect(prev.getAttribute('href')).toBe('/billing/metrics/received-this-month?page=1')
+    expect(next.getAttribute('href')).toBe('/billing/metrics/received-this-month?page=3')
+    // Current page is marked.
+    expect(within(nav).getByRole('link', { name: '2' }).getAttribute('aria-current')).toBe('page')
+  })
+
+  it('omits pagination when there is a single page', () => {
+    render(
+      <MetricDetail
+        title="Received"
+        subtitle="July 2026"
+        total={800}
+        rows={rows}
+        totalCount={2}
+        pagination={{ page: 1, totalPages: 1, basePath: '/billing/metrics/received-this-month' }}
+        emptyLabel="No payments received in this period."
+      />,
+    )
+
+    expect(screen.queryByRole('navigation', { name: 'Received pages' })).toBeNull()
+  })
+})

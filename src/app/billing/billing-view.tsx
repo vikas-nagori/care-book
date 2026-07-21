@@ -25,6 +25,7 @@ import {
 } from '@/lib/billing/unified-billing'
 import type { PaymentDueRow } from '@/lib/billing/payment-due'
 import type { PackageTemplate } from '@/lib/supabase/types'
+import { PaginationNav } from '@/components/pagination-nav'
 import { BillingEntryForm } from './billing-entry-form'
 import { deletePackage, deletePayment } from './actions'
 
@@ -64,6 +65,8 @@ interface BillingViewProps {
 
 // Rows shown per list tab before "View more" reveals the rest.
 const RECENT_LIMIT = 10
+// The Payments Balance (Outstanding) tab can list every owing patient, so it gets real pagination.
+const PAYMENT_DUE_PAGE_SIZE = 25
 
 function Money({ n, className = '' }: { n: number; className?: string }) {
   return (
@@ -105,7 +108,7 @@ function RevealButton({ label, onClick, loading = false }: { label: string; onCl
   )
 }
 
-function DeleteIconButton({ label, onClick }: { label: string; onClick: () => void }) {
+function DeleteIconButton({ label, onClick }: { label: string; onClick: (event: React.MouseEvent) => void }) {
   return (
     <button
       type="button"
@@ -149,7 +152,7 @@ export function BillingView({
   const [payments, setPayments] = useState(initialPayments)
   const [loadingMorePayments, setLoadingMorePayments] = useState(false)
   const [loadingMorePackages, setLoadingMorePackages] = useState(false)
-  const [showAllBalance, setShowAllBalance] = useState(false)
+  const [duePage, setDuePage] = useState(1)
   const [showAllPayments, setShowAllPayments] = useState(false)
   const [showAllPackages, setShowAllPackages] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<
@@ -238,8 +241,10 @@ export function BillingView({
   const recentPaymentItems = timelineItems.filter((i) => i.type === 'payment_recorded')
   const packageItems       = timelineItems.filter((i) => i.type === 'package_created')
 
-  // Recent-10 by default; "View more" reveals the rest of what's loaded.
-  const visibleDueRows      = showAllBalance  ? paymentDueRows     : paymentDueRows.slice(0, RECENT_LIMIT)
+  // Payments Balance is paginated (25/page); payments & packages keep the recent-10 "View more" reveal.
+  const dueTotalPages = Math.max(1, Math.ceil(paymentDueRows.length / PAYMENT_DUE_PAGE_SIZE))
+  const safeDuePage = Math.min(Math.max(1, duePage), dueTotalPages)
+  const visibleDueRows      = paymentDueRows.slice((safeDuePage - 1) * PAYMENT_DUE_PAGE_SIZE, safeDuePage * PAYMENT_DUE_PAGE_SIZE)
   const visiblePaymentItems = showAllPayments ? recentPaymentItems : recentPaymentItems.slice(0, RECENT_LIMIT)
   const visiblePackageItems = showAllPackages ? packageItems       : packageItems.slice(0, RECENT_LIMIT)
 
@@ -401,9 +406,11 @@ export function BillingView({
                   : 0
                 const patientName = (pkg as unknown as { patient?: { name: string } }).patient?.name ?? 'Patient'
                 return (
-                  <div
+                  <Link
                     key={pkg.id}
-                    style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, padding: '12px 14px' }}
+                    href={`/billing/packages/${pkg.id}`}
+                    className="hover:bg-[var(--ph-bg-soft)]"
+                    style={{ display: 'block', background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, padding: '12px 14px', textDecoration: 'none', color: 'inherit' }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                       <div>
@@ -421,7 +428,7 @@ export function BillingView({
                       <span style={{ color: 'var(--ph-ink-3)' }}>Paid</span>
                       <span><Money n={pkg.paid_amount} className="ok" /></span>
                     </div>
-                  </div>
+                  </Link>
                 )
               })}
               {activePackages.length === 0 && (
@@ -519,12 +526,12 @@ export function BillingView({
             })
           )}
         </div>
-        {!showAllBalance && paymentDueRows.length > RECENT_LIMIT && (
-          <RevealButton label={`View more (${paymentDueRows.length - RECENT_LIMIT} more)`} onClick={() => setShowAllBalance(true)} />
-        )}
-        {showAllBalance && paymentDueRows.length > RECENT_LIMIT && (
-          <RevealButton label="Show less" onClick={() => setShowAllBalance(false)} />
-        )}
+        <PaginationNav
+          page={safeDuePage}
+          totalPages={dueTotalPages}
+          onPageChange={setDuePage}
+          ariaLabel="Payments balance pages"
+        />
         </>
       )}
 
@@ -629,9 +636,11 @@ export function BillingView({
                   ? Math.min(100, (item.usedSessions / item.totalSessions) * 100)
                   : 0
                 return (
-                  <div
+                  <Link
                     key={item.id}
-                    style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, padding: '14px 16px' }}
+                    href={`/billing/packages/${item.id}`}
+                    className="hover:bg-[var(--ph-bg-soft)]"
+                    style={{ display: 'block', background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, padding: '14px 16px', textDecoration: 'none', color: 'inherit' }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
                       <div>
@@ -642,7 +651,11 @@ export function BillingView({
                         <span className={`ph-badge ${pkgStatusCls[item.status] ?? ''}`}>{item.status}</span>
                         <DeleteIconButton
                           label={`Delete package for ${item.patientName} · ${item.packageName}`}
-                          onClick={() => setPendingDelete({ kind: 'package', id: item.id, label: `${item.patientName} · ${item.packageName}` })}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            setPendingDelete({ kind: 'package', id: item.id, label: `${item.patientName} · ${item.packageName}` })
+                          }}
                         />
                       </div>
                     </div>
@@ -660,7 +673,7 @@ export function BillingView({
                     <div style={{ fontSize: 11, color: 'var(--ph-ink-4)', marginTop: 6 }}>
                       {format(parseISO(item.sortDate), 'dd MMM yyyy')}
                     </div>
-                  </div>
+                  </Link>
                 )
               })
             )}

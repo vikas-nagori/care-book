@@ -345,20 +345,22 @@ export function PatientDetail({
                 <h3 className="font-medium mb-2">Packages</h3>
                 <div className="space-y-2">
                   {packages.map((pkg) => (
-                    <Card key={pkg.id}>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="font-medium">{pkg.name}</p>
-                          <Badge className={statusColors[pkg.status] || ''}>{pkg.status}</Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {pkg.used_sessions} availed · {Math.max(pkg.total_sessions - pkg.used_sessions, 0)} due · {pkg.total_sessions} total
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          ₹{Number(pkg.paid_amount).toLocaleString()}/₹{Number(pkg.total_amount).toLocaleString()}
-                        </p>
-                      </CardContent>
-                    </Card>
+                    <Link key={pkg.id} href={`/billing/packages/${pkg.id}`} className="block">
+                      <Card className="transition-colors hover:bg-muted/50">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="font-medium">{pkg.name}</p>
+                            <Badge className={statusColors[pkg.status] || ''}>{pkg.status}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {pkg.used_sessions} availed · {Math.max(pkg.total_sessions - pkg.used_sessions, 0)} due · {pkg.total_sessions} total
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            ₹{Number(pkg.paid_amount).toLocaleString()}/₹{Number(pkg.total_amount).toLocaleString()}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </Link>
                   ))}
                 </div>
               </div>
