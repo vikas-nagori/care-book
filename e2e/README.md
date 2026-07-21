@@ -64,6 +64,12 @@ unrelated local app while their service-role verification and cleanup target loc
 path. `npx playwright test --list` prints the current fully expanded project count, including the
 setup/authentication tests.
 
+The matrix deliberately runs with one Playwright worker. The full role/viewport suite generates
+enough short-lived local GoTrue database connections that parallel workers can exhaust Docker's
+available source sockets and cause unrelated `/auth/v1/user` requests to return transient 500s.
+Keep the single-worker guard unless the local auth/database connection path is changed and the
+complete matrix is proven stable at higher concurrency.
+
 CI runs on every branch push and pull request. Its `test` job runs lint, app + E2E typechecks,
 unit/component/integration suites, and a production E2E-environment build. Its `e2e` job boots an
 isolated local Supabase stack and runs the complete project matrix. The HTML report plus failure

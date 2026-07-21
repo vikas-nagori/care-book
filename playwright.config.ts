@@ -11,11 +11,13 @@ const CI = !!process.env.CI
 
 export default defineConfig({
   testDir: './e2e',
-  // Specs run in parallel across projects; the setup project seeds + authenticates first.
+  // The setup project seeds + authenticates first. Keep the browser matrix serial: local GoTrue
+  // opens enough short-lived database connections during this full suite that parallel workers can
+  // exhaust the Docker network's available source sockets and turn healthy auth requests into 500s.
   fullyParallel: true,
   forbidOnly: CI,
   retries: CI ? 1 : 0,
-  workers: CI ? 2 : undefined,
+  workers: 1,
   reporter: CI ? [['html', { open: 'never' }], ['github']] : [['html', { open: 'never' }], ['list']],
 
   use: {

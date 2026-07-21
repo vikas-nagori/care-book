@@ -9,6 +9,13 @@ test('Playwright owns the E2E server by default instead of reusing an arbitrary 
   assert.equal(reuseSetting, 'false')
 })
 
+test('the full local Supabase matrix uses one worker to avoid exhausting GoTrue database connections', () => {
+  const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
+  const workersSetting = config.match(/workers:\s*([^,\n]+)/)?.[1]?.trim()
+
+  assert.equal(workersSetting, '1')
+})
+
 test('platform sign-out runs only after the platform desktop project completes', () => {
   const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
   const platformProject = config.match(/name: 'platform-desktop',[\s\S]*?\n\s*},/)?.[0] ?? ''
