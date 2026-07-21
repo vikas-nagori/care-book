@@ -1,3 +1,30 @@
+-- Bootstrap safety guard
+--
+-- This file and 00000000000000_base_schema.sql initialize an empty database. They are not an
+-- idempotent migration for an established project. Abort before any DDL if a core table already
+-- exists so an accidental `supabase db push --include-all` cannot partially replay the base schema.
+do $$
+begin
+  if exists (
+    select 1
+    from pg_catalog.pg_class as c
+    join pg_catalog.pg_namespace as n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relkind in ('r', 'p')
+      and c.relname in (
+        'patients',
+        'appointments',
+        'treatment_plans',
+        'session_notes',
+        'packages',
+        'payments'
+      )
+  ) then
+    raise exception 'Base schema bootstrap refused: core Care Book tables already exist. Mark migration 00000000000000 as applied instead of replaying it.';
+  end if;
+end;
+$$;
+
 -- Enable UUID extension
 create extension if not exists "uuid-ossp";
 
