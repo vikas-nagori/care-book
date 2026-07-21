@@ -35,8 +35,14 @@ test('hides schedule and appointment-detail payment signals from staff', async (
   await expect(page.getByRole('dialog', { name: 'Edit Appointment' })).toBeVisible()
   await expect(page.getByLabel('Session Fee (₹)', { exact: true })).toHaveCount(0)
 
+  const appointmentTypesRequest = page.waitForRequest((request) =>
+    request.url().includes('/rest/v1/appointment_types?')
+  )
   await page.goto('/schedule/new')
   await expect(page.getByLabel('Session Fee (₹)', { exact: true })).toHaveCount(0)
+  const selectedFields = new URL((await appointmentTypesRequest).url()).searchParams.get('select')
+  expect(selectedFields).not.toBe('*')
+  expect(selectedFields).not.toContain('session_rate')
   await guards.assertClean()
 })
 

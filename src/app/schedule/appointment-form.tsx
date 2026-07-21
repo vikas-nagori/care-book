@@ -134,15 +134,24 @@ export function AppointmentForm({
 
   // Load the clinic's appointment types once on mount
   useEffect(() => {
-    supabase.from('appointment_types').select('*').order('sort_order').then(({ data }) => {
+    const appointmentTypesQuery = canViewPaymentSignals
+      ? supabase.from('appointment_types').select('*')
+      : supabase
+          .from('appointment_types')
+          .select('id, clinic_id, name, is_shared, is_default, sort_order, created_at')
+
+    appointmentTypesQuery.order('sort_order').then(({ data }) => {
       if (!data) return
-      setAppointmentTypes(data)
+      const types = data as AppointmentType[]
+      setAppointmentTypes(types)
       // For new appointments, default to a sensible type and auto-fill its rate.
       if (!appointment) {
-        const def = defaultAppointmentType(data)
+        const def = defaultAppointmentType(types)
         if (def) {
           setAppointmentTypeId(def.id)
-          setFee((current) => current || String(def.session_rate))
+          if (canViewPaymentSignals) {
+            setFee((current) => current || String(def.session_rate))
+          }
         }
       }
     })
@@ -180,7 +189,7 @@ export function AppointmentForm({
     }
 
     // Auto-fill the rate for new appointments (admins can still override).
-    if (!appointment && type) {
+    if (!appointment && type && canViewPaymentSignals) {
       setFee(String(type.session_rate))
     }
   }

@@ -55,6 +55,79 @@ test('booking with a type id denormalizes name and visibility', { skip }, () => 
   assert.equal(query(DB, `select type_is_shared from appointments where id = '${apptId}'`), 't')
 })
 
+test('staff-created appointments derive protected payment fields from the selected type', { skip }, () => {
+  const clinicType = typeId('Clinic')
+  query(DB, `update appointment_types set session_rate = 875 where id = '${clinicType}'`)
+  const patient = newPatient('Staff Fee Insert Guard')
+
+  const protectedFields = queryAsAuthenticated(
+    DB,
+    staffId,
+    `insert into appointments
+      (patient_id, date, time, appointment_type_id, status, fee, payment_status)
+     values
+      ('${patient}', current_date + 2, '08:30', '${clinicType}', 'scheduled', 1, 'paid')
+     returning fee || ':' || payment_status`
+  )
+
+  assert.equal(protectedFields, '875.00:unpaid')
+})
+
+test('staff cannot forge appointment payment fields through direct updates', { skip }, () => {
+  const clinicType = typeId('Clinic')
+  const patient = newPatient('Staff Fee Update Guard')
+  const appointment = query(
+    DB,
+    `insert into appointments
+      (patient_id, date, time, appointment_type_id, status, fee, payment_status)
+     values
+      ('${patient}', current_date + 3, '08:45', '${clinicType}', 'scheduled', 875, 'unpaid')
+     returning id`
+  )
+
+  queryAsAuthenticated(
+    DB,
+    staffId,
+    `update appointments set fee = 1, payment_status = 'paid' where id = '${appointment}'`
+  )
+
+  assert.equal(
+    query(DB, `select fee || ':' || payment_status from appointments where id = '${appointment}'`),
+    '875.00:unpaid'
+  )
+
+  // A payment-status-only update does not invoke the fee allocation trigger,
+  // so this assertion specifically exercises the staff payment guard.
+  queryAsAuthenticated(
+    DB,
+    staffId,
+    `update appointments set payment_status = 'paid' where id = '${appointment}'`
+  )
+  assert.equal(
+    query(DB, `select payment_status from appointments where id = '${appointment}'`),
+    'unpaid'
+  )
+})
+
+test('admins retain control of appointment payment fields', { skip }, () => {
+  const clinicType = typeId('Clinic')
+  const patient = newPatient('Admin Fee Control')
+  const appointment = query(
+    DB,
+    `insert into appointments
+      (patient_id, date, time, appointment_type_id, status, fee, payment_status)
+     values
+      ('${patient}', current_date + 4, '08:55', '${clinicType}', 'scheduled', 875, 'unpaid')
+     returning id`
+  )
+
+  queryAsAuthenticated(DB, adminId, `update appointments set fee = 975 where id = '${appointment}'`)
+  assert.equal(query(DB, `select fee from appointments where id = '${appointment}'`), '975.00')
+
+  queryAsAuthenticated(DB, adminId, `update appointments set payment_status = 'paid' where id = '${appointment}'`)
+  assert.equal(query(DB, `select payment_status from appointments where id = '${appointment}'`), 'paid')
+})
+
 test('a restricted custom type hides the appointment from unrelated staff', { skip }, () => {
   // Admin adds a custom staff-restricted type.
   const customId = query(
