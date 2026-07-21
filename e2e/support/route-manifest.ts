@@ -103,9 +103,19 @@ export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
     owner: 'e2e/admin/routes.spec.ts',
     cases: [
       { requestPath: '/billing/metrics/billed-this-month', expected: { kind: 'render', pathname: '/billing/metrics/billed-this-month' }, landmark: { kind: 'text', name: 'Total billed' } },
-      { requestPath: '/billing/metrics/billed-last-month', expected: { kind: 'render', pathname: '/billing/metrics/billed-last-month' }, landmark: { kind: 'text', name: 'Billed last month' } },
+      { requestPath: '/billing/metrics/billed-last-month', expected: { kind: 'render', pathname: '/billing/metrics/billed-last-month' }, landmark: { kind: 'text', name: 'Monthly billed trend' } },
       { requestPath: '/billing/metrics/received-this-month', expected: { kind: 'render', pathname: '/billing/metrics/received-this-month' }, landmark: { kind: 'text', name: 'Received' } },
     ],
+  },
+  {
+    pattern: '/billing/packages/[id]',
+    access: 'admin',
+    owner: 'e2e/admin/routes.spec.ts',
+    cases: [{
+      requestPath: `/billing/packages/${SEED.packageAsha}`,
+      expected: { kind: 'render', pathname: `/billing/packages/${SEED.packageAsha}` },
+      landmark: { kind: 'text', name: '10-Session Physiotherapy Package' },
+    }],
   },
   {
     pattern: '/billing/payment-due/[patientId]',

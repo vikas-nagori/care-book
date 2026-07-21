@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
 import { Button } from '@/components/ui/button'
+import { PaginationNav } from '@/components/pagination-nav'
 import type { AppointmentTypeBreakdownRow } from '@/lib/billing/appointment-type-breakdown'
 
 export type MetricRow = {
@@ -17,10 +18,15 @@ type MetricDetailProps = {
   title: string
   subtitle: string
   total: number
+  /** The rows for the current page. */
   rows: MetricRow[]
   emptyLabel: string
   /** Per-appointment-type subtotals; the strip renders only when there are 2+ types to compare. */
   breakdown?: AppointmentTypeBreakdownRow[]
+  /** Whole-period record count (drives the "N records" meta when the list is paginated). */
+  totalCount?: number
+  /** Page navigation; omit for un-paginated lists. `basePath` is the metric route (e.g. /billing/metrics/received-this-month). */
+  pagination?: { page: number; totalPages: number; basePath: string }
 }
 
 function Money({ n, className = '' }: { n: number; className?: string }) {
@@ -33,8 +39,9 @@ function Money({ n, className = '' }: { n: number; className?: string }) {
 }
 
 // Presentational list of the records behind a billing metric tile — prop-driven and side-effect free.
-export function MetricDetail({ title, subtitle, total, rows, emptyLabel, breakdown }: MetricDetailProps) {
+export function MetricDetail({ title, subtitle, total, rows, emptyLabel, breakdown, totalCount, pagination }: MetricDetailProps) {
   const showBreakdown = (breakdown?.length ?? 0) >= 2
+  const recordCount = totalCount ?? rows.length
   return (
     <div className="px-4 pb-4 md:p-6">
       <MobilePageHeader title={title} backHref="/billing" />
@@ -58,7 +65,7 @@ export function MetricDetail({ title, subtitle, total, rows, emptyLabel, breakdo
       <div className="ph-stat mb-5">
         <div className="ph-stat-label"><span>{title} · {subtitle}</span></div>
         <div className="ph-stat-value"><Money n={total} /></div>
-        <div className="ph-stat-meta">{rows.length} record{rows.length === 1 ? '' : 's'}</div>
+        <div className="ph-stat-meta">{recordCount} record{recordCount === 1 ? '' : 's'}</div>
       </div>
 
       {showBreakdown && breakdown && (
@@ -124,6 +131,15 @@ export function MetricDetail({ title, subtitle, total, rows, emptyLabel, breakdo
           ))
         )}
       </div>
+
+      {pagination && (
+        <PaginationNav
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          basePath={pagination.basePath}
+          ariaLabel={`${title} pages`}
+        />
+      )}
     </div>
   )
 }
