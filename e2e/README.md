@@ -129,12 +129,10 @@ recovery setup uses local GoTrue `admin.generateLink`; its returned hashed token
 the application's supported `/auth/callback?token_hash=...&type=...` contract. Tests never scrape
 or contact an external mailbox.
 
-Clinic-wide fee mutation is deliberately not covered by a browser write test: `SettingsForm` exists
-in `src/app/settings/settings-form.tsx`, but `src/app/settings/page.tsx` neither fetches global
-settings nor renders that component, and the responsive desktop/mobile settings views expose no
-Session Fees section. The suite does not invent a hidden UI or mutate Clinic A's singleton row in
-parallel. Add the flow only when a real rendered settings surface owns it, then serialize or isolate
-the singleton mutation and restore the original value in `finally`.
+Clinic-wide fees are updated through the admin-only Session Fees card on desktop and bottom sheet
+on mobile. The browser test changes both `clinic_fee` and `home_visit_fee`, verifies the persisted
+Clinic A singleton, and restores the original values in `finally` so a failed assertion cannot leak
+fee changes into later tests.
 
 ## Navigation and access routing
 

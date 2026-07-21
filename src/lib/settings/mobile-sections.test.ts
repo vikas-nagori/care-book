@@ -11,13 +11,14 @@ const counts = {
   activeUsers: 1,
 }
 
-test('admin mobile settings sections follow the required order without Session Fees', () => {
+test('admin mobile settings sections include Session Fees after the account summary', () => {
   const sections = getMobileSettingsSections('admin', counts)
 
   assert.deepEqual(
     sections.map(({ key, title }) => ({ key, title })),
     [
       { key: 'account', title: 'Your Account' },
+      { key: 'fees', title: 'Session Fees' },
       { key: 'types', title: 'Appointment Types' },
       { key: 'packages', title: 'Package Templates' },
       { key: 'invite', title: 'Invite User' },
@@ -26,7 +27,7 @@ test('admin mobile settings sections follow the required order without Session F
       { key: 'users', title: 'Active Users' },
     ],
   )
-  assert.equal(sections.some((section) => section.title === 'Session Fees'), false)
+  assert.equal(sections.some((section) => section.title === 'Session Fees'), true)
 })
 
 test('profile-only mobile settings contains only the account section', () => {
@@ -46,6 +47,7 @@ test('count subtitles use the required singular labels', () => {
 
   assert.deepEqual(sections.map((section) => section.subtitle), [
     'Profile & logout',
+    'Clinic & home visits',
     '1 type',
     '1 template',
     'Add staff or admin',
@@ -66,6 +68,7 @@ test('count subtitles use the required plural labels, including zero', () => {
 
   assert.deepEqual(sections.map((section) => section.subtitle), [
     'Profile & logout',
+    'Clinic & home visits',
     '0 types',
     '2 templates',
     'Add staff or admin',

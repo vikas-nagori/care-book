@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import {
   CalendarRange,
+  BadgeIndianRupee,
   ChevronRight,
   Mail,
   Package,
@@ -26,6 +27,7 @@ import { shouldRestoreSettingsFocus } from '@/lib/settings/responsive-layout'
 import type {
   AppointmentType,
   ExternalStaff,
+  GlobalSettings,
   PackageTemplate,
   Profile,
   UserInvite,
@@ -37,11 +39,13 @@ import { AppointmentTypesList } from './appointment-types-list'
 import { ExternalStaffList } from './external-staff-list'
 import { InviteForm } from './invite-form'
 import { PackageTemplatesList } from './package-templates-list'
+import { SettingsForm } from './settings-form'
 import { UserInvitesList } from './user-invites-list'
 import { UsersList } from './users-list'
 
 const sectionIcons: Record<MobileSettingsSectionKey, LucideIcon> = {
   account: UserRound,
+  fees: BadgeIndianRupee,
   types: CalendarRange,
   packages: Package,
   invite: UserPlus,
@@ -55,6 +59,7 @@ type MobileSettingsViewProps = {
   profile: Profile
   logoutAction: () => Promise<void>
   appointmentTypes?: AppointmentType[]
+  settings?: GlobalSettings | null
   packageTemplates?: PackageTemplate[]
   externalStaff?: ExternalStaff[]
   invites?: UserInvite[]
@@ -67,6 +72,7 @@ export function MobileSettingsView({
   profile,
   logoutAction,
   appointmentTypes = [],
+  settings = null,
   packageTemplates = [],
   externalStaff = [],
   invites = [],
@@ -91,6 +97,8 @@ export function MobileSettingsView({
         return <AccountSummary profile={profile} logoutAction={logoutAction} variant="sheet" />
       case 'types':
         return <AppointmentTypesList appointmentTypes={appointmentTypes} variant="sheet" />
+      case 'fees':
+        return <SettingsForm settings={settings} variant="sheet" />
       case 'packages':
         return <PackageTemplatesList templates={packageTemplates} variant="sheet" />
       case 'invite':

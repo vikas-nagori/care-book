@@ -118,6 +118,12 @@ export type E2EUserInviteRow = Row & {
   mobile_number: string | null
   updated_at: string
 }
+export type E2EGlobalSettingsRow = {
+  id: number
+  clinic_id: string
+  clinic_fee: number
+  home_visit_fee: number
+}
 type CleanupTable =
   | 'appointment_payments'
   | 'package_session_allocations'
@@ -458,6 +464,30 @@ export class E2EFactory {
     if (error) throw new Error(`factory find invite: ${error.message}`)
     if (data) this.track('user_invites', data.id)
     return data as E2EUserInviteRow | null
+  }
+
+  async getGlobalSettings(): Promise<E2EGlobalSettingsRow> {
+    const { data, error } = await this.db
+      .from('global_settings')
+      .select('id, clinic_id, clinic_fee, home_visit_fee')
+      .eq('clinic_id', CLINIC_A.id)
+      .single()
+    if (error || !data) {
+      throw new Error(`factory get global settings: ${error?.message ?? 'row was not returned'}`)
+    }
+    return data as E2EGlobalSettingsRow
+  }
+
+  async restoreGlobalSettings(settings: E2EGlobalSettingsRow): Promise<void> {
+    const { error } = await this.db
+      .from('global_settings')
+      .update({
+        clinic_fee: settings.clinic_fee,
+        home_visit_fee: settings.home_visit_fee,
+      })
+      .eq('id', settings.id)
+      .eq('clinic_id', settings.clinic_id)
+    if (error) throw new Error(`factory restore global settings: ${error.message}`)
   }
 
   async findClinicById(id: string): Promise<E2EClinicRow | null> {

@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test'
 
 type SettingsSection =
   | 'Appointment Types'
+  | 'Session Fees'
   | 'Package Templates'
   | 'Invite User'
   | 'External Staff'
@@ -32,6 +33,14 @@ export class SettingsView {
     await this.page.getByLabel('Session rate (₹)', { exact: true }).fill(input.rate)
     await this.page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(this.page.getByText('Appointment type added', { exact: true })).toBeVisible()
+  }
+
+  async updateSessionFees(input: { clinicFee: string; homeVisitFee: string }): Promise<void> {
+    await this.openSection('Session Fees')
+    await this.page.getByLabel('Clinic Visit Fee (₹)', { exact: true }).fill(input.clinicFee)
+    await this.page.getByLabel('Home Visit Fee (₹)', { exact: true }).fill(input.homeVisitFee)
+    await this.page.getByRole('button', { name: 'Save Settings', exact: true }).click()
+    await expect(this.page.getByText('Settings saved', { exact: true })).toBeVisible()
   }
 
   async editAppointmentType(name: string, updated: { name: string; rate: string }): Promise<void> {

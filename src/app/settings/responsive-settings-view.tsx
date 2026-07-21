@@ -8,6 +8,7 @@ import {
 import type {
   AppointmentType,
   ExternalStaff,
+  GlobalSettings,
   PackageTemplate,
   Profile,
   UserInvite,
@@ -19,6 +20,7 @@ import { ExternalStaffList } from './external-staff-list'
 import { InviteForm } from './invite-form'
 import { MobileSettingsView } from './mobile-settings-view'
 import { PackageTemplatesList } from './package-templates-list'
+import { SettingsForm } from './settings-form'
 import { UserInvitesList } from './user-invites-list'
 import { UsersList } from './users-list'
 
@@ -27,6 +29,7 @@ type ResponsiveSettingsViewProps = {
   profile: Profile
   logoutAction: () => Promise<void>
   appointmentTypes?: AppointmentType[]
+  settings?: GlobalSettings | null
   packageTemplates?: PackageTemplate[]
   externalStaff?: ExternalStaff[]
   invites?: UserInvite[]
@@ -57,6 +60,7 @@ export function SettingsResponsiveView({
   profile,
   logoutAction,
   appointmentTypes = [],
+  settings = null,
   packageTemplates = [],
   externalStaff = [],
   invites = [],
@@ -73,6 +77,7 @@ export function SettingsResponsiveView({
         {accessLevel === 'admin' && (
           <div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
             <div className="space-y-6">
+              <SettingsForm settings={settings} />
               <AppointmentTypesList appointmentTypes={appointmentTypes} />
               <PackageTemplatesList templates={packageTemplates} />
               <InviteForm />
@@ -99,6 +104,7 @@ export function SettingsResponsiveView({
         profile={profile}
         logoutAction={logoutAction}
         appointmentTypes={appointmentTypes}
+        settings={settings}
         packageTemplates={packageTemplates}
         externalStaff={externalStaff}
         invites={invites}

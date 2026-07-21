@@ -33,6 +33,32 @@ test('creates, edits, and deletes an appointment type', async ({ page, factory }
   await guards.assertClean()
 })
 
+test('updates clinic and home-visit fees and restores the singleton setting', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const original = await factory.getGlobalSettings()
+  const clinicFee = original.clinic_fee === 845 ? 846 : 845
+  const homeVisitFee = original.home_visit_fee === 1145 ? 1146 : 1145
+
+  try {
+    await page.goto('/settings')
+    const settings = new SettingsView(page)
+    await settings.updateSessionFees({
+      clinicFee: String(clinicFee),
+      homeVisitFee: String(homeVisitFee),
+    })
+
+    await expect.poll(() => factory.getGlobalSettings()).toMatchObject({
+      id: original.id,
+      clinic_id: original.clinic_id,
+      clinic_fee: clinicFee,
+      home_visit_fee: homeVisitFee,
+    })
+    await guards.assertClean()
+  } finally {
+    await factory.restoreGlobalSettings(original)
+  }
+})
+
 test('creates, edits, and deletes a package template', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const initialName = factory.uniqueName('package-template')

@@ -14,12 +14,14 @@ const sheetSource = source('src/components/ui/sheet.tsx')
 const externalStaffSource = source('src/app/settings/external-staff-list.tsx')
 const invitesSource = source('src/app/settings/user-invites-list.tsx')
 const usersSource = source('src/app/settings/users-list.tsx')
+const settingsFormSource = source('src/app/settings/settings-form.tsx')
 
 test('settings page passes normalized server data into one responsive coordinator', () => {
   assert.equal(pageSource.match(/<SettingsResponsiveView/g)?.length, 2)
   assert.match(pageSource, /accessLevel="profile_only"/)
   assert.match(pageSource, /accessLevel="admin"/)
   assert.match(pageSource, /appointmentTypes=\{appointmentTypes \?\? \[\]\}/)
+  assert.match(pageSource, /settings=\{globalSettings \?\? null\}/)
   assert.match(pageSource, /profiles=\{activeProfiles\}/)
   assert.match(pageSource, /isExternalStaffSchemaMissing=\{externalStaffError\?\.code === 'PGRST205'\}/)
   assert.doesNotMatch(pageSource, /<MobileSettingsView|<AccountSummary|<AppointmentTypesList/)
@@ -28,6 +30,8 @@ test('settings page passes normalized server data into one responsive coordinato
   assert.match(responsiveViewSource, /hidden space-y-6 md:block/)
   assert.match(responsiveViewSource, /md:hidden/)
   assert.match(mobileViewSource, /variant="sheet"/)
+  assert.match(responsiveViewSource, /<SettingsForm settings=\{settings\}/)
+  assert.match(mobileViewSource, /<SettingsForm settings=\{settings\} variant="sheet"/)
 })
 
 test('mobile settings uses one controlled bottom sheet for all semantic menu buttons', () => {
@@ -99,8 +103,16 @@ test('duplicated interactive settings sections derive form control IDs per insta
     'src/app/settings/package-templates-list.tsx',
     'src/app/settings/invite-form.tsx',
     'src/app/settings/external-staff-list.tsx',
+    'src/app/settings/settings-form.tsx',
   ]) {
     const componentSource = source(path)
     assert.match(componentSource, /useId\(\)/, `${path} should use React useId`)
   }
+})
+
+test('session fees form preserves its card and sheet presentations', () => {
+  assert.match(settingsFormSource, /variant\?: 'card' \| 'sheet'/)
+  assert.match(settingsFormSource, /if \(variant === 'sheet'\)/)
+  assert.match(settingsFormSource, /Clinic Visit Fee \(₹\)/)
+  assert.match(settingsFormSource, /Home Visit Fee \(₹\)/)
 })

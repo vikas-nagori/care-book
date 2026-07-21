@@ -1,5 +1,6 @@
 export type MobileSettingsSectionKey =
   | 'account'
+  | 'fees'
   | 'types'
   | 'packages'
   | 'invite'
@@ -39,6 +40,7 @@ export function getMobileSettingsSections(
 
   return [
     account,
+    { key: 'fees', title: 'Session Fees', subtitle: 'Clinic & home visits' },
     {
       key: 'types',
       title: 'Appointment Types',

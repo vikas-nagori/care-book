@@ -34,6 +34,7 @@ export default async function SettingsPage() {
     { data: invites },
     { data: externalStaff, error: externalStaffError },
     { data: packageTemplates },
+    { data: globalSettings },
   ] = await Promise.all([
     supabase.from('appointment_types').select('*').order('sort_order'),
     supabase.from('profiles').select('*').order('created_at'),
@@ -43,6 +44,7 @@ export default async function SettingsPage() {
       .select('id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')
       .order('created_at', { ascending: false }),
     supabase.from('package_templates').select('*').order('created_at', { ascending: false }),
+    supabase.from('global_settings').select('*').maybeSingle(),
   ])
 
   const pendingInviteEmails = new Set(
@@ -62,6 +64,7 @@ export default async function SettingsPage() {
         profile={currentProfile}
         logoutAction={logoutFromSettings}
         appointmentTypes={appointmentTypes ?? []}
+        settings={globalSettings ?? null}
         packageTemplates={packageTemplates ?? []}
         externalStaff={externalStaff ?? []}
         invites={invites ?? []}
