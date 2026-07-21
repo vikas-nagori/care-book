@@ -30,7 +30,23 @@ test('hides schedule and appointment-detail payment signals from staff', async (
   await expect(page).toHaveURL(`/schedule/${SEED.appointmentShared}`)
   await expect(page.getByText('₹800', { exact: true })).toHaveCount(0)
   await expect(page.getByText('· prepaid', { exact: true })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Edit Appointment' })).toBeVisible()
+  await expect(page.getByLabel('Session Fee (₹)', { exact: true })).toHaveCount(0)
+
+  await page.goto('/schedule/new')
+  await expect(page.getByLabel('Session Fee (₹)', { exact: true })).toHaveCount(0)
   await guards.assertClean()
+})
+
+test('does not serialize payment fields into staff appointment detail responses', async ({ page }) => {
+  const response = await page.goto(`/schedule/${SEED.appointmentShared}`)
+  expect(response).not.toBeNull()
+
+  const body = await response!.text()
+  expect(body).not.toMatch(/\\?"fee\\?":800/)
+  expect(body).not.toContain('payment_status')
 })
 
 test('hides the patient billing tab, package, payment history, and amounts from staff', async ({ page }) => {

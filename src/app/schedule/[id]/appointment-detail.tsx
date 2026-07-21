@@ -20,7 +20,10 @@ import { deleteAppointment, updateAppointmentStatus } from '../actions'
 import type { Appointment, AppointmentAssigneeOption, ExternalStaff, SessionNote } from '@/lib/supabase/types'
 
 interface Props {
-  appointment: Appointment & { patient: { id: string; name: string; phone: string; address: string | null; medical_history: string | null; notes: string | null } | null }
+  appointment: Omit<Appointment, 'fee' | 'payment_status' | 'patient'> &
+    Partial<Pick<Appointment, 'fee' | 'payment_status'>> & {
+      patient: { id: string; name: string; phone: string; address: string | null; medical_history: string | null; notes: string | null } | null
+    }
   sessionNote: SessionNote | null
   patients: { id: string; name: string }[]
   assigneeOptions: AppointmentAssigneeOption[]
@@ -227,6 +230,7 @@ export function AppointmentDetail({
               externalStaffOptions={externalStaffOptions}
               currentProfileId={currentProfileId}
               canManageExternalStaff={canManageExternalStaff}
+              canViewPaymentSignals={canViewPaymentSignals}
               appointment={appointment}
               onSuccess={() => { setEditOpen(false); router.refresh() }}
             />

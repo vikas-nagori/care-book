@@ -311,6 +311,7 @@ export function ScheduleView({
                 externalStaffOptions={externalStaffOptions}
                 currentProfileId={currentProfileId}
                 canManageExternalStaff={canManageExternalStaff}
+                canViewPaymentSignals={canViewPaymentSignals}
                 defaultDate={format(selectedDate, 'yyyy-MM-dd')}
                 onSuccess={() => { setDialogOpen(false); router.refresh() }}
               />
@@ -342,6 +343,7 @@ export function ScheduleView({
                 externalStaffOptions={externalStaffOptions}
                 currentProfileId={currentProfileId}
                 canManageExternalStaff={canManageExternalStaff}
+                canViewPaymentSignals={canViewPaymentSignals}
                 defaultDate={format(selectedDate, 'yyyy-MM-dd')}
                 onSuccess={() => { setMobileDialogOpen(false); router.refresh() }}
               />

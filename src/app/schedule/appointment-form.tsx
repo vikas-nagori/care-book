@@ -41,6 +41,9 @@ const WEEKDAYS = [
   { value: 0, label: 'Sun' },
 ]
 
+type AppointmentFormAppointment = Omit<Appointment, 'fee' | 'payment_status' | 'patient' | 'creator' | 'assignee' | 'external_staff'> &
+  Partial<Pick<Appointment, 'fee' | 'payment_status'>>
+
 interface AppointmentFormProps {
   patients: AppointmentPatientOption[]
   doctors?: Doctor[]
@@ -48,9 +51,10 @@ interface AppointmentFormProps {
   externalStaffOptions?: ExternalStaff[]
   currentProfileId?: string | null
   canManageExternalStaff?: boolean
+  canViewPaymentSignals: boolean
   defaultDate?: string
   defaultPatientId?: string
-  appointment?: Appointment
+  appointment?: AppointmentFormAppointment
   onSuccess?: () => void
 }
 
@@ -65,6 +69,7 @@ export function AppointmentForm({
   externalStaffOptions = [],
   currentProfileId = null,
   canManageExternalStaff = false,
+  canViewPaymentSignals,
   defaultDate,
   defaultPatientId,
   appointment,
@@ -83,7 +88,9 @@ export function AppointmentForm({
       ? `internal:${appointment.assigned_to}`
       : UNASSIGNED_ASSIGNEE_VALUE
   const [staffAssignment, setStaffAssignment] = useState(initialStaffAssignment)
-  const [fee, setFee] = useState<string>(appointment?.fee?.toString() || '')
+  const [fee, setFee] = useState<string>(
+    canViewPaymentSignals ? appointment?.fee?.toString() || '' : '',
+  )
   const [appointmentDate, setAppointmentDate] = useState(appointment?.date || defaultDate || '')
   const [repeatAppointment, setRepeatAppointment] = useState(false)
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([])
@@ -331,7 +338,7 @@ export function AppointmentForm({
           duration_minutes: durationMinutes,
           appointment_type_id: appointmentTypeId,
           status: (formData.get('status') as string) || 'scheduled',
-          fee: normalizedFee,
+          ...(canViewPaymentSignals ? { fee: normalizedFee } : {}),
           assigned_to: assignment.assigned_to,
           external_staff_id: assignment.external_staff_id,
           notes,
@@ -636,19 +643,21 @@ export function AppointmentForm({
         </div>
       )}
 
-      <div className="space-y-2">
-        <Label htmlFor="fee">Session Fee (₹)</Label>
-        <Input
-          id="fee"
-          name="fee"
-          type="number"
-          min="0"
-          step="0.01"
-          value={fee}
-          onChange={(e) => setFee(e.target.value)}
-          placeholder="Auto-filled from type"
-        />
-      </div>
+      {canViewPaymentSignals && (
+        <div className="space-y-2">
+          <Label htmlFor="fee">Session Fee (₹)</Label>
+          <Input
+            id="fee"
+            name="fee"
+            type="number"
+            min="0"
+            step="0.01"
+            value={fee}
+            onChange={(e) => setFee(e.target.value)}
+            placeholder="Auto-filled from type"
+          />
+        </div>
+      )}
 
       {appointment && (
         <div className="space-y-2">

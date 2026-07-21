@@ -15,6 +15,7 @@ interface Props {
   externalStaffOptions: ExternalStaff[]
   currentProfileId: string | null
   canManageExternalStaff: boolean
+  canViewPaymentSignals: boolean
 }
 
 export function DashboardNewAppointmentButton({
@@ -24,6 +25,7 @@ export function DashboardNewAppointmentButton({
   externalStaffOptions,
   currentProfileId,
   canManageExternalStaff,
+  canViewPaymentSignals,
   doctors,
 }: Props) {
   const [open, setOpen] = useState(false)
@@ -53,6 +55,7 @@ export function DashboardNewAppointmentButton({
             externalStaffOptions={externalStaffOptions}
             currentProfileId={currentProfileId}
             canManageExternalStaff={canManageExternalStaff}
+            canViewPaymentSignals={canViewPaymentSignals}
             defaultDate={defaultDate}
             onSuccess={() => { setOpen(false); router.refresh() }}
           />
@@ -69,6 +72,7 @@ export function DashboardNewAppointmentMobile({
   externalStaffOptions,
   currentProfileId,
   canManageExternalStaff,
+  canViewPaymentSignals,
   doctors,
 }: Props) {
   const [open, setOpen] = useState(false)
@@ -99,6 +103,7 @@ export function DashboardNewAppointmentMobile({
             externalStaffOptions={externalStaffOptions}
             currentProfileId={currentProfileId}
             canManageExternalStaff={canManageExternalStaff}
+            canViewPaymentSignals={canViewPaymentSignals}
             defaultDate={defaultDate}
             onSuccess={() => { setOpen(false); router.refresh() }}
           />

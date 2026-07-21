@@ -9,13 +9,19 @@ import { AppointmentDetail } from './appointment-detail'
 export default async function AppointmentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const currentProfile = await getCurrentProfile()
+  const access = getRestrictedUiAccess(currentProfile)
   const appointmentVisibilityFilter = getAppointmentVisibilityFilter(currentProfile)
   const supabase = await createClient()
 
-  let appointmentQuery = supabase
-    .from('appointments')
-    .select('*, patient:patients(id, name, phone, address, medical_history, notes), external_staff:external_staff(id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at)')
-    .eq('id', id)
+  let appointmentQuery = access.canViewPaymentSignals
+    ? supabase
+        .from('appointments')
+        .select('id, clinic_id, patient_id, date, time, duration_minutes, type, appointment_type_id, type_is_shared, status, payment_status, fee, notes, created_by, assigned_to, external_staff_id, created_at, patient:patients(id, name, phone, address, medical_history, notes), external_staff:external_staff(id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at)')
+        .eq('id', id)
+    : supabase
+        .from('appointments')
+        .select('id, clinic_id, patient_id, date, time, duration_minutes, type, appointment_type_id, type_is_shared, status, notes, created_by, assigned_to, external_staff_id, created_at, patient:patients(id, name, phone, address, medical_history, notes), external_staff:external_staff(id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at)')
+        .eq('id', id)
 
   if (appointmentVisibilityFilter) {
     appointmentQuery = appointmentQuery.or(appointmentVisibilityFilter)
@@ -80,7 +86,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
         externalStaffOptions={externalStaffOptions ?? []}
         currentProfileId={currentProfile?.id ?? null}
         canManageExternalStaff={currentProfile?.role === 'admin'}
-        canViewPaymentSignals={getRestrictedUiAccess(currentProfile).canViewPaymentSignals}
+        canViewPaymentSignals={access.canViewPaymentSignals}
       />
     </div>
   )

@@ -194,6 +194,7 @@ export default async function DashboardPage() {
             externalStaffOptions={externalStaffOptions ?? []}
             currentProfileId={currentProfile?.id ?? null}
             canManageExternalStaff={currentProfile?.role === 'admin'}
+            canViewPaymentSignals={access.canViewPaymentSignals}
           />
         </div>
       </div>
@@ -208,6 +209,7 @@ export default async function DashboardPage() {
           externalStaffOptions={externalStaffOptions ?? []}
           currentProfileId={currentProfile?.id ?? null}
           canManageExternalStaff={currentProfile?.role === 'admin'}
+          canViewPaymentSignals={access.canViewPaymentSignals}
         />
         {access.canViewBilling && (
           <Link

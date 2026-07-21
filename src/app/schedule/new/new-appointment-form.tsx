@@ -12,6 +12,7 @@ interface Props {
   externalStaffOptions: ExternalStaff[]
   currentProfileId: string | null
   canManageExternalStaff: boolean
+  canViewPaymentSignals: boolean
   defaultDate: string
   defaultPatientId?: string
   appointment?: Appointment

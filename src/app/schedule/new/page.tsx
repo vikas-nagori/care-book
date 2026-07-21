@@ -1,4 +1,5 @@
 import { getCurrentProfile } from '@/lib/auth'
+import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { createClient } from '@/lib/supabase/server'
 import { NewAppointmentBackNav } from './back-nav'
 import { NewAppointmentForm } from './new-appointment-form'
@@ -14,6 +15,7 @@ export default async function NewAppointmentPage({
   const userTimeZone = await getUserTimeZone()
   const defaultDate = getZonedDate(new Date(), userTimeZone)
   const currentProfile = await getCurrentProfile()
+  const access = getRestrictedUiAccess(currentProfile)
   const supabase = await createClient()
   const [{ data: patients }, { data: doctors }, { data: assigneeOptions }, { data: externalStaffOptions }] = await Promise.all([
     supabase
@@ -44,6 +46,7 @@ export default async function NewAppointmentPage({
         externalStaffOptions={externalStaffOptions ?? []}
         currentProfileId={currentProfile?.id ?? null}
         canManageExternalStaff={currentProfile?.role === 'admin'}
+        canViewPaymentSignals={access.canViewPaymentSignals}
         defaultDate={defaultDate}
         defaultPatientId={patient_id}
         from={from}

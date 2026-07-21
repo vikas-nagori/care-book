@@ -35,6 +35,13 @@ test('shows seeded schedule, appointment, and patient payment signals to admins'
   await expect(page.getByText('₹800', { exact: true })).toBeVisible()
   await expect(page.getByText('· prepaid', { exact: true })).toBeVisible()
 
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByLabel('Session Fee (₹)', { exact: true })).toHaveValue('800')
+  await page.getByRole('button', { name: 'Close' }).click()
+
+  await page.goto('/schedule/new')
+  await expect(page.getByLabel('Session Fee (₹)', { exact: true })).toBeVisible()
+
   await page.goto(`/patients/${SEED.patientAsha}`)
   await page.getByRole('tab', { name: 'Billing', exact: true }).click()
   await expect(page.getByText('10-Session Physiotherapy Package', { exact: true })).toBeVisible()
