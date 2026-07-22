@@ -48,9 +48,11 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof PatientDetail>
   return {
     defaultDate: '2026-07-21',
     canViewBilling: false,
+    isAdmin: false,
     patient,
     appointments: [appointment],
     appointmentsTotalCount: 1,
+    appointmentsActiveCount: 1,
     appointmentPage: 1,
     appointmentPageSize: 20,
     initialTab: 'appointments' as const,
@@ -65,19 +67,51 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof PatientDetail>
 afterEach(cleanup)
 
 describe('PatientDetail appointments tab count', () => {
-  it('shows the total appointment count above the list', () => {
-    render(<PatientDetail {...baseProps({ appointmentsTotalCount: 24 })} />)
+  it('shows the active (non-cancelled) appointment count above the list', () => {
+    render(<PatientDetail {...baseProps({ appointmentsActiveCount: 24 })} />)
     expect(screen.getByTestId('appointment-count').textContent).toBe('24 appointments')
   })
 
   it('singularises the count for a single appointment', () => {
-    render(<PatientDetail {...baseProps({ appointmentsTotalCount: 1 })} />)
+    render(<PatientDetail {...baseProps({ appointmentsActiveCount: 1 })} />)
     expect(screen.getByTestId('appointment-count').textContent).toBe('1 appointment')
   })
 
+  it('counts only active appointments even when cancelled ones are listed', () => {
+    // total includes cancelled (drives pagination); active excludes them (drives the label)
+    render(
+      <PatientDetail
+        {...baseProps({ appointmentsTotalCount: 5, appointmentsActiveCount: 3 })}
+      />,
+    )
+    expect(screen.getByTestId('appointment-count').textContent).toBe('3 appointments')
+  })
+
+  it('omits the count header when the patient has no active appointments', () => {
+    // cancelled-only patient: list still renders a row, but the label is hidden
+    render(
+      <PatientDetail
+        {...baseProps({ appointmentsTotalCount: 2, appointmentsActiveCount: 0 })}
+      />,
+    )
+    expect(screen.queryByTestId('appointment-count')).toBeNull()
+  })
+
   it('omits the count header when the patient has no appointments', () => {
-    render(<PatientDetail {...baseProps({ appointments: [], appointmentsTotalCount: 0 })} />)
+    render(<PatientDetail {...baseProps({ appointments: [], appointmentsTotalCount: 0, appointmentsActiveCount: 0 })} />)
     expect(screen.queryByTestId('appointment-count')).toBeNull()
     expect(screen.getByText('No appointments yet.')).toBeTruthy()
+  })
+})
+
+describe('PatientDetail delete button gating', () => {
+  it('shows the Delete button for admins', () => {
+    render(<PatientDetail {...baseProps({ isAdmin: true })} />)
+    expect(screen.getAllByRole('button', { name: /delete/i }).length).toBeGreaterThan(0)
+  })
+
+  it('hides the Delete button for non-admins', () => {
+    render(<PatientDetail {...baseProps({ isAdmin: false })} />)
+    expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
   })
 })

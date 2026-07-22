@@ -59,14 +59,27 @@ export default async function PatientPage({
     appointmentsQuery = appointmentsQuery.or(appointmentVisibilityFilter)
   }
 
+  // Count excludes cancelled appointments (they still appear in the list, just not the total).
+  let activeCountQuery = supabase
+    .from('appointments')
+    .select('id', { count: 'exact', head: true })
+    .eq('patient_id', id)
+    .neq('status', 'cancelled')
+
+  if (appointmentVisibilityFilter) {
+    activeCountQuery = activeCountQuery.or(appointmentVisibilityFilter)
+  }
+
   const [
     { data: appointments, error: appointmentsError, count: appointmentsCount },
+    { error: activeCountError, count: appointmentsActiveCount },
     { data: treatmentPlans, error: treatmentPlansError },
     { data: packages, error: packagesError },
     { data: payments, error: paymentsError },
     { data: outstandingAppts, error: outstandingError },
   ] = await Promise.all([
     appointmentsQuery,
+    activeCountQuery,
     supabase
       .from('treatment_plans')
       .select('*')
@@ -98,6 +111,7 @@ export default async function PatientPage({
   ])
 
   if (appointmentsError) logger.error('PatientPage/appointments', appointmentsError, { id: id })
+  if (activeCountError) logger.error('PatientPage/appointmentsActiveCount', activeCountError, { id: id })
   if (treatmentPlansError) logger.error('PatientPage/treatmentPlans', treatmentPlansError, { id: id })
   if (packagesError && access.canViewBilling) logger.error('PatientPage/packages', packagesError, { id: id })
   if (paymentsError && access.canViewBilling) logger.error('PatientPage/payments', paymentsError, { id: id })
@@ -118,6 +132,8 @@ export default async function PatientPage({
         patient={normalizedPatient}
         appointments={appointments ?? []}
         appointmentsTotalCount={appointmentsCount ?? 0}
+        appointmentsActiveCount={appointmentsActiveCount ?? 0}
+        isAdmin={currentProfile?.role === 'admin'}
         appointmentPage={appointmentPage}
         appointmentPageSize={APPOINTMENTS_PAGE_SIZE}
         initialTab={query.tab === 'appointments' || query.appointments_page ? 'appointments' : 'profile'}

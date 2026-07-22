@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Edit, Phone, Mail, MapPin, Calendar, Plus, Stethoscope } from 'lucide-react'
+import { ArrowLeft, Edit, Phone, Mail, MapPin, Calendar, Plus, Stethoscope, Trash2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
 import { Card, CardContent } from '@/components/ui/card'
@@ -11,10 +11,24 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { useToast } from '@/hooks/use-toast'
 import { formatTime12 } from '@/lib/format-time'
 import { formatDateOnly } from '@/lib/timezone'
 import { getPaginationItems } from '@/lib/patients/appointment-pagination'
 import { TreatmentPlanForm } from './treatment-plan-form'
+import { deletePatient } from '../actions'
 import type { Patient, Appointment, TreatmentPlan, Package, Payment, ReferralSource } from '@/lib/supabase/types'
 
 const REFERRAL_SOURCE_LABEL: Record<ReferralSource, string> = {
@@ -28,9 +42,11 @@ type AppointmentSummary = Pick<Appointment, 'id' | 'date' | 'time' | 'duration_m
 interface PatientDetailProps {
   defaultDate: string
   canViewBilling: boolean
+  isAdmin: boolean
   patient: Patient
   appointments: AppointmentSummary[]
   appointmentsTotalCount: number
+  appointmentsActiveCount: number
   appointmentPage: number
   appointmentPageSize: number
   initialTab: 'profile' | 'appointments'
@@ -53,9 +69,11 @@ const PAYMENT_LIST_INITIAL = 20
 export function PatientDetail({
   defaultDate,
   canViewBilling,
+  isAdmin,
   patient,
   appointments,
   appointmentsTotalCount,
+  appointmentsActiveCount,
   appointmentPage,
   appointmentPageSize,
   initialTab,
@@ -65,8 +83,46 @@ export function PatientDetail({
   outstanding,
 }: PatientDetailProps) {
   const router = useRouter()
+  const { toast } = useToast()
   const [planOpen, setPlanOpen] = useState(false)
   const [showAllPayments, setShowAllPayments] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmText, setConfirmText] = useState('')
+
+  const canConfirmDelete = confirmText.trim() === patient.name.trim()
+
+  const confirmDeletePatient = async () => {
+    if (!canConfirmDelete) return
+    setDeleting(true)
+    const result = await deletePatient(patient.id)
+    if (!result.success) {
+      setDeleting(false)
+      toast({
+        variant: 'destructive',
+        title: 'Delete failed',
+        description: result.message ?? 'Could not delete patient. Please try again.',
+      })
+      return
+    }
+    toast({
+      title: 'Patient deleted',
+      description: `${patient.name} and all associated records were removed.`,
+    })
+    router.push('/patients')
+  }
+
+  const deleteButton = isAdmin ? (
+    <Button
+      size="sm"
+      variant="outline"
+      className="min-h-[44px] text-red-600 hover:text-red-700"
+      onClick={() => setDeleteOpen(true)}
+    >
+      <Trash2 className="h-4 w-4 mr-1" />
+      Delete
+    </Button>
+  ) : null
 
   const totalBilled = packages.reduce((sum, p) => sum + Number(p.total_amount), 0)
   const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0)
@@ -82,12 +138,15 @@ export function PatientDetail({
         title={patient.name}
         onBack={() => router.back()}
         action={
-          <Button size="sm" variant="outline" asChild>
-            <Link href={`/patients/${patient.id}/edit`}>
-              <Edit className="h-4 w-4 mr-1" />
-              Edit
-            </Link>
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="outline" asChild>
+              <Link href={`/patients/${patient.id}/edit`}>
+                <Edit className="h-4 w-4 mr-1" />
+                Edit
+              </Link>
+            </Button>
+            {deleteButton}
+          </div>
         }
       />
       <div className="hidden md:flex items-center gap-2 mb-4">
@@ -101,6 +160,7 @@ export function PatientDetail({
             Edit
           </Link>
         </Button>
+        {deleteButton}
       </div>
 
       <Tabs defaultValue={initialTab} className="space-y-4">
@@ -202,9 +262,9 @@ export function PatientDetail({
                   Book Appointment
                 </Link>
               </Button>
-              {appointmentsTotalCount > 0 && (
+              {appointmentsActiveCount > 0 && (
                 <p className="text-sm font-medium text-muted-foreground" data-testid="appointment-count">
-                  {appointmentsTotalCount} appointment{appointmentsTotalCount === 1 ? '' : 's'}
+                  {appointmentsActiveCount} appointment{appointmentsActiveCount === 1 ? '' : 's'}
                 </p>
               )}
             </div>
@@ -397,6 +457,60 @@ export function PatientDetail({
           </TabsContent>
         )}
       </Tabs>
+
+      {isAdmin && (
+        <AlertDialog
+          open={deleteOpen}
+          onOpenChange={(open) => {
+            if (deleting) return
+            setDeleteOpen(open)
+            if (!open) setConfirmText('')
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this patient?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently deletes <span className="font-medium">{patient.name}</span> and ALL of their
+                records — appointments, treatment plans, packages, and payment history. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-delete-patient">
+                Type <span className="font-medium">{patient.name}</span> to confirm
+              </Label>
+              <Input
+                id="confirm-delete-patient"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                disabled={deleting}
+                autoComplete="off"
+                data-testid="confirm-delete-patient-input"
+              />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={deleting || !canConfirmDelete}
+                className="bg-red-600 text-white hover:bg-red-700"
+                onClick={(event) => {
+                  event.preventDefault()
+                  confirmDeletePatient()
+                }}
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    Deleting…
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </>
   )
 }
