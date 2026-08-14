@@ -178,7 +178,7 @@ export type PackageSessionAllocation = {
 
 export type UserRole = 'admin' | 'staff'
 
-export type ProfileStatus = 'active' | 'blocked'
+export type ProfileStatus = 'active' | 'blocked' | 'deleted'
 
 export type Profile = {
   id: string
@@ -188,6 +188,9 @@ export type Profile = {
   full_name: string | null
   mobile_number: string | null
   status: ProfileStatus
+  deleted_at: string | null
+  deleted_by: string | null
+  deletion_reason: string | null
   created_at: string
   updated_at: string
 }
@@ -454,6 +457,11 @@ export type ManageClinicBlockResult =
 
 export type ManageUserBlockInput = {
   userId: string
+}
+
+export type SoftDeleteUserInput = {
+  userId: string
+  reason: string
 }
 
 export type ManageUserBlockResult =

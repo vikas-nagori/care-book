@@ -22,7 +22,7 @@ export function evaluateRoleAccess(
 ): RoleAccessResult {
   if (!profile) return 'missing_profile'
   if (!profile.clinic_id) return 'missing_profile'
-  if (profile.status === 'blocked') return 'blocked_profile'
+  if (profile.status !== 'active') return 'blocked_profile'
   if (getClinicStatus(profile) === 'inactive') return 'inactive_clinic'
   if (!allowedRoles.includes(profile.role)) return 'insufficient_role'
   return 'authorized'

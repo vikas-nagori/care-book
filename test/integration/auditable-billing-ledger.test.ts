@@ -112,6 +112,15 @@ function concurrentSql(sql: string): Promise<{ stdout: string; stderr: string }>
   })
 }
 
+async function waitForPatientBillingLock(patientId: string): Promise<void> {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    if (query(DB, `select private.try_lock_patient_billing_v2('${patientId}')`) === 'f') return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error(`patient billing lock was not observed for ${patientId}`)
+}
+
 test('the single reconciler derives charges, scoped partial applications, and lifecycle state', { skip }, () => {
   const patientId = patient('Direct Reconciler')
   const first = appointment(patientId, '2026-08-01', clinicTypeId, 'scheduled', 120)
@@ -750,7 +759,7 @@ test('concurrent patient billing operations avoid deadlocks and converge after r
      select public.record_payment_v2('${patientId}', 'package', '${packageEntry.packageId}', 50, 'cash', current_date, 'concurrency fixture');
      commit;`,
   )
-  await new Promise((resolve) => setTimeout(resolve, 40))
+  await waitForPatientBillingLock(patientId)
   const contenders = await Promise.allSettled([
     concurrentSql(
       `set deadlock_timeout = '100ms'; set lock_timeout = '2s'; set request.jwt.claim.sub = '${adminId}';
@@ -803,7 +812,7 @@ test('concurrent appointment deletion fails before child-ledger locks instead of
      update appointments set time = '10:00' where id = '${apptId}';
      commit;`,
   )
-  await new Promise((resolve) => setTimeout(resolve, 40))
+  await waitForPatientBillingLock(patientId)
   const deletion = await Promise.allSettled([
     concurrentSql(
       `set deadlock_timeout = '100ms'; set lock_timeout = '2s';
@@ -821,7 +830,7 @@ test('concurrent appointment deletion fails before child-ledger locks instead of
   assert.equal(query(DB, `select status || '/' || (appointment_id is null)::text from appointment_charges where id = '${chargeId}'`), 'voided/true')
 })
 
-test('deleting an auth actor preserves immutable package, payment, and event history', { skip }, () => {
+test('soft-deleting an auth actor preserves immutable package, payment, and event history', { skip }, () => {
   const actorId = seedUser(DB, 'admin', clinicId)
   const patientId = patient('Deleted Audit Actor')
   const packageResult = rpc(
@@ -838,11 +847,24 @@ test('deleting an auth actor preserves immutable package, payment, and event his
   assert.equal(rpc(actorId, `public.cancel_package('${packageResult.packageId}', 'actor fixture')`).success, true)
   assert.equal(rpc(actorId, `public.void_payment('${ordinaryPayment.paymentId}', 'actor fixture')`).success, true)
 
-  query(DB, `delete from auth.users where id = '${actorId}'`)
+  query(
+    DB,
+    `set request.jwt.claim.role = 'service_role';
+     update profiles
+     set status = 'deleted', deleted_at = now(), deleted_by = '${adminId}', deletion_reason = 'actor fixture'
+     where id = '${actorId}';
+     reset request.jwt.claim.role`,
+  )
 
-  assert.equal(query(DB, `select (cancelled_by is null)::text from packages where id = '${packageResult.packageId}'`), 'true')
-  assert.equal(query(DB, `select (voided_by is null)::text from payments where id = '${ordinaryPayment.paymentId}'`), 'true')
-  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id is null`), '2')
+  assert.equal(query(DB, `select count(*) from auth.users where id = '${actorId}'`), '1')
+  assert.equal(query(DB, `select status from profiles where id = '${actorId}'`), 'deleted')
+  assert.equal(query(DB, `select cancelled_by from packages where id = '${packageResult.packageId}'`), actorId)
+  assert.equal(query(DB, `select voided_by from payments where id = '${ordinaryPayment.paymentId}'`), actorId)
+  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '2')
+  assert.throws(
+    () => query(DB, `delete from auth.users where id = '${actorId}'`),
+    /must be soft-deleted/i,
+  )
 })
 
 test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, () => {

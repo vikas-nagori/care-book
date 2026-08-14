@@ -37,7 +37,7 @@ export default async function SettingsPage() {
     { data: globalSettings },
   ] = await Promise.all([
     supabase.from('appointment_types').select('*').order('sort_order'),
-    supabase.from('profiles').select('*').order('created_at'),
+    supabase.from('profiles').select('*').eq('status', 'active').order('created_at'),
     supabase.from('user_invites').select('*').order('created_at', { ascending: false }),
     supabase
       .from('external_staff')

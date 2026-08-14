@@ -66,6 +66,7 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
       {users.map((user) => {
         const isBusy = busyId === user.id
         const isBlocked = user.status === 'blocked'
+        const isDeleted = user.status === 'deleted'
         const isSuperadmin = superadmins.has(user.id)
         const clinicInactive = user.clinic_status === 'inactive'
 
@@ -78,6 +79,7 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
                   <Badge variant="outline">{user.role}</Badge>
                   {isSuperadmin ? <Badge variant="secondary">superadmin</Badge> : null}
                   {isBlocked ? <Badge variant="destructive">blocked</Badge> : null}
+                  {isDeleted ? <Badge variant="destructive">deleted</Badge> : null}
                   {clinicInactive ? <Badge variant="destructive">clinic blocked</Badge> : null}
                 </div>
                 <div className="mt-1 truncate text-sm text-muted-foreground">
@@ -90,7 +92,7 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
                   size="sm"
                   variant="outline"
                   onClick={() => sendReset(user)}
-                  disabled={resetBusyId === user.id}
+                  disabled={resetBusyId === user.id || isDeleted}
                   aria-label={`Send reset for ${user.email}`}
                 >
                   {resetBusyId === user.id ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
@@ -98,6 +100,8 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
                 </Button>
                 {isSuperadmin ? (
                   <span className="text-sm text-muted-foreground">Protected</span>
+                ) : isDeleted ? (
+                  <span className="text-sm text-muted-foreground">Audit history retained</span>
                 ) : (
                   <Button
                     type="button"

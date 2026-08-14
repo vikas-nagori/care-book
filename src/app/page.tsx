@@ -129,7 +129,7 @@ export default async function DashboardPage() {
     supabase.from('patients').select('*', { count: 'exact', head: true }),
     supabase.from('patients').select('id, name').order('name'),
     supabase.from('doctors').select('*').order('name'),
-    supabase.from('profiles').select('id, full_name, email, role').order('full_name'),
+    supabase.from('profiles').select('id, full_name, email, role').eq('status', 'active').order('full_name'),
     supabase
       .from('external_staff')
       .select('id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')

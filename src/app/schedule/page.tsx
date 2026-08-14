@@ -73,6 +73,7 @@ export default async function SchedulePage({
     supabase
       .from('profiles')
       .select('id, full_name, email, role')
+      .eq('status', 'active')
       .order('full_name'),
     supabase
       .from('external_staff')

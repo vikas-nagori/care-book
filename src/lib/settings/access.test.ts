@@ -12,6 +12,9 @@ const baseProfile: Profile = {
   full_name: 'Asha Patel',
   mobile_number: '9876543210',
   status: 'active',
+  deleted_at: null,
+  deleted_by: null,
+  deletion_reason: null,
   created_at: '2026-04-19T00:00:00.000Z',
   updated_at: '2026-04-19T00:00:00.000Z',
 }

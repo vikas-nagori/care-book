@@ -8,10 +8,12 @@ import { createClient } from '@/lib/supabase/server'
 import { getAppOrigin } from '@/lib/onboarding/invite-server'
 import { logger } from '@/lib/logger'
 import { BAN_DURATION, UNBAN_DURATION, shouldUnbanOnUserUnblock } from '@/lib/platform/block'
+import { normalizeUserDeletionReason } from '@/lib/platform/user-lifecycle'
 import type {
   ClinicStatus,
   ManageUserBlockInput,
   ManageUserBlockResult,
+  SoftDeleteUserInput,
 } from '@/lib/supabase/types'
 
 export type SendPasswordResetResult = { success: boolean; errorCode?: string; message?: string }
@@ -20,13 +22,15 @@ async function setBan(
   adminSupabase: ReturnType<typeof createAdminClient>,
   userId: string,
   banDuration: string
-): Promise<void> {
+): Promise<boolean> {
   const { error } = await adminSupabase.auth.admin.updateUserById(userId, {
     ban_duration: banDuration,
   })
   if (error) {
     logger.error('platform/users/setBan', error, { userId, banDuration })
+    return false
   }
+  return true
 }
 
 export async function blockUser(input: ManageUserBlockInput): Promise<ManageUserBlockResult> {
@@ -39,7 +43,7 @@ export async function blockUser(input: ManageUserBlockInput): Promise<ManageUser
     const adminSupabase = createAdminClient()
     const { data: target, error: lookupError } = await adminSupabase
       .from('profiles')
-      .select('id, email')
+      .select('id, email, status')
       .eq('id', input.userId)
       .maybeSingle()
 
@@ -57,6 +61,14 @@ export async function blockUser(input: ManageUserBlockInput): Promise<ManageUser
         success: false,
         errorCode: 'CANNOT_BLOCK_SUPERADMIN',
         message: 'Superadmin accounts cannot be blocked.',
+      }
+    }
+
+    if (target.status === 'deleted') {
+      return {
+        success: false,
+        errorCode: 'USER_DELETED',
+        message: 'Deleted users cannot be blocked or restored.',
       }
     }
 
@@ -90,7 +102,7 @@ export async function sendPasswordReset(input: ManageUserBlockInput): Promise<Se
     const adminSupabase = createAdminClient()
     const { data: target, error: lookupError } = await adminSupabase
       .from('profiles')
-      .select('id, email')
+      .select('id, email, status')
       .eq('id', input.userId)
       .maybeSingle()
 
@@ -100,6 +112,14 @@ export async function sendPasswordReset(input: ManageUserBlockInput): Promise<Se
         success: false,
         errorCode: lookupError?.code ?? 'USER_NOT_FOUND',
         message: 'User was not found.',
+      }
+    }
+
+    if (target.status === 'deleted') {
+      return {
+        success: false,
+        errorCode: 'USER_DELETED',
+        message: 'Deleted users cannot receive password resets.',
       }
     }
 
@@ -133,7 +153,7 @@ export async function unblockUser(input: ManageUserBlockInput): Promise<ManageUs
     const adminSupabase = createAdminClient()
     const { data: target, error: lookupError } = await adminSupabase
       .from('profiles')
-      .select('id, clinic_id, clinic:clinics(status)')
+      .select('id, status, clinic_id, clinic:clinics(status)')
       .eq('id', input.userId)
       .maybeSingle()
 
@@ -143,6 +163,14 @@ export async function unblockUser(input: ManageUserBlockInput): Promise<ManageUs
         success: false,
         errorCode: lookupError?.code ?? 'USER_NOT_FOUND',
         message: 'User was not found.',
+      }
+    }
+
+    if (target.status === 'deleted') {
+      return {
+        success: false,
+        errorCode: 'USER_DELETED',
+        message: 'Deleted users cannot be unblocked or restored.',
       }
     }
 
@@ -169,5 +197,90 @@ export async function unblockUser(input: ManageUserBlockInput): Promise<ManageUs
   } catch (error) {
     logger.error('platform/unblockUser/unexpected', error, input)
     return { success: false, errorCode: 'USER_UNBLOCK_FAILED', message: 'Unable to unblock this user right now.' }
+  }
+}
+
+export async function softDeleteUser(input: SoftDeleteUserInput): Promise<ManageUserBlockResult> {
+  try {
+    const platformAdmin = await requirePlatformAdminUser()
+    const reason = normalizeUserDeletionReason(input.reason)
+
+    if (!input.userId) {
+      return { success: false, errorCode: 'USER_ID_REQUIRED', message: 'Choose a user.' }
+    }
+    if (!reason) {
+      return {
+        success: false,
+        errorCode: 'DELETION_REASON_REQUIRED',
+        message: 'Enter a reason for deleting this user.',
+      }
+    }
+
+    const adminSupabase = createAdminClient()
+    const { data: target, error: lookupError } = await adminSupabase
+      .from('profiles')
+      .select('id, email, status')
+      .eq('id', input.userId)
+      .maybeSingle()
+
+    if (lookupError || !target) {
+      logger.error('platform/softDeleteUser/lookup', lookupError, { userId: input.userId })
+      return {
+        success: false,
+        errorCode: lookupError?.code ?? 'USER_NOT_FOUND',
+        message: 'User was not found.',
+      }
+    }
+
+    if (isPlatformAdminEmail(target.email)) {
+      return {
+        success: false,
+        errorCode: 'CANNOT_DELETE_SUPERADMIN',
+        message: 'Superadmin accounts cannot be deleted.',
+      }
+    }
+
+    const banSucceeded = await setBan(adminSupabase, input.userId, BAN_DURATION)
+    if (!banSucceeded) {
+      return {
+        success: false,
+        errorCode: 'USER_BAN_FAILED',
+        message: 'The user could not be signed out, so deletion was not applied.',
+      }
+    }
+
+    if (target.status !== 'deleted') {
+      const deletedAt = new Date().toISOString()
+      const { error: updateError } = await adminSupabase
+        .from('profiles')
+        .update({
+          status: 'deleted',
+          deleted_at: deletedAt,
+          deleted_by: platformAdmin.id,
+          deletion_reason: reason,
+          updated_at: deletedAt,
+        })
+        .eq('id', input.userId)
+        .neq('status', 'deleted')
+
+      if (updateError) {
+        logger.error('platform/softDeleteUser/update', updateError, { userId: input.userId })
+        return {
+          success: false,
+          errorCode: updateError.code ?? 'USER_DELETE_FAILED',
+          message: updateError.message,
+        }
+      }
+    }
+
+    revalidatePath('/platform/users')
+    return { success: true, status: 'deleted' }
+  } catch (error) {
+    logger.error('platform/softDeleteUser/unexpected', error, { userId: input.userId })
+    return {
+      success: false,
+      errorCode: 'USER_DELETE_FAILED',
+      message: 'Unable to delete this user right now.',
+    }
   }
 }

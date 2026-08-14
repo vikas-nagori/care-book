@@ -10,6 +10,9 @@ const adminProfile: Profile = {
   email: 'admin@example.com',
   role: 'admin',
   status: 'active',
+  deleted_at: null,
+  deleted_by: null,
+  deletion_reason: null,
   full_name: 'Admin User',
   mobile_number: null,
   created_at: '2026-04-18T00:00:00.000Z',
@@ -36,6 +39,12 @@ test('evaluateRoleAccess returns insufficient_role when the profile role is not 
 
 test('evaluateRoleAccess returns blocked_profile when the profile is blocked', () => {
   const result = evaluateRoleAccess({ ...adminProfile, status: 'blocked' }, ['admin'])
+
+  assert.equal(result, 'blocked_profile')
+})
+
+test('evaluateRoleAccess treats a soft-deleted profile exactly like a blocked profile', () => {
+  const result = evaluateRoleAccess({ ...adminProfile, status: 'deleted' }, ['admin'])
 
   assert.equal(result, 'blocked_profile')
 })
