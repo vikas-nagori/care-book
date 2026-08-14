@@ -7,6 +7,9 @@ drop trigger if exists appointments_sync_patient_billing_allocations on public.a
 drop trigger if exists packages_sync_patient_billing_allocations on public.packages;
 drop trigger if exists payments_sync_patient_billing_allocations on public.payments;
 drop trigger if exists appointments_untally_cancelled_billing on public.appointments;
+drop trigger if exists appointment_payments_reconcile_usage on public.appointment_payments;
+drop trigger if exists appointments_reconcile_usage on public.appointments;
+drop trigger if exists payments_reconcile_usage on public.payments;
 
 alter table public.appointments drop constraint if exists appointments_payment_status_check;
 alter table public.appointments
@@ -22,13 +25,60 @@ alter table public.packages
   add column if not exists cancellation_reason text,
   add column if not exists billing_version smallint not null default 1;
 
+-- Upgrade every legacy package to the approved deterministic defaults before v2 starts:
+-- Clinic type, first package receipt date (or package creation date when no receipt exists).
+-- A clinic may have deleted or renamed every shared type; recreate the logical Clinic type
+-- only when no literal or shared candidate remains so package funds cannot become stranded.
+insert into public.appointment_types (
+  clinic_id, name, session_rate, is_shared, is_default, sort_order
+)
+select distinct package.clinic_id, 'Clinic', coalesce(settings.clinic_fee, 0), true, true, 0
+from public.packages package
+left join public.global_settings settings on settings.clinic_id = package.clinic_id
+where not exists (
+    select 1 from public.appointment_types appointment_type
+    where appointment_type.clinic_id = package.clinic_id
+      and (appointment_type.name = 'Clinic' or appointment_type.is_shared)
+  )
+on conflict (clinic_id, name) do nothing;
+
+update public.packages package
+set appointment_type_id = (
+      select appointment_type.id
+      from public.appointment_types appointment_type
+      where appointment_type.clinic_id = package.clinic_id
+      order by
+        (appointment_type.name = 'Clinic') desc,
+        (appointment_type.is_default and appointment_type.is_shared) desc,
+        appointment_type.is_shared desc,
+        appointment_type.sort_order,
+        appointment_type.id
+      limit 1
+    ),
+    starts_on = coalesce(
+      (select min(payment.date) from public.payments payment where payment.package_id = package.id),
+      package.created_at::date,
+      current_date
+    ),
+    cancelled_at = case
+      when package.status = 'cancelled' then coalesce(package.cancelled_at, now())
+      else package.cancelled_at
+    end,
+    cancellation_reason = case
+      when package.status = 'cancelled' then coalesce(nullif(btrim(package.cancellation_reason), ''), 'Legacy cancelled package migrated to v2')
+      else package.cancellation_reason
+    end,
+    billing_version = 2
+where (package.appointment_type_id is null or package.starts_on is null or package.billing_version < 2)
+  and exists (select 1 from public.appointment_types appointment_type where appointment_type.clinic_id = package.clinic_id);
+
 alter table public.packages drop constraint if exists packages_v2_required_fields;
 alter table public.packages add constraint packages_v2_required_fields
   check (billing_version < 2 or (appointment_type_id is not null and starts_on is not null));
 alter table public.packages drop constraint if exists packages_cancellation_audit;
 alter table public.packages add constraint packages_cancellation_audit
   check (status <> 'cancelled' or billing_version < 2 or (
-    cancelled_at is not null and cancelled_by is not null and nullif(btrim(cancellation_reason), '') is not null
+    cancelled_at is not null and nullif(btrim(cancellation_reason), '') is not null
   ));
 
 alter table public.payments
@@ -54,7 +104,7 @@ alter table public.payments drop constraint if exists payments_ledger_status_che
 alter table public.payments add constraint payments_ledger_status_check check (status in ('posted', 'voided'));
 alter table public.payments drop constraint if exists payments_void_audit_check;
 alter table public.payments add constraint payments_void_audit_check
-  check (status <> 'voided' or (voided_at is not null and voided_by is not null and nullif(btrim(void_reason), '') is not null));
+  check (status <> 'voided' or (voided_at is not null and nullif(btrim(void_reason), '') is not null));
 
 create table public.appointment_charges (
   id uuid primary key default gen_random_uuid(),
@@ -146,6 +196,24 @@ create table public.billing_events (
   created_at timestamptz not null default now()
 );
 
+insert into public.billing_events (
+  clinic_id, patient_id, event_type, entity_type, entity_id, reason, actor_id, details, created_at
+)
+select
+  package.clinic_id,
+  package.patient_id,
+  'legacy_package_cancellation_migrated',
+  'package',
+  package.id,
+  package.cancellation_reason,
+  package.cancelled_by,
+  jsonb_build_object('billingVersion', 2, 'source', 'migration_031'),
+  package.cancelled_at
+from public.packages package
+where package.status = 'cancelled'
+  and package.billing_version = 2
+  and package.cancellation_reason = 'Legacy cancelled package migrated to v2';
+
 create unique index package_session_allocations_one_active_appointment_v2_idx
   on public.package_session_allocations (appointment_id) where lifecycle <> 'released';
 create index package_session_allocations_patient_v2_idx
@@ -162,6 +230,16 @@ create index billing_events_patient_v2_idx on public.billing_events (patient_id,
 create or replace function private.reject_billing_ledger_mutation()
 returns trigger language plpgsql set search_path = public, private as $$
 begin
+  -- Preserve the ledger when an auth user is deleted. The FK's internal SET NULL update
+  -- is the only permitted mutation of an audit event, and it cannot alter financial data.
+  if tg_op = 'UPDATE'
+     and tg_table_name = 'billing_events'
+     and pg_trigger_depth() > 1
+     and (to_jsonb(old) ->> 'actor_id') is not null
+     and (to_jsonb(new) ->> 'actor_id') is null
+     and (to_jsonb(old) - 'actor_id') = (to_jsonb(new) - 'actor_id') then
+    return new;
+  end if;
   raise exception 'Billing audit rows are immutable.' using errcode = '55000';
 end;
 $$;
@@ -454,6 +532,23 @@ begin
       and application.package_id is not distinct from desired.package_id
   );
 
+  -- Temporary read compatibility for pages still reading appointment_payments during the
+  -- same-release UI cutover. The v2 application ledger remains authoritative.
+  delete from public.appointment_payments legacy_application
+  using public.payments payment
+  where legacy_application.payment_id = payment.id
+    and payment.patient_id = target_patient_id;
+
+  insert into public.appointment_payments (payment_id, appointment_id, amount_applied)
+  select application.payment_id, charge.appointment_id, application.amount
+  from public.payment_applications application
+  join public.appointment_charges charge on charge.id = application.charge_id
+  where application.patient_id = target_patient_id
+    and application.status = 'active'
+    and charge.appointment_id is not null
+  on conflict (payment_id, appointment_id) do update
+  set amount_applied = excluded.amount_applied;
+
   update public.appointments appointment
   set payment_status = coalesce(status_summary.payment_status, 'unpaid')
   from (
@@ -561,10 +656,10 @@ create trigger appointments_reconcile_billing_v2
   after insert or update of patient_id, status, date, time, fee, appointment_type_id
   on public.appointments for each row execute function private.trigger_reconcile_patient_billing_v2();
 create trigger packages_reconcile_billing_v2
-  after insert or update of patient_id, status, total_sessions, appointment_type_id, starts_on
+  after insert or update of patient_id, status, total_sessions, appointment_type_id, starts_on, created_at
   on public.packages for each row execute function private.trigger_reconcile_patient_billing_v2();
 create trigger payments_reconcile_billing_v2
-  after insert or update of patient_id, amount, status, funding_scope, package_id
+  after insert or update of patient_id, amount, status, funding_scope, package_id, date, created_at
   on public.payments for each row execute function private.trigger_reconcile_patient_billing_v2();
 create trigger refunds_reconcile_billing_v2
   after insert on public.refunds for each row execute function private.trigger_reconcile_payment_refund_v2();
@@ -669,5 +764,15 @@ begin
   return jsonb_build_object('success', true, 'patientBalance', coalesce(patient_balance, '{}'::jsonb), 'packageBalances', package_balances);
 exception when others then
   return jsonb_build_object('success', false, 'errorCode', sqlstate, 'message', sqlerrm);
+end;
+$$;
+
+-- Materialize charges, scoped applications, and package memberships for pre-v2 patients.
+do $$
+declare patient_row record;
+begin
+  for patient_row in select id from public.patients order by id loop
+    perform private.reconcile_patient_billing_v2(patient_row.id);
+  end loop;
 end;
 $$;

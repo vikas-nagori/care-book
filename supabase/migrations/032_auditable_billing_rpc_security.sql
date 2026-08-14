@@ -28,6 +28,52 @@ create trigger packages_no_hard_delete_v2
   before delete on public.packages
   for each row execute function private.reject_billing_ledger_mutation();
 
+create or replace function private.guard_payment_rewrite_v2()
+returns trigger
+language plpgsql
+set search_path = public, private
+as $$
+begin
+  if pg_trigger_depth() > 1
+     and old.voided_by is not null
+     and new.voided_by is null
+     and (to_jsonb(old) - 'voided_by') = (to_jsonb(new) - 'voided_by') then
+    return new;
+  end if;
+  if current_setting('carebook.billing_payment_mutation_v2', true) is distinct from 'on' then
+    raise exception 'Payment receipts are immutable; use a billing RPC.' using errcode = '55000';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function private.guard_package_rewrite_v2()
+returns trigger
+language plpgsql
+set search_path = public, private
+as $$
+begin
+  if pg_trigger_depth() > 1
+     and old.cancelled_by is not null
+     and new.cancelled_by is null
+     and (to_jsonb(old) - 'cancelled_by') = (to_jsonb(new) - 'cancelled_by') then
+    return new;
+  end if;
+  if current_setting('carebook.billing_reconcile_v2', true) is distinct from 'on'
+     and current_setting('carebook.billing_package_mutation_v2', true) is distinct from 'on' then
+    raise exception 'Packages are immutable; use a billing RPC.' using errcode = '55000';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger payments_guard_rewrite_v2
+  before update on public.payments
+  for each row execute function private.guard_payment_rewrite_v2();
+create trigger packages_guard_rewrite_v2
+  before update on public.packages
+  for each row execute function private.guard_package_rewrite_v2();
+
 -- Keep stable, non-FK appointment identifiers on ledger rows. The nullable FK is only
 -- a convenience link while the schedule row exists; the reference id preserves history.
 alter table public.appointment_charges
@@ -155,6 +201,26 @@ create trigger appointments_reconcile_billing_after_delete_v2
   for each row execute function private.trigger_reconcile_patient_billing_v2();
 
 -- Read-only, admin-only ledger access. Security-definer RPCs own every write.
+drop policy if exists "packages_tenant_admin_access" on public.packages;
+drop policy if exists "payments_tenant_admin_access" on public.payments;
+drop policy if exists "appointment_payments_tenant_admin_access" on public.appointment_payments;
+drop policy if exists "packages_tenant_admin_read_v2" on public.packages;
+drop policy if exists "payments_tenant_admin_read_v2" on public.payments;
+drop policy if exists "appointment_payments_tenant_admin_read_v2" on public.appointment_payments;
+create policy "packages_tenant_admin_read_v2" on public.packages
+  for select using (private.has_role(array['admin']) and private.is_same_clinic(clinic_id));
+create policy "payments_tenant_admin_read_v2" on public.payments
+  for select using (private.has_role(array['admin']) and private.is_same_clinic(clinic_id));
+create policy "appointment_payments_tenant_admin_read_v2" on public.appointment_payments
+  for select using (
+    private.has_role(array['admin'])
+    and exists (
+      select 1 from public.payments payment
+      where payment.id = appointment_payments.payment_id
+        and private.is_same_clinic(payment.clinic_id)
+    )
+  );
+
 alter table public.appointment_charges enable row level security;
 alter table public.appointment_charge_adjustments enable row level security;
 alter table public.refunds enable row level security;
@@ -189,6 +255,12 @@ revoke all on public.refunds from public, anon, authenticated;
 revoke all on public.payment_applications from public, anon, authenticated;
 revoke all on public.package_session_allocations from public, anon, authenticated;
 revoke all on public.billing_events from public, anon, authenticated;
+revoke insert, update, delete on public.packages from authenticated;
+revoke insert, update, delete on public.payments from authenticated;
+revoke insert, update, delete on public.appointment_payments from authenticated;
+grant select on public.packages to authenticated;
+grant select on public.payments to authenticated;
+grant select on public.appointment_payments to authenticated;
 grant select on public.appointment_charges to authenticated;
 grant select on public.appointment_charge_adjustments to authenticated;
 grant select on public.refunds to authenticated;
@@ -465,9 +537,14 @@ begin
   if not private.is_same_clinic(payment_row.clinic_id) then raise exception 'Payment does not belong to your clinic.' using errcode = '42501'; end if;
   if payment_row.status <> 'posted' then raise exception 'Payment is already voided.' using errcode = '22023'; end if;
   if nullif(btrim(coalesce(p_reason, '')), '') is null then raise exception 'Void reason is required.' using errcode = '22023'; end if;
+  if exists (select 1 from public.refunds refund where refund.payment_id = payment_row.id) then
+    raise exception 'A refunded payment cannot be voided; record a refund correction instead.' using errcode = '22023';
+  end if;
 
+  perform set_config('carebook.billing_payment_mutation_v2', 'on', true);
   update public.payments set status = 'voided', voided_at = now(), voided_by = auth.uid(), void_reason = btrim(p_reason)
   where id = p_payment_id;
+  perform set_config('carebook.billing_payment_mutation_v2', 'off', true);
   insert into public.billing_events (clinic_id, patient_id, event_type, entity_type, entity_id, reason, actor_id, details)
   values (payment_row.clinic_id, payment_row.patient_id, 'payment_voided', 'payment', payment_row.id, btrim(p_reason), auth.uid(), jsonb_build_object('amount', payment_row.amount));
   return jsonb_build_object('success', true, 'paymentId', payment_row.id, 'patientId', payment_row.patient_id);
@@ -491,9 +568,11 @@ begin
   if package_row.status = 'cancelled' then raise exception 'Package is already cancelled.' using errcode = '22023'; end if;
   if nullif(btrim(coalesce(p_reason, '')), '') is null then raise exception 'Cancellation reason is required.' using errcode = '22023'; end if;
 
+  perform set_config('carebook.billing_package_mutation_v2', 'on', true);
   update public.packages
   set status = 'cancelled', cancelled_at = now(), cancelled_by = auth.uid(), cancellation_reason = btrim(p_reason), completed_at = null
   where id = p_package_id;
+  perform set_config('carebook.billing_package_mutation_v2', 'off', true);
   insert into public.billing_events (clinic_id, patient_id, event_type, entity_type, entity_id, reason, actor_id, details)
   values (package_row.clinic_id, package_row.patient_id, 'package_cancelled', 'package', package_row.id, btrim(p_reason), auth.uid(), jsonb_build_object('previousStatus', package_row.status));
   return jsonb_build_object('success', true, 'packageId', package_row.id, 'patientId', package_row.patient_id);
@@ -662,6 +741,8 @@ revoke all on function private.reject_billing_ledger_mutation() from public, ano
 revoke all on function private.set_billing_appointment_reference_v2() from public, anon, authenticated;
 revoke all on function private.guard_completed_appointment_fee_v2() from public, anon, authenticated;
 revoke all on function private.preserve_deleted_appointment_billing_v2() from public, anon, authenticated;
+revoke all on function private.guard_payment_rewrite_v2() from public, anon, authenticated;
+revoke all on function private.guard_package_rewrite_v2() from public, anon, authenticated;
 revoke all on function private.assign_patient_package_sessions(uuid) from public, anon, authenticated;
 revoke all on function private.allocate_patient_payment_credit(uuid) from public, anon, authenticated;
 revoke all on function private.reconcile_package_usage(uuid) from public, anon, authenticated;

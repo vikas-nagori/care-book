@@ -228,6 +228,58 @@ test('package and ordinary scopes apply separately, FIFO, and allow package due'
   )
 })
 
+test('ordinary receipts distribute FIFO across multiple charges with exact partial amounts', { skip }, () => {
+  const patientId = patient('Ordinary FIFO')
+  const firstCharge = appointment(patientId, '2026-08-01', clinicTypeId, 'completed', 100)
+  const secondCharge = appointment(patientId, '2026-08-02', clinicTypeId, 'completed', 100)
+  const firstReceipt = recordPayment(patientId, 'ordinary', 150)
+  const secondReceipt = recordPayment(patientId, 'ordinary', 75)
+
+  assert.deepEqual(
+    JSON.parse(query(
+      DB,
+      `select json_agg(json_build_object('payment', payment_id, 'appointment', c.appointment_id, 'amount', pa.amount) order by p.date, p.created_at, a.date, a.time)
+       from payment_applications pa
+       join payments p on p.id = pa.payment_id
+       join appointment_charges c on c.id = pa.charge_id
+       join appointments a on a.id = c.appointment_id
+       where pa.patient_id = '${patientId}' and pa.status = 'active'`,
+    )),
+    [
+      { payment: firstReceipt.paymentId, appointment: firstCharge, amount: 100 },
+      { payment: firstReceipt.paymentId, appointment: secondCharge, amount: 50 },
+      { payment: secondReceipt.paymentId, appointment: secondCharge, amount: 50 },
+    ],
+  )
+  assert.equal(query(DB, `select payment_status from appointments where id = '${secondCharge}'`), 'paid')
+})
+
+test('package receipts distribute FIFO only within their package with exact partial amounts', { skip }, () => {
+  const patientId = patient('Package FIFO')
+  const firstCharge = appointment(patientId, '2026-08-01', clinicTypeId, 'completed', 120)
+  const secondCharge = appointment(patientId, '2026-08-02', clinicTypeId, 'completed', 80)
+  const entry = createPackage(patientId, 'Package FIFO', 2, 100, clinicTypeId, '2026-08-01', 100)
+  const secondReceipt = recordPayment(patientId, 'package', 100, entry.packageId as string)
+
+  assert.deepEqual(
+    JSON.parse(query(
+      DB,
+      `select json_agg(json_build_object('payment', payment_id, 'appointment', c.appointment_id, 'amount', pa.amount) order by p.date, p.created_at, a.date, a.time)
+       from payment_applications pa
+       join payments p on p.id = pa.payment_id
+       join appointment_charges c on c.id = pa.charge_id
+       join appointments a on a.id = c.appointment_id
+       where pa.patient_id = '${patientId}' and pa.status = 'active'`,
+    )),
+    [
+      { payment: entry.paymentId, appointment: firstCharge, amount: 100 },
+      { payment: secondReceipt.paymentId, appointment: firstCharge, amount: 20 },
+      { payment: secondReceipt.paymentId, appointment: secondCharge, amount: 80 },
+    ],
+  )
+  assert.equal(query(DB, `select count(*) from payment_applications where patient_id = '${patientId}' and funding_scope = 'ordinary'`), '0')
+})
+
 test('scheduled reservations become availed, complete and reopen, then release and reassign', { skip }, () => {
   const patientId = patient('Allocation Lifecycle')
   const reserved = appointment(patientId, '2026-08-08')
@@ -271,8 +323,9 @@ test('refunds, voids, package cancellation, and fee adjustments require reasons 
   assert.equal(query(DB, `select count(*) from appointment_charge_adjustments where appointment_id = '${apptId}'`), '1')
   assert.equal(query(DB, `select payment_status from appointments where id = '${apptId}'`), 'partially_paid')
 
-  assert.equal(rpc(adminId, `public.void_payment('${paymentId}', 'entered against wrong patient')`).success, true)
-  assert.equal(query(DB, `select status from payments where id = '${paymentId}'`), 'voided')
+  const voidablePayment = recordPayment(patientId, 'ordinary', 10)
+  assert.equal(rpc(adminId, `public.void_payment('${voidablePayment.paymentId}', 'entered against wrong patient')`).success, true)
+  assert.equal(query(DB, `select status from payments where id = '${voidablePayment.paymentId}'`), 'voided')
   assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}'`), '3')
 })
 
@@ -289,6 +342,40 @@ test('package cancellation is audited, releases reservations, and retains receip
   assert.equal(query(DB, `select count(*) from payments where id = '${paymentId}'`), '1')
   assert.equal(query(DB, `select lifecycle from package_session_allocations where appointment_id = '${apptId}' order by created_at desc limit 1`), 'released')
   assert.equal(query(DB, `select count(*) from billing_events where entity_id = '${packageId}' and event_type = 'package_cancelled'`), '1')
+})
+
+test('cancelling the older of two overlapping packages reassigns the earliest appointment', { skip }, () => {
+  const patientId = patient('Overlapping Cancellation')
+  const earliest = appointment(patientId, '2026-08-01')
+  const later = appointment(patientId, '2026-08-02')
+  const older = createPackage(patientId, 'Older', 1, 100, clinicTypeId, '2026-08-01')
+  const newer = createPackage(patientId, 'Newer', 1, 100, clinicTypeId, '2026-08-01')
+
+  assert.equal(query(DB, `select package_id from package_session_allocations where appointment_id = '${earliest}' and lifecycle <> 'released'`), older.packageId)
+  assert.equal(query(DB, `select package_id from package_session_allocations where appointment_id = '${later}' and lifecycle <> 'released'`), newer.packageId)
+  assert.equal(rpc(adminId, `public.cancel_package('${older.packageId}', 'replace overlapping package')`).success, true)
+  assert.equal(query(DB, `select package_id from package_session_allocations where appointment_id = '${earliest}' and lifecycle <> 'released'`), newer.packageId)
+  assert.equal(query(DB, `select count(*) from package_session_allocations where appointment_id = '${later}' and lifecycle <> 'released'`), '0')
+})
+
+test('dated refunds persist their method/date, enforce capacity, and prevent later voids', { skip }, () => {
+  const patientId = patient('Refund Capacity')
+  appointment(patientId, '2026-08-10', clinicTypeId, 'completed', 100)
+  const payment = recordPayment(patientId, 'ordinary', 100)
+  const paymentId = payment.paymentId as string
+
+  const refund = rpc(adminId, `public.record_refund('${paymentId}', 20, 'upi', date '2026-07-30', 'approved correction')`)
+  assert.equal(refund.success, true)
+  assert.equal(query(DB, `select amount || '/' || refund_method || '/' || refund_date from refunds where id = '${refund.refundId}'`), '20.00/upi/2026-07-30')
+  assert.equal(query(DB, `select coalesce(sum(amount), 0) from payment_applications where payment_id = '${paymentId}' and status = 'active'`), '80.00')
+  assert.equal(
+    query(DB, `select net_received || '/' || applied_amount || '/' || due_amount || '/' || refundable_credit from patient_billing_balances_v2 where patient_id = '${patientId}'`),
+    '80.00/80.00/20.00/0.00',
+    'the v2 balance surface stays net of refunds for UI cutover',
+  )
+  assert.equal(rpc(adminId, `public.record_refund('${paymentId}', 81, 'upi', date '2026-07-31', 'too much')`).success, false)
+  assert.equal(rpc(adminId, `public.void_payment('${paymentId}', 'cannot void refunded receipt')`).success, false)
+  assert.equal(query(DB, `select status from payments where id = '${paymentId}'`), 'posted')
 })
 
 test('legacy delete RPCs preserve rows by converting deletion to audited void and cancellation', { skip }, () => {
@@ -346,6 +433,86 @@ test('reconciliation is idempotent and does not append duplicate active ledger r
   assert.equal(afterCount, before)
 })
 
+test('authenticated admins cannot directly rewrite receipt, package, or ledger priority fields', { skip }, () => {
+  const patientId = patient('Immutable Direct Writes')
+  const otherPatientId = patient('Immutable Direct Writes Other')
+  const apptId = appointment(patientId, '2026-08-11', clinicTypeId, 'completed', 100)
+  const entry = createPackage(patientId, 'Immutable package', 1, 100, clinicTypeId, '2026-08-01')
+  const packageId = entry.packageId as string
+  const paymentId = entry.paymentId as string
+
+  assert.throws(() => query(DB, `update payments set date = date '2020-01-01' where id = '${paymentId}'`), /immutable/i)
+  assert.throws(() => query(DB, `update packages set starts_on = date '2020-01-01' where id = '${packageId}'`), /immutable/i)
+
+  for (const statement of [
+    `insert into payments (clinic_id, patient_id, amount, payment_method, date, funding_scope, status, billing_version) values ('${clinicId}', '${patientId}', 10, 'cash', current_date, 'ordinary', 'posted', 2)`,
+    `update payments set amount = 999 where id = '${paymentId}'`,
+    `update payments set date = date '2020-01-01' where id = '${paymentId}'`,
+    `update payments set payment_method = 'upi' where id = '${paymentId}'`,
+    `update payments set patient_id = '${otherPatientId}' where id = '${paymentId}'`,
+    `update payments set funding_scope = 'ordinary', package_id = null where id = '${paymentId}'`,
+    `delete from payments where id = '${paymentId}'`,
+    `insert into packages (clinic_id, patient_id, name, total_sessions, total_amount, per_session_amount, payment_timing, status, appointment_type_id, starts_on, billing_version) values ('${clinicId}', '${patientId}', 'forged', 1, 100, 100, 'prepaid', 'active', '${clinicTypeId}', current_date, 2)`,
+    `update packages set appointment_type_id = '${homeTypeId}' where id = '${packageId}'`,
+    `update packages set starts_on = date '2020-01-01' where id = '${packageId}'`,
+    `update packages set created_at = timestamptz '2020-01-01 00:00:00+00' where id = '${packageId}'`,
+    `update packages set total_sessions = 99 where id = '${packageId}'`,
+    `delete from packages where id = '${packageId}'`,
+  ]) {
+    assert.throws(() => queryAsAuthenticated(DB, adminId, statement), /permission denied|row-level security/i)
+  }
+
+  const refund = rpc(adminId, `public.record_refund('${paymentId}', 10, 'upi', current_date, 'immutability fixture')`)
+  const adjustment = rpc(adminId, `public.adjust_appointment_fee('${apptId}', 110, 'immutability fixture')`)
+  assert.equal(refund.success, true)
+  assert.equal(adjustment.success, true)
+  const chargeId = query(DB, `select id from appointment_charges where appointment_id = '${apptId}'`)
+  const applicationId = query(DB, `select id from payment_applications where charge_id = '${chargeId}' and status = 'active'`)
+  const allocationId = query(DB, `select id from package_session_allocations where appointment_id = '${apptId}' and lifecycle <> 'released'`)
+  const eventId = query(DB, `select id from billing_events where patient_id = '${patientId}' order by created_at limit 1`)
+  for (const statement of [
+    `update appointment_charges set amount = 999 where id = '${chargeId}'`,
+    `delete from appointment_charges where id = '${chargeId}'`,
+    `update appointment_charge_adjustments set reason = 'forged' where id = '${adjustment.adjustmentId}'`,
+    `delete from appointment_charge_adjustments where id = '${adjustment.adjustmentId}'`,
+    `update refunds set amount = 1 where id = '${refund.refundId}'`,
+    `delete from refunds where id = '${refund.refundId}'`,
+    `update payment_applications set amount = 999 where id = '${applicationId}'`,
+    `delete from payment_applications where id = '${applicationId}'`,
+    `update package_session_allocations set lifecycle = 'released' where id = '${allocationId}'`,
+    `delete from package_session_allocations where id = '${allocationId}'`,
+    `update billing_events set reason = 'forged' where id = '${eventId}'`,
+    `delete from billing_events where id = '${eventId}'`,
+    `insert into billing_events (clinic_id, patient_id, event_type, entity_type, entity_id) values ('${clinicId}', '${patientId}', 'forged', 'patient', '${patientId}')`,
+  ]) {
+    assert.throws(() => queryAsAuthenticated(DB, adminId, statement), /permission denied|row-level security/i)
+  }
+})
+
+test('deleting an auth actor preserves immutable package, payment, and event history', { skip }, () => {
+  const actorId = seedUser(DB, 'admin', clinicId)
+  const patientId = patient('Deleted Audit Actor')
+  const packageResult = rpc(
+    actorId,
+    `public.record_billing_entry_v2(
+      '${patientId}', 'package_with_payment', 'Actor package', 1, 100,
+      '${clinicTypeId}', date '2026-08-01', 100, 'cash', date '2026-08-01', null
+    )`,
+  )
+  const ordinaryPayment = rpc(
+    actorId,
+    `public.record_payment_v2('${patientId}', 'ordinary', null, 25, 'cash', current_date, null)`,
+  )
+  assert.equal(rpc(actorId, `public.cancel_package('${packageResult.packageId}', 'actor fixture')`).success, true)
+  assert.equal(rpc(actorId, `public.void_payment('${ordinaryPayment.paymentId}', 'actor fixture')`).success, true)
+
+  query(DB, `delete from auth.users where id = '${actorId}'`)
+
+  assert.equal(query(DB, `select (cancelled_by is null)::text from packages where id = '${packageResult.packageId}'`), 'true')
+  assert.equal(query(DB, `select (voided_by is null)::text from payments where id = '${ordinaryPayment.paymentId}'`), 'true')
+  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id is null`), '2')
+})
+
 test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, () => {
   const patientId = patient('Tenant Ledger')
   appointment(patientId, '2026-08-12', clinicTypeId, 'completed', 100)
@@ -369,6 +536,14 @@ test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, ()
   for (const table of Object.keys(expectedAdminRows)) {
     assert.equal(queryAsAuthenticated(DB, adminId, `select count(*) from ${table} where patient_id = '${patientId}'`), expectedAdminRows[table])
     assert.equal(queryAsAuthenticated(DB, staffId, `select count(*) from ${table} where patient_id = '${patientId}'`), '0')
+    assert.equal(queryAsAuthenticated(DB, otherAdminId, `select count(*) from ${table} where patient_id = '${patientId}'`), '0')
+  }
+  for (const table of ['packages', 'payments', 'appointment_payments', ...Object.keys(expectedAdminRows)]) {
+    assert.throws(
+      () => query(DB, `set role anon; select count(*) from ${table}; reset role`),
+      /permission denied/i,
+      `anonymous must not read ${table}`,
+    )
   }
   assert.throws(
     () => queryAsAuthenticated(DB, adminId, `insert into billing_events (clinic_id, patient_id, event_type, entity_type, entity_id) values ('${clinicId}', '${patientId}', 'forged', 'patient', '${patientId}') returning id`),
@@ -378,6 +553,7 @@ test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, ()
   for (const signature of [
     'record_billing_entry_v2(uuid,text,text,integer,numeric,uuid,date,numeric,text,date,text)',
     'record_payment_v2(uuid,text,uuid,numeric,text,date,text)',
+    'record_refund(uuid,numeric,text,date,text)',
     'record_refund(uuid,numeric,text)',
     'void_payment(uuid,text)',
     'cancel_package(uuid,text)',
@@ -388,4 +564,35 @@ test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, ()
     assert.equal(query(DB, `select has_function_privilege('anon', 'public.${signature}', 'execute')`), 'f')
     assert.equal(query(DB, `select has_function_privilege('authenticated', 'public.${signature}', 'execute')`), 't')
   }
+
+  const packageEntry = createPackage(patientId, 'RPC isolation', 1, 100, clinicTypeId, '2026-08-01')
+  const packageId = packageEntry.packageId as string
+  const paymentId = packageEntry.paymentId as string
+  const apptId = appointment(patientId, '2026-08-13', clinicTypeId, 'completed', 100)
+  for (const [userId, expressions] of [
+    [staffId, [
+      `public.record_billing_entry_v2('${patientId}', 'package_with_payment', 'blocked', 1, 100, '${clinicTypeId}', date '2026-08-01', 100, 'cash', current_date, null)`,
+      `public.record_payment_v2('${patientId}', 'ordinary', null, 10, 'cash', current_date, null)`,
+      `public.record_refund('${paymentId}', 1, 'blocked')`,
+      `public.record_refund('${paymentId}', 1, 'cash', current_date, 'blocked')`,
+      `public.void_payment('${paymentId}', 'blocked')`,
+      `public.cancel_package('${packageId}', 'blocked')`,
+      `public.adjust_appointment_fee('${apptId}', 110, 'blocked')`,
+    ]],
+    [otherAdminId, [
+      `public.record_billing_entry_v2('${patientId}', 'package_with_payment', 'cross clinic', 1, 100, '${clinicTypeId}', date '2026-08-01', 100, 'cash', current_date, null)`,
+      `public.record_payment_v2('${patientId}', 'ordinary', null, 10, 'cash', current_date, null)`,
+      `public.record_refund('${paymentId}', 1, 'cross clinic')`,
+      `public.record_refund('${paymentId}', 1, 'cash', current_date, 'cross clinic')`,
+      `public.void_payment('${paymentId}', 'cross clinic')`,
+      `public.cancel_package('${packageId}', 'cross clinic')`,
+      `public.adjust_appointment_fee('${apptId}', 110, 'cross clinic')`,
+    ]],
+  ] as const) {
+    for (const expression of expressions) assert.equal(rpc(userId, expression).success, false)
+  }
+  assert.throws(
+    () => query(DB, `set role anon; select public.record_payment_v2('${patientId}', 'ordinary', null, 10, 'cash', current_date, null); reset role`),
+    /permission denied/i,
+  )
 })

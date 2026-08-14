@@ -6,7 +6,7 @@
 // superuser (it creates extensions and roles). On a Homebrew install the default OS user qualifies.
 
 import { execFileSync } from 'node:child_process'
-import { readdirSync, readFileSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const repoRoot = join(import.meta.dirname, '..', '..')
@@ -25,6 +25,24 @@ function psql(database: string, args: string[], input?: string): string {
   })
 }
 
+function migrationFiles(): string[] {
+  return readdirSync(migrationsDir)
+    .filter((file) => file.endsWith('.sql') && file !== '00000000000000_base_schema.sql')
+    .sort()
+    .map((file) => join(migrationsDir, file))
+}
+
+function applyFiles(database: string, files: string[]): void {
+  for (const file of files) {
+    try {
+      psql(database, ['-f', file])
+    } catch (err) {
+      const stderr = (err as { stderr?: string }).stderr ?? ''
+      throw new Error(`failed applying ${file}:\n${stderr}`)
+    }
+  }
+}
+
 /** True when a local Postgres is reachable, so tests can skip cleanly in environments without one. */
 export function postgresAvailable(): boolean {
   try {
@@ -37,6 +55,11 @@ export function postgresAvailable(): boolean {
 
 /** Drop + recreate `dbName` and apply shims, schema.sql, and all migrations in filename order. */
 export function buildDatabase(dbName: string): void {
+  buildDatabaseThrough(dbName)
+}
+
+/** Build through an optional inclusive migration filename for upgrade-path tests. */
+export function buildDatabaseThrough(dbName: string, lastMigration?: string): void {
   // Reject anything that isn't a plain identifier — dbName is interpolated into DDL.
   if (!/^[a-z_][a-z0-9_]*$/.test(dbName)) {
     throw new Error(`unsafe test database name: ${dbName}`)
@@ -45,25 +68,20 @@ export function buildDatabase(dbName: string): void {
   psql(maintenanceDb, ['-c', `drop database if exists ${dbName} with (force)`])
   psql(maintenanceDb, ['-c', `create database ${dbName}`])
 
-  const files = [
+  const migrations = migrationFiles()
+  const selectedMigrations = lastMigration
+    ? migrations.filter((file) => file.split('/').at(-1)! <= lastMigration)
+    : migrations
+  applyFiles(dbName, [
     shimSql,
     schemaSql,
-    ...readdirSync(migrationsDir)
-      // Skip the base-schema migration — it exists only so the Supabase CLI's migration
-      // chain is self-contained; this harness applies schema.sql explicitly above.
-      .filter((f) => f.endsWith('.sql') && f !== '00000000000000_base_schema.sql')
-      .sort()
-      .map((f) => join(migrationsDir, f)),
-  ]
+    ...selectedMigrations,
+  ])
+}
 
-  for (const file of files) {
-    try {
-      psql(dbName, ['-f', file])
-    } catch (err) {
-      const stderr = (err as { stderr?: string }).stderr ?? ''
-      throw new Error(`failed applying ${file}:\n${stderr}`)
-    }
-  }
+/** Apply migrations strictly after the supplied filename to an already-built database. */
+export function applyMigrationsAfter(dbName: string, migration: string): void {
+  applyFiles(dbName, migrationFiles().filter((file) => file.split('/').at(-1)! > migration))
 }
 
 export function dropDatabase(dbName: string): void {
