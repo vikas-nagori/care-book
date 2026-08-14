@@ -134,6 +134,8 @@ export type Package = {
   cancelled_by?: string | null
   cancellation_reason?: string | null
   billing_version?: number
+  created_by?: string | null
+  creation_origin?: 'legacy_unknown' | 'system' | 'rpc' | 'historical_correction'
   created_at: string
 }
 
@@ -153,6 +155,8 @@ export type Payment = {
   voided_by?: string | null
   void_reason?: string | null
   billing_version?: number
+  created_by?: string | null
+  creation_origin?: 'legacy_unknown' | 'system' | 'rpc' | 'historical_correction'
   created_at: string
 }
 

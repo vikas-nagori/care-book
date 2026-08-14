@@ -6,6 +6,8 @@ const REQUIRED_TABLES = [
   'clinics',
   'patients',
   'appointment_types',
+  'global_settings',
+  'package_templates',
   'appointments',
   'packages',
   'payments',

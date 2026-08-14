@@ -5,6 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { assertApprovedBillingImpactPlan, buildBillingImpactReport, type BillingImpactPlan } from '../src/lib/billing/impact-report.ts'
 import { CARE_BOOK_PRODUCTION_PROJECT_REF, assertExpectedSupabaseProject, fetchSupabaseBillingSource } from '../src/lib/billing/impact-rest.ts'
 import { mapSupabaseBillingSource } from '../src/lib/billing/impact-source.ts'
+import { buildBillingSourceRowCounts, buildLiveDatabaseFingerprint } from '../src/lib/billing/live-db-fingerprint.ts'
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(name)
@@ -23,12 +24,17 @@ assertExpectedSupabaseProject(supabaseUrl, CARE_BOOK_PRODUCTION_PROJECT_REF)
 const plan = JSON.parse(await readFile(planPath, 'utf8')) as BillingImpactPlan
 assertApprovedBillingImpactPlan(plan)
 const raw = await fetchSupabaseBillingSource({ supabaseUrl, serviceRoleKey })
-const report = buildBillingImpactReport(mapSupabaseBillingSource(raw), plan)
+const report = buildBillingImpactReport(
+  mapSupabaseBillingSource(raw), plan, buildLiveDatabaseFingerprint(raw), buildBillingSourceRowCounts(raw),
+)
 await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
 
 process.stdout.write(JSON.stringify({
   outputPath,
   inputFingerprint: report.inputFingerprint,
+  liveDbFingerprint: report.liveDbFingerprint,
+  liveDbFingerprintVersion: report.liveDbFingerprintVersion,
+  sourceRowCounts: report.sourceRowCounts,
   planFingerprint: report.planFingerprint,
   reportChecksum: report.reportChecksum,
   patients: report.patients.length,

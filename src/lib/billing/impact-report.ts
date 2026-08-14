@@ -80,9 +80,12 @@ export function assertApprovedBillingImpactPlan(plan: BillingImpactPlan): void {
 }
 
 export interface BillingImpactReport {
-  schemaVersion: 1
+  schemaVersion: 2
   asOfDate: string
   inputFingerprint: string
+  liveDbFingerprint: string | null
+  liveDbFingerprintVersion: string
+  sourceRowCounts: Record<string, number> | null
   planFingerprint: string
   reportChecksum: string
   patients: PatientImpact[]
@@ -180,7 +183,12 @@ function chronological<T extends { date: string; time?: string; createdAt?: stri
       .localeCompare(`${right.date}:${right.time ?? ''}:${right.createdAt ?? ''}:${right.id}`))
 }
 
-export function buildBillingImpactReport(input: BillingImpactInput, plan: BillingImpactPlan): BillingImpactReport {
+export function buildBillingImpactReport(
+  input: BillingImpactInput,
+  plan: BillingImpactPlan,
+  liveDbFingerprint: string | null = null,
+  sourceRowCounts: Record<string, number> | null = null,
+): BillingImpactReport {
   const failures: string[] = []
   const paymentIds = new Set(input.payments.map((payment) => payment.id))
   for (const paymentId of plan.voidPaymentIds ?? []) {
@@ -482,9 +490,12 @@ export function buildBillingImpactReport(input: BillingImpactInput, plan: Billin
   const inputFingerprint = sourceFingerprint(input)
   const planFingerprint = approvedPlanFingerprint(plan)
   const reportWithoutChecksum = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     asOfDate: plan.asOfDate,
     inputFingerprint,
+    liveDbFingerprint,
+    liveDbFingerprintVersion: 'carebook-billing-source-v1',
+    sourceRowCounts,
     planFingerprint,
     patients: patientReports,
     invariantFailures: failures,

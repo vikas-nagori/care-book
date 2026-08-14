@@ -434,7 +434,10 @@ test('refunds, voids, package cancellation, and fee adjustments require reasons 
   const voidablePayment = recordPayment(patientId, 'ordinary', 10)
   assert.equal(rpc(adminId, `public.void_payment('${voidablePayment.paymentId}', 'entered against wrong patient')`).success, true)
   assert.equal(query(DB, `select status from payments where id = '${voidablePayment.paymentId}'`), 'voided')
-  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}'`), '3')
+  assert.equal(
+    query(DB, `select string_agg(event_type, ',' order by event_type) from billing_events where patient_id = '${patientId}'`),
+    'appointment_fee_adjusted,payment_recorded,payment_recorded,payment_refunded,payment_voided',
+  )
 })
 
 test('package cancellation is audited, releases reservations, and retains receipts', { skip }, () => {
@@ -860,7 +863,9 @@ test('soft-deleting an auth actor preserves immutable package, payment, and even
   assert.equal(query(DB, `select status from profiles where id = '${actorId}'`), 'deleted')
   assert.equal(query(DB, `select cancelled_by from packages where id = '${packageResult.packageId}'`), actorId)
   assert.equal(query(DB, `select voided_by from payments where id = '${ordinaryPayment.paymentId}'`), actorId)
-  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '2')
+  assert.equal(query(DB, `select created_by from packages where id = '${packageResult.packageId}'`), actorId)
+  assert.equal(query(DB, `select created_by from payments where id in ('${packageResult.paymentId}','${ordinaryPayment.paymentId}') group by created_by`), actorId)
+  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '5')
   assert.throws(
     () => query(
       DB,
@@ -877,7 +882,7 @@ test('soft-deleting an auth actor preserves immutable package, payment, and even
   )
   assert.equal(query(DB, `select cancelled_by from packages where id = '${packageResult.packageId}'`), actorId)
   assert.equal(query(DB, `select voided_by from payments where id = '${ordinaryPayment.paymentId}'`), actorId)
-  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '2')
+  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '5')
 })
 
 test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, () => {
@@ -899,7 +904,7 @@ test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, ()
     refund_reversals: '0',
     payment_applications: '1',
     package_session_allocations: '0',
-    billing_events: '0',
+    billing_events: '1',
   }
   for (const table of Object.keys(expectedAdminRows)) {
     assert.equal(queryAsAuthenticated(DB, adminId, `select count(*) from ${table} where patient_id = '${patientId}'`), expectedAdminRows[table])

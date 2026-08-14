@@ -8,21 +8,42 @@ import { buildDatabase, dropDatabase, postgresAvailable, query, run, seedUser } 
 const DB = 'care_book_historical_corrections_test'
 const available = postgresAvailable()
 const script = join(import.meta.dirname, '..', '..', 'ops', 'billing', 'apply-approved-historical-corrections.sql')
+const prepareScript = join(import.meta.dirname, '..', '..', 'ops', 'billing', 'prepare-write-pause.sql')
+const resumeScript = join(import.meta.dirname, '..', '..', 'ops', 'billing', 'resume-billing-writes.sql')
+const TOKEN = 'historical-correction-test-token-32-bytes'
+const SOURCE = '8cb41a69c363db81ef421f7676a6dc1fc678d436674d25844145abfce9417145'
+const PLAN = 'ebed6813ce50f371c851c50e265ba0832b2b4daf33ded38d6cd39469ad62a2b8'
+const REPORT = 'e3f381edd342de136387315c671c9d0df950c13e52cd912f2051da293e0591b9'
 let actorId = ''
+let liveDbFingerprint = ''
 
 function appointmentValues(patientId: string, typeId: string, rows: Array<[string, string, string, number]>) {
   return rows.map(([id, date, status, fee], index) =>
     `('${id}','d36983a1-e62d-41bd-8c3a-dfbdb4ce7968','${patientId}','${date}','${String(8 + index).padStart(2, '0')}:00','${typeId}','${status}',${fee})`).join(',')
 }
 
+function psqlFile(file: string, variables: Record<string, string>): void {
+  const args = ['-d', DB, '-X', '-q', '-v', 'ON_ERROR_STOP=1']
+  for (const [key, value] of Object.entries(variables)) args.push('-v', `${key}=${value}`)
+  args.push('-f', file)
+  execFileSync('psql', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
 function apply(fingerprint: string): void {
-  execFileSync('psql', [
-    '-d', DB, '-X', '-q', '-v', 'ON_ERROR_STOP=1',
-    '-v', `source_fingerprint=${fingerprint}`,
-    '-v', 'plan_fingerprint=ebed6813ce50f371c851c50e265ba0832b2b4daf33ded38d6cd39469ad62a2b8',
-    '-v', 'report_checksum=d31a4d6e1114b391d6a722320b27cb2600e15edd0d1a0d81624d7ca0322a26b3',
-    '-v', `actor_id=${actorId}`, '-f', script,
-  ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  psqlFile(script, {
+    source_fingerprint: fingerprint, plan_fingerprint: PLAN, report_checksum: REPORT,
+    live_db_fingerprint: liveDbFingerprint, bypass_token: TOKEN, actor_id: actorId,
+  })
+}
+
+function sourceRowCounts(): string {
+  return query(DB, `select jsonb_build_object(
+    'clinics',(select count(*) from clinics),'patients',(select count(*) from patients),
+    'appointment_types',(select count(*) from appointment_types),'global_settings',(select count(*) from global_settings),
+    'package_templates',(select count(*) from package_templates),'appointments',(select count(*) from appointments),
+    'packages',(select count(*) from packages),'payments',(select count(*) from payments),
+    'appointment_payments',(select count(*) from appointment_payments),
+    'package_session_allocations',(select count(*) from package_session_allocations))`)
 }
 
 before(() => {
@@ -86,16 +107,35 @@ before(() => {
     ['70000000-0000-4000-8000-000000000004','9756bf2a-0c32-4dc1-826e-d9fdb50183d4','5e169151-db06-46c9-9736-dd0221afd749',4550,'2026-07-14'],
   ] as const) run(DB, `insert into public.payments (id,clinic_id,patient_id,package_id,amount,payment_method,date,funding_scope,status,billing_version) values ('${id}','d36983a1-e62d-41bd-8c3a-dfbdb4ce7968','${patient}','${pkg}',${amount},'upi','${date}','package','posted',2)`)
   actorId = seedUser(DB, 'admin', 'd36983a1-e62d-41bd-8c3a-dfbdb4ce7968')
+  assert.throws(() => psqlFile(prepareScript, {
+    expected_live_db_fingerprint: '0'.repeat(64), source_fingerprint: SOURCE,
+    source_row_counts: sourceRowCounts(), plan_fingerprint: PLAN, report_checksum: REPORT, bypass_token: TOKEN,
+  }), /fingerprint\/count mismatch/i)
+  liveDbFingerprint = query(DB, `select observed_live_db_fingerprint from private.billing_ops_gate where id=true`)
+  psqlFile(prepareScript, {
+    expected_live_db_fingerprint: liveDbFingerprint, source_fingerprint: SOURCE,
+    source_row_counts: sourceRowCounts(), plan_fingerprint: PLAN, report_checksum: REPORT, bypass_token: TOKEN,
+  })
 })
 
 after(() => { if (available) dropDatabase(DB) })
 
 test('aborts atomically on fingerprint mismatch, applies once, and verifies every approved fixture', { skip: !available }, () => {
+  run(DB, `delete from private.billing_ops_gate where id=true`)
+  assert.throws(() => apply(SOURCE), /write-pause gate is missing/i)
+  psqlFile(prepareScript, {
+    expected_live_db_fingerprint: liveDbFingerprint, source_fingerprint: SOURCE,
+    source_row_counts: sourceRowCounts(), plan_fingerprint: PLAN, report_checksum: REPORT, bypass_token: TOKEN,
+  })
+  run(DB, `update private.billing_ops_gate set paused_at=now()-interval '25 hours' where id=true`)
+  assert.throws(() => apply(SOURCE), /stale or not verified/i)
+  run(DB, `update private.billing_ops_gate set paused_at=now() where id=true`)
+
   assert.throws(() => apply('wrong-fingerprint'), /fingerprint mismatch/)
   assert.equal(query(DB, `select status from public.payments where id='b53563c9-b4b4-4a02-b5f4-5937b4cf1225'`), 'posted')
   assert.equal(query(DB, `select count(*) from public.payments where id='4bb5d6ca-08b4-4d8a-92aa-47cf7a265401'`), '0')
 
-  apply('8cb41a69c363db81ef421f7676a6dc1fc678d436674d25844145abfce9417145')
+  apply(SOURCE)
   assert.equal(query(DB, `select status from public.payments where id='b53563c9-b4b4-4a02-b5f4-5937b4cf1225'`), 'voided')
   assert.equal(query(DB, `select count(*) from public.payments where id in ('4bb5d6ca-08b4-4d8a-92aa-47cf7a265401','6dc37185-3aa2-4590-9e18-acde15600600')`), '2')
   assert.equal(query(DB, `select count(*) from public.refunds where id='79b344fb-d5e2-4ea1-b6c2-202607300100'`), '1')
@@ -103,7 +143,11 @@ test('aborts atomically on fingerprint mismatch, applies once, and verifies ever
   assert.equal(query(DB, `select payment_status from public.appointments where id='c1d8f6e6-d25d-4016-b496-77e187351b8f'`), 'paid')
   assert.equal(query(DB, `select status || ':' || used_sessions from public.packages where id='28ecd64e-875d-42fa-b5df-c59191c58a7b'`), 'completed:5')
 
-  apply('8cb41a69c363db81ef421f7676a6dc1fc678d436674d25844145abfce9417145')
+  apply(SOURCE)
   assert.equal(query(DB, `select count(*) from public.billing_events where event_type='approved_historical_corrections_20260815'`), '1')
   assert.equal(query(DB, `select count(*) from public.payments where id in ('4bb5d6ca-08b4-4d8a-92aa-47cf7a265401','6dc37185-3aa2-4590-9e18-acde15600600')`), '2')
+  assert.equal(query(DB, `select status from private.billing_ops_gate where id=true`), 'corrections_applied')
+  psqlFile(resumeScript, { bypass_token: TOKEN })
+  assert.equal(query(DB, `select status from private.billing_ops_gate where id=true`), 'resumed')
+  assert.equal(query(DB, `select current_setting('carebook.ops.bypass_token', true)`), '')
 })

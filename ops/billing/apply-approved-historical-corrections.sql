@@ -2,20 +2,26 @@
 
 -- NOT A NORMAL MIGRATION. Run only after migrations 031-033, the second verified backup,
 -- maintenance-mode write pause, and a fresh impact report with zero invariant failures.
--- Required psql variables: source_fingerprint, plan_fingerprint, report_checksum, actor_id.
+-- Required psql variables: source_fingerprint, plan_fingerprint, report_checksum,
+-- live_db_fingerprint, bypass_token, actor_id.
 
 begin;
 select set_config('carebook.ops.source_fingerprint', :'source_fingerprint', true);
 select set_config('carebook.ops.plan_fingerprint', :'plan_fingerprint', true);
 select set_config('carebook.ops.report_checksum', :'report_checksum', true);
+select set_config('carebook.ops.live_db_fingerprint', :'live_db_fingerprint', true);
+select set_config('carebook.ops.bypass_token', :'bypass_token', true);
 select set_config('carebook.ops.actor_id', :'actor_id', true);
 
 do $carebook_ops$
 declare
   v_fingerprint constant text := '8cb41a69c363db81ef421f7676a6dc1fc678d436674d25844145abfce9417145';
   v_plan_fingerprint constant text := 'ebed6813ce50f371c851c50e265ba0832b2b4daf33ded38d6cd39469ad62a2b8';
-  v_report_checksum constant text := 'd31a4d6e1114b391d6a722320b27cb2600e15edd0d1a0d81624d7ca0322a26b3';
+  v_report_checksum constant text := 'e3f381edd342de136387315c671c9d0df950c13e52cd912f2051da293e0591b9';
   v_actor uuid := current_setting('carebook.ops.actor_id')::uuid;
+  v_live_db_fingerprint text := current_setting('carebook.ops.live_db_fingerprint');
+  v_gate private.billing_ops_gate%rowtype;
+  v_effective_role name := coalesce(nullif(current_setting('role', true), 'none'), session_user)::name;
   v_clinic constant uuid := 'd36983a1-e62d-41bd-8c3a-dfbdb4ce7968';
   v_smita constant uuid := '72881d5a-88d9-4937-93b2-5ae53cf8a471';
   v_pranav constant uuid := '24c77231-9973-4b21-b338-b1dfc092a2e3';
@@ -30,9 +36,30 @@ begin
      or current_setting('carebook.ops.report_checksum') <> v_report_checksum then
     raise exception 'Approved plan/report fingerprint mismatch.' using errcode = 'P0001';
   end if;
+  select * into v_gate from private.billing_ops_gate where id = true for update;
+  if v_gate.id is null then
+    raise exception 'Billing write-pause gate is missing.' using errcode = 'P0001';
+  end if;
+  if v_gate.status not in ('paused_verified', 'corrections_applied')
+     or v_gate.paused_at < clock_timestamp() - interval '24 hours' then
+    raise exception 'Billing write-pause gate is stale or not verified.' using errcode = 'P0001';
+  end if;
+  if v_gate.project_ref <> 'byhccyhbdnqslqdktybt'
+     or v_gate.fingerprint_version <> 'carebook-billing-source-v1'
+     or v_gate.source_fingerprint <> current_setting('carebook.ops.source_fingerprint')
+     or v_gate.plan_fingerprint <> current_setting('carebook.ops.plan_fingerprint')
+     or v_gate.report_checksum <> current_setting('carebook.ops.report_checksum')
+     or v_gate.expected_live_db_fingerprint <> v_live_db_fingerprint
+     or v_gate.observed_live_db_fingerprint <> v_live_db_fingerprint then
+    raise exception 'Correction inputs do not match the durable production gate.' using errcode = 'P0001';
+  end if;
+  if v_effective_role <> v_gate.authorized_db_role
+     or encode(digest(current_setting('carebook.ops.bypass_token'), 'sha256'), 'hex') <> v_gate.bypass_token_digest then
+    raise exception 'Correction bypass authorization failed.' using errcode = '42501';
+  end if;
   if to_regclass('public.billing_events') is null
-     or not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name = 'deleted_at') then
-    raise exception 'Historical corrections require migrations 031-033.' using errcode = 'P0001';
+     or not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'payments' and column_name = 'creation_origin') then
+    raise exception 'Historical corrections require migrations 031-034.' using errcode = 'P0001';
   end if;
   if not exists (
     select 1 from public.profiles
@@ -109,14 +136,14 @@ begin
 
     insert into public.payments (
       id, clinic_id, patient_id, package_id, amount, payment_method, date, notes,
-      created_at, funding_scope, status, billing_version
+      created_at, funding_scope, status, billing_version, created_by, creation_origin
     ) values
       ('4bb5d6ca-08b4-4d8a-92aa-47cf7a265401', v_clinic, v_smita,
        'cb877a26-47f4-4ae7-8e15-416269db240f', 5400, 'upi', date '2026-07-15',
-       'Self — approved package replacement receipt', timestamptz '2026-07-15 08:26:00.671694+00', 'package', 'posted', 2),
+       'Self — approved package replacement receipt', timestamptz '2026-07-15 08:26:00.671694+00', 'package', 'posted', 2, v_actor, 'historical_correction'),
       ('6dc37185-3aa2-4590-9e18-acde15600600', v_clinic, v_smita,
        null, 600, 'upi', date '2026-07-15',
-       'Self — approved ordinary replacement receipt', timestamptz '2026-07-15 08:26:00.671695+00', 'ordinary', 'posted', 2);
+       'Self — approved ordinary replacement receipt', timestamptz '2026-07-15 08:26:00.671695+00', 'ordinary', 'posted', 2, v_actor, 'historical_correction');
 
     insert into public.refunds (
       id, clinic_id, patient_id, payment_id, amount, refund_method, refund_date,
@@ -136,15 +163,15 @@ begin
        jsonb_build_object(
          'previousTotalSessions', 10, 'totalSessions', 9,
          'previousTotalAmount', 6000, 'totalAmount', 5400,
-         'perSessionAmount', 600, 'sourceFingerprint', v_fingerprint,
+         'perSessionAmount', 600, 'sourceFingerprint', v_fingerprint, 'liveDbFingerprint', v_live_db_fingerprint,
          'planFingerprint', v_plan_fingerprint, 'reportChecksum', v_report_checksum
        )),
       (v_clinic, v_smita, 'payment_replaced_historical', 'payment',
        'b53563c9-b4b4-4a02-b5f4-5937b4cf1225', v_reason, v_actor,
-       jsonb_build_object('replacementPaymentIds', array['4bb5d6ca-08b4-4d8a-92aa-47cf7a265401','6dc37185-3aa2-4590-9e18-acde15600600'], 'sourceFingerprint', v_fingerprint, 'planFingerprint', v_plan_fingerprint, 'reportChecksum', v_report_checksum)),
+       jsonb_build_object('replacementPaymentIds', array['4bb5d6ca-08b4-4d8a-92aa-47cf7a265401','6dc37185-3aa2-4590-9e18-acde15600600'], 'sourceFingerprint', v_fingerprint, 'liveDbFingerprint', v_live_db_fingerprint, 'planFingerprint', v_plan_fingerprint, 'reportChecksum', v_report_checksum)),
       (v_clinic, v_pranav, 'package_start_corrected_historical', 'package',
        '28ecd64e-875d-42fa-b5df-c59191c58a7b', v_reason, v_actor,
-       jsonb_build_object('previousStartsOn', '2026-08-11', 'startsOn', '2026-07-28', 'sourceFingerprint', v_fingerprint, 'planFingerprint', v_plan_fingerprint, 'reportChecksum', v_report_checksum));
+       jsonb_build_object('previousStartsOn', '2026-08-11', 'startsOn', '2026-07-28', 'sourceFingerprint', v_fingerprint, 'liveDbFingerprint', v_live_db_fingerprint, 'planFingerprint', v_plan_fingerprint, 'reportChecksum', v_report_checksum));
 
     perform private.reconcile_patient_billing_v2(v_smita);
     perform private.reconcile_patient_billing_v2(v_pranav);
@@ -153,7 +180,7 @@ begin
       clinic_id, patient_id, event_type, entity_type, entity_id, reason, actor_id, details
     ) values (
       v_clinic, v_smita, 'approved_historical_corrections_20260815', 'patient', v_smita,
-      v_reason, v_actor, jsonb_build_object('sourceFingerprint', v_fingerprint, 'planFingerprint', v_plan_fingerprint, 'reportChecksum', v_report_checksum, 'patients', array[v_smita, v_pranav])
+      v_reason, v_actor, jsonb_build_object('sourceFingerprint', v_fingerprint, 'liveDbFingerprint', v_live_db_fingerprint, 'planFingerprint', v_plan_fingerprint, 'reportChecksum', v_report_checksum, 'patients', array[v_smita, v_pranav])
     );
   end if;
 
@@ -209,6 +236,11 @@ begin
     where package_id = '5e169151-db06-46c9-9736-dd0221afd749'
       and availed_sessions = 7 and scheduled_sessions = 0 and due_amount = 0 and refundable_credit = 0
   ) then raise exception 'Tresa unchanged outcome verification failed.' using errcode = 'P0001'; end if;
+
+  update private.billing_ops_gate
+  set status = 'corrections_applied', corrections_applied_at = coalesce(corrections_applied_at, clock_timestamp()),
+      updated_at = clock_timestamp()
+  where id = true;
 end
 $carebook_ops$;
 commit;

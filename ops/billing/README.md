@@ -1,36 +1,111 @@
-# Billing impact and historical corrections
+# Billing migration operations
 
-These files are deliberately outside `supabase/migrations`. They must not run during a normal
-deployment.
+These scripts are deliberately outside `supabase/migrations`. They are a fail-closed production
+runbook for project `byhccyhbdnqslqdktybt`; they must not run during a normal deployment.
 
-Generate the production-pinned, GET-only report with the approved plan:
+## Approved read-only report
+
+Generate the report while production is still on migration 029. The command performs paginated
+GET requests only, rejects every other Supabase project, and exits nonzero on an outcome mismatch.
 
 ```sh
-NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
-  npm run billing:impact-report -- \
+dotenv -e /restricted/care-book-production.env -o -- npm run billing:impact-report -- \
   --plan ops/billing/approved-historical-corrections.plan.json \
-  --output /restricted/path/care-book-billing-impact.json
+  --output /restricted/care-book-billing-impact-2026-08-15-final.json
 ```
 
-The command requires the approved plan, pins project `byhccyhbdnqslqdktybt`, and exits nonzero
-when an expected outcome or invariant does not match. The approved 15 August 2026 artifact has:
+The approved report has:
 
-- source fingerprint: `8cb41a69c363db81ef421f7676a6dc1fc678d436674d25844145abfce9417145`
+- REST/source fingerprint: `8cb41a69c363db81ef421f7676a6dc1fc678d436674d25844145abfce9417145`
+- SQL/live database fingerprint: `8a2c0f4422bf1a670998fb3deff5a795271e8733f08f644cd1aca5355d7e984e`
+- fingerprint version: `carebook-billing-source-v1`
 - plan fingerprint: `ebed6813ce50f371c851c50e265ba0832b2b4daf33ded38d6cd39469ad62a2b8`
-- report checksum: `d31a4d6e1114b391d6a722320b27cb2600e15edd0d1a0d81624d7ca0322a26b3`
-- file SHA-256: `fd9d4d9d03983cc432b463f64a5b0177dd014b93cdc32801a69955c175c7e93a`
+- report checksum: `e3f381edd342de136387315c671c9d0df950c13e52cd912f2051da293e0591b9`
+- file SHA-256: `3d4fdcd25aa979824847fd9fc5d0819a5350f5995835ba91021bb68b5ff95468`
+- invariant failures: `0`
 
-Only after migrations 031-033, a paused billing write window, the second verified backup, and a
-fresh byte-for-byte matching report may an operator run:
+Its source count manifest is:
 
-```sh
-psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
-  -v source_fingerprint=8cb41a69c363db81ef421f7676a6dc1fc678d436674d25844145abfce9417145 \
-  -v plan_fingerprint=ebed6813ce50f371c851c50e265ba0832b2b4daf33ded38d6cd39469ad62a2b8 \
-  -v report_checksum=d31a4d6e1114b391d6a722320b27cb2600e15edd0d1a0d81624d7ca0322a26b3 \
-  -v actor_id=ACTIVE_AMRUTA_ADMIN_UUID \
-  -f ops/billing/apply-approved-historical-corrections.sql
+```json
+{"clinics":3,"patients":78,"appointment_types":9,"global_settings":3,"package_templates":1,"appointments":449,"packages":19,"payments":116,"appointment_payments":346,"package_session_allocations":124}
 ```
 
-The script is transactional, exact-row guarded, append-only/audited, and marker-idempotent. Asha
-Quartz remains visible in the all-patient report but is intentionally not a correction target.
+The six billing-source counts captured independently in the immutable initial dump are an exact
+match: 78 patients, 449 appointments, 19 packages, 116 payments, 346 appointment-payment rows,
+and 124 package allocations. The remaining source tables are protected by the SQL fingerprint.
+Asha is present in the all-patient report but is not an expected-outcome/correction target because
+her account was corrected manually.
+
+## Executable fail-closed sequence
+
+1. Confirm production is still at migration 029. Generate a fresh 64-character random token in
+   the operator shell; never save it in Git.
+
+   ```sh
+   BILLING_BYPASS_TOKEN="$(openssl rand -hex 32)"
+   ```
+
+2. Install the gate, atomically pause writes, and compare the GET-derived count/fingerprint with
+   live SQL. The script persists `paused_mismatch` before exiting nonzero on any mismatch.
+
+   ```sh
+   psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
+     -v expected_live_db_fingerprint=8a2c0f4422bf1a670998fb3deff5a795271e8733f08f644cd1aca5355d7e984e \
+     -v source_row_counts='{"clinics":3,"patients":78,"appointment_types":9,"global_settings":3,"package_templates":1,"appointments":449,"packages":19,"payments":116,"appointment_payments":346,"package_session_allocations":124}' \
+     -v source_fingerprint=8cb41a69c363db81ef421f7676a6dc1fc678d436674d25844145abfce9417145 \
+     -v plan_fingerprint=ebed6813ce50f371c851c50e265ba0832b2b4daf33ded38d6cd39469ad62a2b8 \
+     -v report_checksum=e3f381edd342de136387315c671c9d0df950c13e52cd912f2051da293e0591b9 \
+     -v bypass_token="$BILLING_BYPASS_TOKEN" \
+     -f ops/billing/prepare-write-pause.sql
+   ```
+
+   The gate installs statement-level guards over clinics, patients, appointment types, fee
+   settings, package templates, appointments, packages, receipts, legacy payment applications,
+   and package allocations. It stores only the token digest. The token itself is a database- and
+   role-scoped setting for the exact migration operator, so each new connection opened by normal
+   managed migration tooling receives it; application roles do not. Every bypassed statement is
+   logged in `private.billing_ops_bypass_log`.
+
+3. Verify `private.billing_ops_gate.status = 'paused_verified'`, then take and verify the mandatory
+   second full production backup. Do not continue on a mismatch. Keep writes paused.
+
+4. Using the same `DATABASE_URL`/database role that prepared the gate, apply migrations 030-034
+   through the normal Supabase migration command. Do not alter `schema_migrations`; the persistent
+   role+database setting crosses the separate migration connections automatically.
+
+   ```sh
+   supabase db push --db-url "$DATABASE_URL" --include-all
+   ```
+
+5. Run the correction. It refuses a missing, stale (older than 24 hours), mismatched, resumed, or
+   wrongly authorized gate. Failure rolls back corrections and leaves writes paused.
+
+   ```sh
+   psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
+     -v source_fingerprint=8cb41a69c363db81ef421f7676a6dc1fc678d436674d25844145abfce9417145 \
+     -v live_db_fingerprint=8a2c0f4422bf1a670998fb3deff5a795271e8733f08f644cd1aca5355d7e984e \
+     -v plan_fingerprint=ebed6813ce50f371c851c50e265ba0832b2b4daf33ded38d6cd39469ad62a2b8 \
+     -v report_checksum=e3f381edd342de136387315c671c9d0df950c13e52cd912f2051da293e0591b9 \
+     -v bypass_token="$BILLING_BYPASS_TOKEN" \
+     -v actor_id=ACTIVE_AMRUTA_ADMIN_UUID \
+     -f ops/billing/apply-approved-historical-corrections.sql
+   ```
+
+6. Validate the accounting, tenant/RLS, audit, allocation, lifecycle, and count postconditions.
+   The correction transaction changes the durable gate to `corrections_applied`. Migration 031's
+   backfill intentionally changes source rows, so do not compare a post-migration raw report byte
+   for byte with the migration-029 report.
+
+7. Resume only after every postcondition succeeds. This transaction verifies the exact correction
+   marker against all four fingerprints, changes the gate to `resumed`, and clears the persistent
+   operator-role bypass setting atomically.
+
+   ```sh
+   psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
+     -v bypass_token="$BILLING_BYPASS_TOKEN" \
+     -f ops/billing/resume-billing-writes.sql
+   unset BILLING_BYPASS_TOKEN
+   ```
+
+If any step before resume fails, do not clear or edit the gate. Diagnose under the maintained write
+pause and use a new report/fingerprint/backup cycle if the 24-hour gate expires.
