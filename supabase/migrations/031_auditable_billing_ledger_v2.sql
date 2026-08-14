@@ -1,3 +1,5 @@
+begin;
+
 -- Auditable, scoped billing ledger. V2 is additive: legacy RPC signatures and columns remain.
 
 create extension if not exists "pgcrypto";
@@ -141,6 +143,16 @@ create table public.refunds (
   created_at timestamptz not null default now()
 );
 
+create table public.refund_reversals (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null references public.clinics(id) on delete restrict,
+  patient_id uuid not null references public.patients(id) on delete restrict,
+  refund_id uuid not null unique references public.refunds(id) on delete restrict,
+  reason text not null check (nullif(btrim(reason), '') is not null),
+  created_by uuid not null references auth.users(id) on delete restrict,
+  created_at timestamptz not null default now()
+);
+
 create table public.payment_applications (
   id uuid primary key default gen_random_uuid(),
   clinic_id uuid not null references public.clinics(id) on delete restrict,
@@ -225,6 +237,8 @@ create unique index payment_applications_one_active_pair_v2_idx
 create index payment_applications_patient_v2_idx on public.payment_applications (patient_id, status);
 create index appointment_charges_patient_v2_idx on public.appointment_charges (patient_id, status);
 create index refunds_payment_v2_idx on public.refunds (payment_id);
+create index refund_reversals_patient_v2_idx on public.refund_reversals (patient_id, created_at);
+create index payment_applications_package_status_v2_idx on public.payment_applications (package_id, status);
 create index billing_events_patient_v2_idx on public.billing_events (patient_id, created_at, id);
 
 -- Immutable audit rows may only be appended by RPCs. Ledger applications/allocations are
@@ -242,7 +256,66 @@ begin
      and (to_jsonb(old) - 'actor_id') = (to_jsonb(new) - 'actor_id') then
     return new;
   end if;
+  -- The FK's ON DELETE SET NULL is a bookkeeping update, not an audit rewrite. Permit
+  -- only that one column to clear, only from a nested FK trigger, and only after the
+  -- referenced appointment is no longer visible in this transaction.
+  if tg_op = 'UPDATE'
+     and tg_table_name = 'appointment_charge_adjustments'
+     and pg_trigger_depth() > 1
+     and (to_jsonb(old) ->> 'appointment_id') is not null
+     and (to_jsonb(new) ->> 'appointment_id') is null
+     and (to_jsonb(old) - 'appointment_id') = (to_jsonb(new) - 'appointment_id')
+     and not exists (
+       select 1 from public.appointments
+       where id = ((to_jsonb(old) ->> 'appointment_id')::uuid)
+     ) then
+    return new;
+  end if;
   raise exception 'Billing audit rows are immutable.' using errcode = '55000';
+end;
+$$;
+
+create or replace function private.guard_payment_application_history_v2()
+returns trigger language plpgsql set search_path = public, private as $$
+begin
+  if tg_op = 'UPDATE'
+     and old.status = 'active'
+     and new.status = 'reversed'
+     and old.reversed_at is null
+     and old.reversal_reason is null
+     and new.reversed_at is not null
+     and nullif(btrim(new.reversal_reason), '') is not null
+     and (to_jsonb(old) - array['status', 'reversed_at', 'reversal_reason'])
+       = (to_jsonb(new) - array['status', 'reversed_at', 'reversal_reason']) then
+    return new;
+  end if;
+  raise exception 'Payment application history is immutable; only active-to-reversed transition is allowed.' using errcode = '55000';
+end;
+$$;
+
+create or replace function private.guard_package_allocation_history_v2()
+returns trigger language plpgsql set search_path = public, private as $$
+begin
+  if tg_op = 'UPDATE'
+     and pg_trigger_depth() > 1
+     and old.appointment_id is not null
+     and new.appointment_id is null
+     and (to_jsonb(old) - 'appointment_id') = (to_jsonb(new) - 'appointment_id')
+     and not exists (select 1 from public.appointments where id = old.appointment_id) then
+    return new;
+  end if;
+  if tg_op = 'UPDATE'
+     and old.lifecycle in ('scheduled', 'availed')
+     and new.lifecycle = 'released'
+     and old.released_at is null
+     and old.release_reason is null
+     and new.released_at is not null
+     and nullif(btrim(new.release_reason), '') is not null
+     and (to_jsonb(old) - array['lifecycle', 'released_at', 'release_reason'])
+       = (to_jsonb(new) - array['lifecycle', 'released_at', 'release_reason']) then
+    return new;
+  end if;
+  raise exception 'Package allocation history is immutable; only active-to-released transition is allowed.' using errcode = '55000';
 end;
 $$;
 
@@ -252,15 +325,84 @@ create trigger appointment_charge_adjustments_immutable
 create trigger refunds_immutable
   before update or delete on public.refunds
   for each row execute function private.reject_billing_ledger_mutation();
+create trigger refund_reversals_immutable
+  before update or delete on public.refund_reversals
+  for each row execute function private.reject_billing_ledger_mutation();
 create trigger billing_events_immutable
   before update or delete on public.billing_events
   for each row execute function private.reject_billing_ledger_mutation();
 create trigger payment_applications_no_delete
-  before delete on public.payment_applications
-  for each row execute function private.reject_billing_ledger_mutation();
+  before update or delete on public.payment_applications
+  for each row execute function private.guard_payment_application_history_v2();
 create trigger package_session_allocations_no_delete
-  before delete on public.package_session_allocations
+  before update or delete on public.package_session_allocations
+  for each row execute function private.guard_package_allocation_history_v2();
+
+create or replace function private.guard_payment_rewrite_v2()
+returns trigger language plpgsql set search_path = public, private as $$
+begin
+  if pg_trigger_depth() > 1
+     and old.voided_by is not null
+     and new.voided_by is null
+     and (to_jsonb(old) - 'voided_by') = (to_jsonb(new) - 'voided_by') then
+    return new;
+  end if;
+  if current_setting('carebook.billing_payment_mutation_v2', true) is distinct from 'on' then
+    raise exception 'Payment receipts are immutable; use a billing RPC.' using errcode = '55000';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function private.guard_package_rewrite_v2()
+returns trigger language plpgsql set search_path = public, private as $$
+begin
+  if pg_trigger_depth() > 1
+     and old.cancelled_by is not null
+     and new.cancelled_by is null
+     and (to_jsonb(old) - 'cancelled_by') = (to_jsonb(new) - 'cancelled_by') then
+    return new;
+  end if;
+  if current_setting('carebook.billing_reconcile_v2', true) is distinct from 'on'
+     and current_setting('carebook.billing_package_mutation_v2', true) is distinct from 'on' then
+    raise exception 'Packages are immutable; use a billing RPC.' using errcode = '55000';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger payments_no_hard_delete_v2
+  before delete on public.payments
   for each row execute function private.reject_billing_ledger_mutation();
+create trigger packages_no_hard_delete_v2
+  before delete on public.packages
+  for each row execute function private.reject_billing_ledger_mutation();
+create trigger payments_guard_rewrite_v2
+  before update on public.payments
+  for each row execute function private.guard_payment_rewrite_v2();
+create trigger packages_guard_rewrite_v2
+  before update on public.packages
+  for each row execute function private.guard_package_rewrite_v2();
+
+create or replace function private.billing_patient_lock_key_v2(target_patient_id uuid)
+returns bigint
+language sql
+immutable
+strict
+set search_path = public, private
+as $$ select hashtextextended(target_patient_id::text, 20260815); $$;
+
+create or replace function private.lock_patient_billing_v2(target_patient_id uuid)
+returns void
+language sql
+set search_path = public, private
+as $$ select pg_advisory_xact_lock(private.billing_patient_lock_key_v2(target_patient_id)); $$;
+
+create or replace function private.try_lock_patient_billing_v2(target_patient_id uuid)
+returns boolean
+language sql
+set search_path = public, private
+as $$ select pg_try_advisory_xact_lock(private.billing_patient_lock_key_v2(target_patient_id)); $$;
 
 create or replace function private.reconcile_patient_billing_v2(target_patient_id uuid)
 returns void
@@ -283,8 +425,7 @@ begin
   select patient.clinic_id
   into target_clinic_id
   from public.patients patient
-  where patient.id = target_patient_id
-  for update;
+  where patient.id = target_patient_id;
 
   if target_clinic_id is null then
     raise exception 'Patient not found.' using errcode = '22023';
@@ -339,7 +480,9 @@ begin
     select
       application.*,
       greatest(payment.amount - coalesce((
-        select sum(refund.amount) from public.refunds refund where refund.payment_id = payment.id
+        select sum(refund.amount) from public.refunds refund
+        where refund.payment_id = payment.id
+          and not exists (select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id)
       ), 0), 0)::numeric(12,2) as net_payment_amount,
       charge.amount as charge_amount
     from public.payment_applications application
@@ -455,6 +598,7 @@ begin
       greatest(payment.amount - coalesce(sum(refund.amount), 0), 0)::numeric(12,2) as net_amount
     from public.payments payment
     left join public.refunds refund on refund.payment_id = payment.id
+      and not exists (select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id)
     where payment.patient_id = target_patient_id
       and payment.clinic_id = target_clinic_id
       and payment.status = 'posted'
@@ -638,6 +782,7 @@ begin
       greatest(payment.amount - coalesce(sum(refund.amount), 0), 0)::numeric(12,2) as net_amount
     from public.payments payment
     left join public.refunds refund on refund.payment_id = payment.id
+      and not exists (select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id)
     where payment.patient_id = target_patient_id
       and payment.clinic_id = target_clinic_id
       and payment.status = 'posted'
@@ -814,7 +959,9 @@ begin
         from public.payments payment
         left join (
           select refund.payment_id, sum(refund.amount) as amount
-          from public.refunds refund group by refund.payment_id
+          from public.refunds refund
+          where not exists (select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id)
+          group by refund.payment_id
         ) refunded on refunded.payment_id = payment.id
         where payment.package_id = package.id and payment.status = 'posted'
       ), 0) as net_received
@@ -848,6 +995,19 @@ begin
   if current_setting('carebook.billing_reconcile_v2', true) = 'on' then return null; end if;
   if tg_op <> 'INSERT' then old_patient_id := old.patient_id; end if;
   if tg_op <> 'DELETE' then new_patient_id := new.patient_id; end if;
+  -- Direct appointment writes already hold their row lock when this AFTER trigger runs.
+  -- Never wait for the canonical patient lock from that inverted position: either this
+  -- transaction becomes the reconciler, or it aborts with a retryable serialization error.
+  -- Billing RPCs acquire the same advisory lock before touching child rows, so they block
+  -- safely and never participate in a child-row/advisory-lock cycle.
+  if old_patient_id is not null and not private.try_lock_patient_billing_v2(old_patient_id) then
+    raise exception 'Concurrent billing update; retry the transaction.' using errcode = '40001';
+  end if;
+  if new_patient_id is not null
+     and new_patient_id is distinct from old_patient_id
+     and not private.try_lock_patient_billing_v2(new_patient_id) then
+    raise exception 'Concurrent billing update; retry the transaction.' using errcode = '40001';
+  end if;
   if old_patient_id is not null then perform private.reconcile_patient_billing_v2(old_patient_id); end if;
   if new_patient_id is not null and new_patient_id is distinct from old_patient_id then
     perform private.reconcile_patient_billing_v2(new_patient_id);
@@ -867,6 +1027,9 @@ begin
   if current_setting('carebook.billing_reconcile_v2', true) = 'on' then return null; end if;
   select patient_id into target_patient_id
   from public.payments where id = coalesce(new.payment_id, old.payment_id);
+  if target_patient_id is not null and not private.try_lock_patient_billing_v2(target_patient_id) then
+    raise exception 'Concurrent billing update; retry the transaction.' using errcode = '40001';
+  end if;
   if target_patient_id is not null then perform private.reconcile_patient_billing_v2(target_patient_id); end if;
   return null;
 end;
@@ -903,7 +1066,10 @@ left join lateral (
   select coalesce(sum(greatest(payment.amount - coalesce(refunded.amount, 0), 0)), 0) as net_received
   from public.payments payment
   left join lateral (
-    select coalesce(sum(refund.amount), 0) as amount from public.refunds refund where refund.payment_id = payment.id
+    select coalesce(sum(refund.amount), 0) as amount
+    from public.refunds refund
+    where refund.payment_id = payment.id
+      and not exists (select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id)
   ) refunded on true
   where payment.package_id = package.id and payment.status = 'posted'
 ) payment_totals on true
@@ -944,7 +1110,10 @@ left join lateral (
   select coalesce(sum(greatest(payment.amount - coalesce(refunded.amount, 0), 0)), 0) as net_received
   from public.payments payment
   left join lateral (
-    select coalesce(sum(refund.amount), 0) as amount from public.refunds refund where refund.payment_id = payment.id
+    select coalesce(sum(refund.amount), 0) as amount
+    from public.refunds refund
+    where refund.payment_id = payment.id
+      and not exists (select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id)
   ) refunded on true
   where payment.patient_id = patient.id and payment.status = 'posted'
 ) receipts on true
@@ -962,6 +1131,7 @@ begin
   if target_clinic_id is null or not private.is_same_clinic(target_clinic_id) then
     raise exception 'Selected patient does not belong to your clinic.' using errcode = '42501';
   end if;
+  perform private.lock_patient_billing_v2(p_patient_id);
   perform private.reconcile_patient_billing_v2(p_patient_id);
   return jsonb_build_object('success', true, 'patientId', p_patient_id);
 exception when others then
@@ -1049,3 +1219,51 @@ begin
   end loop;
 end;
 $$;
+
+-- Migration 031 may commit before the feature RPC migration is applied. Quarantine every
+-- new ledger surface and remove legacy billing DML policies in this same transaction, so
+-- that intermediate state is fail-closed rather than writable through old grants/policies.
+drop policy if exists "packages_tenant_admin_access" on public.packages;
+drop policy if exists "payments_tenant_admin_access" on public.payments;
+drop policy if exists "appointment_payments_tenant_admin_access" on public.appointment_payments;
+drop policy if exists "package_session_allocations_tenant_admin_access" on public.package_session_allocations;
+drop policy if exists "package_session_allocations_admin_access" on public.package_session_allocations;
+
+alter table public.appointment_charges enable row level security;
+alter table public.appointment_charge_adjustments enable row level security;
+alter table public.refunds enable row level security;
+alter table public.refund_reversals enable row level security;
+alter table public.payment_applications enable row level security;
+alter table public.package_session_allocations enable row level security;
+alter table public.billing_events enable row level security;
+
+revoke all on public.appointment_charges from public, anon, authenticated;
+revoke all on public.appointment_charge_adjustments from public, anon, authenticated;
+revoke all on public.refunds from public, anon, authenticated;
+revoke all on public.refund_reversals from public, anon, authenticated;
+revoke all on public.payment_applications from public, anon, authenticated;
+revoke all on public.package_session_allocations from public, anon, authenticated;
+revoke all on public.billing_events from public, anon, authenticated;
+revoke insert, update, delete on public.packages from authenticated;
+revoke insert, update, delete on public.payments from authenticated;
+revoke insert, update, delete on public.appointment_payments from authenticated;
+
+revoke all on function public.reconcile_patient_billing_v2(uuid) from public, anon, authenticated;
+revoke all on function public.preview_billing_allocation_v2(uuid) from public, anon, authenticated;
+revoke all on function private.reconcile_patient_billing_v2(uuid) from public, anon, authenticated;
+revoke all on function private.trigger_reconcile_patient_billing_v2() from public, anon, authenticated;
+revoke all on function private.trigger_reconcile_payment_refund_v2() from public, anon, authenticated;
+revoke all on function private.reject_billing_ledger_mutation() from public, anon, authenticated;
+revoke all on function private.guard_payment_application_history_v2() from public, anon, authenticated;
+revoke all on function private.guard_package_allocation_history_v2() from public, anon, authenticated;
+revoke all on function private.guard_payment_rewrite_v2() from public, anon, authenticated;
+revoke all on function private.guard_package_rewrite_v2() from public, anon, authenticated;
+revoke all on function private.billing_patient_lock_key_v2(uuid) from public, anon, authenticated;
+revoke all on function private.lock_patient_billing_v2(uuid) from public, anon, authenticated;
+revoke all on function private.try_lock_patient_billing_v2(uuid) from public, anon, authenticated;
+revoke all on function private.assign_patient_package_sessions(uuid) from public, anon, authenticated;
+revoke all on function private.allocate_patient_payment_credit(uuid) from public, anon, authenticated;
+revoke all on function private.reconcile_package_usage(uuid) from public, anon, authenticated;
+revoke all on function private.sync_patient_billing_allocations() from public, anon, authenticated;
+
+commit;

@@ -229,3 +229,14 @@ test('legacy packages are backfilled and reconciled without stranding package mo
     'Clinic/650.00/2',
   )
 })
+
+test('migration helpers reject an anchor filename that does not exist', { skip }, () => {
+  assert.throws(
+    () => buildDatabaseThrough('carebook_it_missing_migration_anchor', '999_missing.sql'),
+    /migration anchor not found/i,
+  )
+  assert.throws(
+    () => applyMigrationsAfter(DB, '999_missing.sql'),
+    /migration anchor not found/i,
+  )
+})

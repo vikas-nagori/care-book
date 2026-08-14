@@ -65,10 +65,14 @@ export function buildDatabaseThrough(dbName: string, lastMigration?: string): vo
     throw new Error(`unsafe test database name: ${dbName}`)
   }
 
+  const migrations = migrationFiles()
+  if (lastMigration && !migrations.some((file) => file.split('/').at(-1) === lastMigration)) {
+    throw new Error(`migration anchor not found: ${lastMigration}`)
+  }
+
   psql(maintenanceDb, ['-c', `drop database if exists ${dbName} with (force)`])
   psql(maintenanceDb, ['-c', `create database ${dbName}`])
 
-  const migrations = migrationFiles()
   const selectedMigrations = lastMigration
     ? migrations.filter((file) => file.split('/').at(-1)! <= lastMigration)
     : migrations
@@ -81,7 +85,11 @@ export function buildDatabaseThrough(dbName: string, lastMigration?: string): vo
 
 /** Apply migrations strictly after the supplied filename to an already-built database. */
 export function applyMigrationsAfter(dbName: string, migration: string): void {
-  applyFiles(dbName, migrationFiles().filter((file) => file.split('/').at(-1)! > migration))
+  const migrations = migrationFiles()
+  if (!migrations.some((file) => file.split('/').at(-1) === migration)) {
+    throw new Error(`migration anchor not found: ${migration}`)
+  }
+  applyFiles(dbName, migrations.filter((file) => file.split('/').at(-1)! > migration))
 }
 
 export function dropDatabase(dbName: string): void {
