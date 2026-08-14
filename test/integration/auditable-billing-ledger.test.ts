@@ -254,6 +254,90 @@ test('ordinary receipts distribute FIFO across multiple charges with exact parti
   assert.equal(query(DB, `select payment_status from appointments where id = '${secondCharge}'`), 'paid')
 })
 
+test('inserting an earlier charge recomputes reconciled ordinary applications by FIFO', { skip }, () => {
+  const patientId = patient('Inserted Earlier Ordinary FIFO')
+  const later = appointment(patientId, '2026-08-10', homeTypeId, 'completed', 100)
+  recordPayment(patientId, 'ordinary', 100)
+  const earlier = appointment(patientId, '2026-08-09', homeTypeId, 'completed', 100)
+
+  assert.equal(query(DB, `select payment_status from appointments where id = '${earlier}'`), 'paid')
+  assert.equal(query(DB, `select payment_status from appointments where id = '${later}'`), 'unpaid')
+  assert.equal(
+    query(DB, `select charge.appointment_reference_id from payment_applications application join appointment_charges charge on charge.id = application.charge_id where application.patient_id = '${patientId}' and application.status = 'active' and application.funding_scope = 'ordinary'`),
+    earlier,
+  )
+
+  const activeBefore = query(DB, `select jsonb_agg(to_jsonb(application) order by application.id) from payment_applications application where application.patient_id = '${patientId}' and application.status = 'active'`)
+  const historyCountBefore = query(DB, `select count(*) from payment_applications where patient_id = '${patientId}'`)
+  assert.equal(rpc(adminId, `public.reconcile_patient_billing_v2('${patientId}')`).success, true)
+  assert.equal(query(DB, `select jsonb_agg(to_jsonb(application) order by application.id) from payment_applications application where application.patient_id = '${patientId}' and application.status = 'active'`), activeBefore)
+  assert.equal(query(DB, `select count(*) from payment_applications where patient_id = '${patientId}'`), historyCountBefore)
+})
+
+test('redating a funded charge earlier recomputes reconciled ordinary FIFO', { skip }, () => {
+  const patientId = patient('Redated Ordinary FIFO')
+  const previouslyEarlier = appointment(patientId, '2026-08-10', homeTypeId, 'completed', 100)
+  const redatedEarlier = appointment(patientId, '2026-08-11', homeTypeId, 'completed', 100)
+  recordPayment(patientId, 'ordinary', 100)
+
+  query(DB, `update appointments set date = date '2026-08-09' where id = '${redatedEarlier}'`)
+
+  assert.equal(query(DB, `select payment_status from appointments where id = '${redatedEarlier}'`), 'paid')
+  assert.equal(query(DB, `select payment_status from appointments where id = '${previouslyEarlier}'`), 'unpaid')
+  assert.equal(
+    query(DB, `select charge.appointment_reference_id from payment_applications application join appointment_charges charge on charge.id = application.charge_id where application.patient_id = '${patientId}' and application.status = 'active' and application.funding_scope = 'ordinary'`),
+    redatedEarlier,
+  )
+
+  const activeBefore = query(DB, `select jsonb_agg(to_jsonb(application) order by application.id) from payment_applications application where application.patient_id = '${patientId}' and application.status = 'active'`)
+  const historyCountBefore = query(DB, `select count(*) from payment_applications where patient_id = '${patientId}'`)
+  assert.equal(rpc(adminId, `public.reconcile_patient_billing_v2('${patientId}')`).success, true)
+  assert.equal(query(DB, `select jsonb_agg(to_jsonb(application) order by application.id) from payment_applications application where application.patient_id = '${patientId}' and application.status = 'active'`), activeBefore)
+  assert.equal(query(DB, `select count(*) from payment_applications where patient_id = '${patientId}'`), historyCountBefore)
+})
+
+test('a partial legacy commitment does not pin its reconciled remainder', { skip }, () => {
+  const patientId = patient('Partial Legacy and Reconciled Split')
+  const later = appointment(patientId, '2026-08-10', homeTypeId, 'completed', 100)
+  const payment = recordPayment(patientId, 'ordinary', 100)
+  const paymentId = payment.paymentId as string
+  const laterChargeId = query(DB, `select id from appointment_charges where appointment_id = '${later}'`)
+
+  query(
+    DB,
+    `update payment_applications
+     set status = 'reversed', reversed_at = now(), reversal_reason = 'partial legacy split fixture'
+     where payment_id = '${paymentId}' and status = 'active'`,
+  )
+  query(
+    DB,
+    `insert into payment_applications (
+       clinic_id, patient_id, payment_id, charge_id, funding_scope, amount,
+       allocation_origin, applied_at
+     ) values (
+       '${clinicId}', '${patientId}', '${paymentId}', '${laterChargeId}', 'ordinary', 40,
+       'legacy_import', timestamptz '2026-08-01 12:00:00+05:30'
+     )`,
+  )
+  assert.equal(rpc(adminId, `public.reconcile_patient_billing_v2('${patientId}')`).success, true)
+  assert.equal(
+    query(DB, `select string_agg(allocation_origin || ':' || amount, ',' order by allocation_origin) from payment_applications where payment_id = '${paymentId}' and status = 'active'`),
+    'legacy_import:40.00,reconciled:60.00',
+  )
+
+  const earlier = appointment(patientId, '2026-08-09', homeTypeId, 'completed', 60)
+  assert.equal(
+    query(DB, `select charge.appointment_reference_id || ':' || application.amount || ':' || application.allocation_origin from payment_applications application join appointment_charges charge on charge.id = application.charge_id where application.payment_id = '${paymentId}' and application.status = 'active' order by charge.appointment_reference_id = '${earlier}' desc`),
+    `${earlier}:60.00:reconciled\n${later}:40.00:legacy_import`,
+  )
+  assert.equal(query(DB, `select payment_status from appointments where id = '${earlier}'`), 'paid')
+  assert.equal(query(DB, `select payment_status from appointments where id = '${later}'`), 'partially_paid')
+
+  const historyBefore = query(DB, `select jsonb_agg(to_jsonb(application) order by application.id) from payment_applications application where application.patient_id = '${patientId}'`)
+  assert.equal(rpc(adminId, `public.reconcile_patient_billing_v2('${patientId}')`).success, true)
+  assert.equal(query(DB, `select jsonb_agg(to_jsonb(application) order by application.id) from payment_applications application where application.patient_id = '${patientId}'`), historyBefore)
+})
+
 test('package receipts distribute FIFO only within their package with exact partial amounts', { skip }, () => {
   const patientId = patient('Package FIFO')
   const firstCharge = appointment(patientId, '2026-08-01', clinicTypeId, 'completed', 120)

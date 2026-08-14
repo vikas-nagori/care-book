@@ -221,7 +221,7 @@ create unique index package_session_allocations_one_active_appointment_v2_idx
 create index package_session_allocations_patient_v2_idx
   on public.package_session_allocations (patient_id, lifecycle);
 create unique index payment_applications_one_active_pair_v2_idx
-  on public.payment_applications (payment_id, charge_id) where status = 'active';
+  on public.payment_applications (payment_id, charge_id, allocation_origin) where status = 'active';
 create index payment_applications_patient_v2_idx on public.payment_applications (patient_id, status);
 create index appointment_charges_patient_v2_idx on public.appointment_charges (patient_id, status);
 create index refunds_payment_v2_idx on public.refunds (payment_id);
@@ -322,9 +322,9 @@ begin
         else appointment_charges.updated_at
       end;
 
-  -- Normalize every existing ordinary commitment before packages inspect eligibility.
-  -- Receipt and charge capacity are consumed deterministically in original application
-  -- order; stale/overflow commitments are reversed now, in this same invocation.
+  -- Normalize imported historical commitments before packages inspect eligibility.
+  -- Reconciled ordinary applications remain derived FIFO state and are rebuilt below;
+  -- only legacy imports reserve their original appointment ahead of package selection.
   create temporary table if not exists normalized_ordinary_applications_v2 (
     payment_id uuid not null,
     charge_id uuid not null,
@@ -349,6 +349,7 @@ begin
     where application.patient_id = target_patient_id
       and application.status = 'active'
       and application.funding_scope = 'ordinary'
+      and application.allocation_origin = 'legacy_import'
       and payment.patient_id = target_patient_id
       and payment.clinic_id = target_clinic_id
       and payment.status = 'posted'
@@ -388,6 +389,7 @@ begin
   where application.patient_id = target_patient_id
     and application.status = 'active'
     and application.funding_scope = 'ordinary'
+    and application.allocation_origin = 'legacy_import'
     and not exists (
       select 1
       from normalized_ordinary_applications_v2 normalized
@@ -421,6 +423,99 @@ begin
       and application.amount = normalized.amount
       and application.allocation_origin = normalized.allocation_origin
   );
+
+  -- Rebuild the current ordinary FIFO before package selection. Historical imports keep
+  -- their validated appointment commitment, while reconciled applications are derived
+  -- anew so an earlier or redated charge immediately takes priority. Appointments that
+  -- already belong to a still-eligible package remain outside the ordinary FIFO.
+  create temporary table if not exists prepackage_ordinary_applications_v2 (
+    payment_id uuid not null,
+    charge_id uuid not null,
+    amount numeric(10,2) not null,
+    allocation_origin text not null,
+    applied_at timestamptz not null,
+    primary key (payment_id, charge_id, allocation_origin)
+  ) on commit drop;
+  truncate prepackage_ordinary_applications_v2;
+
+  insert into prepackage_ordinary_applications_v2 (
+    payment_id, charge_id, amount, allocation_origin, applied_at
+  )
+  select
+    normalized.payment_id,
+    normalized.charge_id,
+    normalized.amount,
+    normalized.allocation_origin,
+    normalized.applied_at
+  from normalized_ordinary_applications_v2 normalized;
+
+  for payment_row in
+    select
+      payment.*,
+      greatest(payment.amount - coalesce(sum(refund.amount), 0), 0)::numeric(12,2) as net_amount
+    from public.payments payment
+    left join public.refunds refund on refund.payment_id = payment.id
+    where payment.patient_id = target_patient_id
+      and payment.clinic_id = target_clinic_id
+      and payment.status = 'posted'
+      and payment.funding_scope = 'ordinary'
+    group by payment.id
+    having greatest(payment.amount - coalesce(sum(refund.amount), 0), 0) > 0
+    order by payment.date, payment.created_at, payment.id
+  loop
+    select greatest(payment_row.net_amount - coalesce(sum(application.amount), 0), 0)
+    into remaining_payment
+    from prepackage_ordinary_applications_v2 application
+    where application.payment_id = payment_row.id;
+
+    for charge_row in
+      select charge.id
+      from public.appointment_charges charge
+      join public.appointments appointment on appointment.id = charge.appointment_id
+      where charge.patient_id = target_patient_id
+        and charge.status in ('pending', 'posted')
+        and charge.amount > 0
+        and not exists (
+          select 1
+          from public.package_session_allocations allocation
+          join public.packages package on package.id = allocation.package_id
+          where allocation.appointment_id = appointment.id
+            and allocation.lifecycle <> 'released'
+            and package.status in ('active', 'completed')
+            and package.appointment_type_id = appointment.appointment_type_id
+            and appointment.date >= package.starts_on
+        )
+      order by appointment.date, appointment.time, appointment.id
+    loop
+      exit when remaining_payment <= 0;
+
+      select greatest(charge.amount - coalesce(sum(application.amount), 0), 0)
+      into remaining_charge
+      from public.appointment_charges charge
+      left join prepackage_ordinary_applications_v2 application
+        on application.charge_id = charge.id
+      where charge.id = charge_row.id
+      group by charge.amount;
+
+      if remaining_charge <= 0 then
+        continue;
+      end if;
+
+      draw_amount := least(remaining_payment, remaining_charge);
+      insert into prepackage_ordinary_applications_v2 (
+        payment_id, charge_id, amount, allocation_origin, applied_at
+      ) values (
+        payment_row.id,
+        charge_row.id,
+        draw_amount,
+        'reconciled',
+        now()
+      )
+      on conflict (payment_id, charge_id, allocation_origin) do update
+      set amount = prepackage_ordinary_applications_v2.amount + excluded.amount;
+      remaining_payment := remaining_payment - draw_amount;
+    end loop;
+  end loop;
 
   create temporary table if not exists desired_package_allocations_v2 (
     package_id uuid not null,
@@ -468,15 +563,9 @@ begin
         )
         and not exists (
           select 1
-          from public.payment_applications application
-          join public.payments payment on payment.id = application.payment_id
+          from prepackage_ordinary_applications_v2 application
           where application.charge_id = charge.id
-            and application.status = 'active'
-            and application.funding_scope = 'ordinary'
-            and payment.status = 'posted'
-            and payment.amount > coalesce((
-              select sum(refund.amount) from public.refunds refund where refund.payment_id = payment.id
-            ), 0)
+            and application.amount > 0
         )
       order by appointment.date, appointment.time, appointment.id
       limit remaining_sessions
@@ -526,7 +615,7 @@ begin
     amount numeric(10,2) not null,
     allocation_origin text not null,
     applied_at timestamptz not null,
-    primary key (payment_id, charge_id)
+    primary key (payment_id, charge_id, allocation_origin)
   ) on commit drop;
   truncate desired_payment_applications_v2;
 
@@ -612,7 +701,7 @@ begin
         'reconciled',
         now()
       )
-      on conflict (payment_id, charge_id) do update
+      on conflict (payment_id, charge_id, allocation_origin) do update
       set amount = desired_payment_applications_v2.amount + excluded.amount;
       remaining_payment := remaining_payment - draw_amount;
     end loop;
@@ -670,12 +759,13 @@ begin
     and payment.patient_id = target_patient_id;
 
   insert into public.appointment_payments (payment_id, appointment_id, amount_applied)
-  select application.payment_id, charge.appointment_id, application.amount
+  select application.payment_id, charge.appointment_id, sum(application.amount)
   from public.payment_applications application
   join public.appointment_charges charge on charge.id = application.charge_id
   where application.patient_id = target_patient_id
     and application.status = 'active'
     and charge.appointment_id is not null
+  group by application.payment_id, charge.appointment_id
   on conflict (payment_id, appointment_id) do update
   set amount_applied = excluded.amount_applied;
 
