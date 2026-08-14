@@ -16,6 +16,7 @@
     "e2e:seed": "dotenv -e .env.e2e -o -- node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types e2e/support/seed-cli.ts",
     "pretest:e2e": "npm run e2e:db:up && npm run e2e:seed",
     "test:e2e": "playwright test",
+    "billing:impact-report": "node --experimental-strip-types scripts/billing-impact-report.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
     "typecheck": "tsc --noEmit && tsc --noEmit -p e2e/tsconfig.json",

@@ -1,0 +1,71 @@
+{
+  "asOfDate": "2026-08-15",
+  "voidPaymentIds": ["b53563c9-b4b4-4a02-b5f4-5937b4cf1225"],
+  "replacementPayments": [
+    {
+      "id": "4bb5d6ca-08b4-4d8a-92aa-47cf7a265401", "clinicId": "d36983a1-e62d-41bd-8c3a-dfbdb4ce7968",
+      "patientId": "72881d5a-88d9-4937-93b2-5ae53cf8a471", "packageId": "cb877a26-47f4-4ae7-8e15-416269db240f",
+      "amount": 5400, "paymentMethod": "upi", "date": "2026-07-15", "createdAt": "2026-07-15T08:26:00.671694Z",
+      "fundingScope": "package", "status": "posted"
+    },
+    {
+      "id": "6dc37185-3aa2-4590-9e18-acde15600600", "clinicId": "d36983a1-e62d-41bd-8c3a-dfbdb4ce7968",
+      "patientId": "72881d5a-88d9-4937-93b2-5ae53cf8a471", "packageId": null,
+      "amount": 600, "paymentMethod": "upi", "date": "2026-07-15", "createdAt": "2026-07-15T08:26:00.671695Z",
+      "fundingScope": "ordinary", "status": "posted"
+    }
+  ],
+  "refunds": [
+    {
+      "id": "79b344fb-d5e2-4ea1-b6c2-202607300100", "clinicId": "d36983a1-e62d-41bd-8c3a-dfbdb4ce7968",
+      "patientId": "72881d5a-88d9-4937-93b2-5ae53cf8a471", "paymentId": "6dc37185-3aa2-4590-9e18-acde15600600",
+      "amount": 100, "refundMethod": "upi", "refundDate": "2026-07-30",
+      "reason": "Approved historical correction: return Smita package overpayment", "createdAt": "2026-07-30T00:00:00Z"
+    }
+  ],
+  "packageOverrides": [
+    {
+      "packageId": "cb877a26-47f4-4ae7-8e15-416269db240f", "appointmentTypeId": "2c08cb1e-13c2-4b86-be34-08a03cc6c399",
+      "startsOn": "2026-07-15", "totalSessions": 9, "totalAmount": 5400, "perSessionAmount": 600
+    },
+    {
+      "packageId": "28ecd64e-875d-42fa-b5df-c59191c58a7b", "appointmentTypeId": "2c08cb1e-13c2-4b86-be34-08a03cc6c399",
+      "startsOn": "2026-07-28"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "patientId": "72881d5a-88d9-4937-93b2-5ae53cf8a471",
+      "ordinary": { "due": 0, "refundableCredit": 0, "netReceived": 500, "applied": 500 },
+      "packages": [{
+        "packageId": "cb877a26-47f4-4ae7-8e15-416269db240f", "availed": 9, "scheduled": 0,
+        "remaining": 0, "lifecycle": "completed", "due": 0, "refundableCredit": 0
+      }],
+      "appointmentBadges": [{ "appointmentId": "c1d8f6e6-d25d-4016-b496-77e187351b8f", "expected": "paid" }]
+    },
+    {
+      "patientId": "24c77231-9973-4b21-b338-b1dfc092a2e3",
+      "packages": [
+        { "packageId": "dd3bf8eb-741f-40d9-a25d-bdea979871b4", "availed": 5, "scheduled": 0, "remaining": 0, "lifecycle": "completed", "due": 0 },
+        { "packageId": "28ecd64e-875d-42fa-b5df-c59191c58a7b", "availed": 5, "scheduled": 0, "remaining": 0, "lifecycle": "completed", "due": 50 }
+      ]
+    },
+    {
+      "patientId": "fa67d1ba-3f91-4f28-befa-00e8df3fbdad",
+      "packages": [{ "packageId": "44e48b86-bb08-49a2-89e0-060051f9b47a", "availed": 4, "scheduled": 1, "remaining": 0, "lifecycle": "active" }]
+    },
+    {
+      "patientId": "e7714eb4-df6c-4421-a2d6-575837fe3cae",
+      "packages": [{ "packageId": "cacb4aea-4059-4671-806a-1e382dc3fa75", "availed": 3, "scheduled": 2, "remaining": 2, "lifecycle": "active", "refundableCredit": 1300 }]
+    },
+    {
+      "patientId": "dfc43b86-d56f-4ff4-a9d4-68ffd3b288d4",
+      "packages": [{ "packageId": "705d245d-e107-4f13-b511-445f424208c0", "availed": 2, "scheduled": 1, "remaining": 2, "lifecycle": "active", "refundableCredit": 1300 }],
+      "appointmentBadges": [{ "appointmentId": "89650eb0-d673-4d50-b481-403e704ad847", "expected": "unpaid" }]
+    },
+    {
+      "patientId": "9756bf2a-0c32-4dc1-826e-d9fdb50183d4",
+      "packages": [{ "packageId": "5e169151-db06-46c9-9736-dd0221afd749", "availed": 7, "scheduled": 0, "remaining": 0, "lifecycle": "completed", "due": 0, "refundableCredit": 0 }]
+    }
+  ]
+}
