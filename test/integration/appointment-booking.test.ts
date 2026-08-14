@@ -34,7 +34,7 @@ function newPatient(label: string): string {
   )
 }
 
-test('booking for a patient with payment credit succeeds and is prepaid', { skip: skipReason() }, () => {
+test('booking for a patient with ordinary payment credit succeeds and is paid', { skip: skipReason() }, () => {
   const patient = newPatient('Credit Patient')
 
   // ₹1000 of credit on file, no appointments yet.
@@ -59,7 +59,7 @@ test('booking for a patient with payment credit succeeds and is prepaid', { skip
     DB,
     `select payment_status from appointments where patient_id = '${patient}'`
   )
-  assert.equal(status, 'prepaid', 'existing credit should prepay the upcoming session')
+  assert.equal(status, 'paid', 'ordinary FIFO credit should pay the upcoming session')
 })
 
 test('booking for a patient with an active package consumes a package slot', { skip: skipReason() }, () => {
@@ -67,8 +67,14 @@ test('booking for a patient with an active package consumes a package slot', { s
 
   query(
     DB,
-    `insert into packages (patient_id, name, total_sessions, total_amount, per_session_amount, status)
-     values ('${patient}', '10-pack', 10, 8000, 800, 'active')`
+    `insert into packages (
+       patient_id, name, total_sessions, total_amount, per_session_amount, status,
+       appointment_type_id, starts_on, billing_version
+     ) values (
+       '${patient}', '10-pack', 10, 8000, 800, 'active',
+       (select id from appointment_types where clinic_id = '${clinicId}' and name = 'Home'),
+       current_date, 2
+     )`
   )
 
   // Exercises assign_patient_package_sessions() (the other function fixed by 015).
@@ -81,7 +87,7 @@ test('booking for a patient with an active package consumes a package slot', { s
 
   const allocated = query(
     DB,
-    `select count(*) from package_session_allocations where appointment_id = '${apptId}'`
+    `select count(*) from package_session_allocations where appointment_id = '${apptId}' and lifecycle <> 'released'`
   )
   assert.equal(allocated, '1', 'the booked session should be claimed into the package')
 })
@@ -91,8 +97,14 @@ test('bulk booking creates every session and runs package allocation for each ro
 
   query(
     DB,
-    `insert into packages (patient_id, name, total_sessions, total_amount, per_session_amount, status)
-     values ('${patient}', 'Recurring 10-pack', 10, 8000, 800, 'active')`
+    `insert into packages (
+       patient_id, name, total_sessions, total_amount, per_session_amount, status,
+       appointment_type_id, starts_on, billing_version
+     ) values (
+       '${patient}', 'Recurring 10-pack', 10, 8000, 800, 'active',
+       (select id from appointment_types where clinic_id = '${clinicId}' and name = 'Clinic'),
+       current_date, 2
+     )`
   )
 
   query(
@@ -115,7 +127,7 @@ test('bulk booking creates every session and runs package allocation for each ro
     `select count(*)
      from package_session_allocations allocation
      join appointments appointment on appointment.id = allocation.appointment_id
-     where appointment.patient_id = '${patient}'`
+     where appointment.patient_id = '${patient}' and allocation.lifecycle <> 'released'`
   )
   assert.equal(allocationCount, '3', 'each inserted session should run package allocation triggers')
 })

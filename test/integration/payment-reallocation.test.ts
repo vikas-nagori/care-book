@@ -35,17 +35,19 @@ function rpc(userId: string, expr: string): Record<string, unknown> {
   return JSON.parse(queryAs(DB, userId, `select ${expr}`))
 }
 
-/** A patient's unspent advance credit = Σ payments.amount − Σ appointment_payments.amount_applied. */
+/** A patient's unspent ordinary credit = posted receipts − refunds − active applications. */
 function unspentCredit(patient: string): number {
   return Number(
     query(
       DB,
-      `select coalesce((select sum(amount) from payments where patient_id = '${patient}'), 0)
+      `select coalesce((
+                select sum(p.amount - coalesce((select sum(r.amount) from refunds r where r.payment_id = p.id), 0))
+                from payments p where p.patient_id = '${patient}' and p.status = 'posted'
+              ), 0)
             - coalesce((
-                select sum(ap.amount_applied)
-                from appointment_payments ap
-                join payments p on p.id = ap.payment_id
-                where p.patient_id = '${patient}'
+                select sum(pa.amount)
+                from payment_applications pa
+                where pa.patient_id = '${patient}' and pa.status = 'active'
               ), 0)`
     )
   )
@@ -56,7 +58,7 @@ function paymentStatus(appt: string): string {
 }
 
 function appliedTo(appt: string): number {
-  return Number(query(DB, `select coalesce(sum(amount_applied), 0) from appointment_payments where appointment_id = '${appt}'`))
+  return Number(query(DB, `select coalesce(sum(pa.amount), 0) from payment_applications pa join appointment_charges c on c.id = pa.charge_id where c.appointment_reference_id = '${appt}' and pa.status = 'active'`))
 }
 
 test('raising a paid session fee re-opens the balance', { skip }, () => {
@@ -69,13 +71,12 @@ test('raising a paid session fee re-opens the balance', { skip }, () => {
   rpc(adminId, `public.record_payment('${patient}', null, 500, 'cash', current_date, null)`)
   assert.equal(paymentStatus(appt), 'paid', 'precondition: ₹500 pays the ₹500 session')
 
-  // The session was actually ₹700. The ₹500 pool can no longer cover it (all-or-nothing FIFO),
-  // so it must fall back to unpaid, leaving ₹500 as credit and ₹200 net due.
-  query(DB, `update appointments set fee = 700 where id = '${appt}'`)
+  // The session was actually ₹700. The v2 ledger applies the ₹500 partially and leaves ₹200 due.
+  assert.equal(rpc(adminId, `public.adjust_appointment_fee('${appt}', 700, 'correct actual fee')`).success, true)
 
-  assert.equal(paymentStatus(appt), 'unpaid', 'the session should re-open as unpaid')
-  assert.equal(appliedTo(appt), 0, 'no money should stay tied to the re-opened session')
-  assert.equal(unspentCredit(patient), 500, 'the ₹500 should return to the credit pool')
+  assert.equal(paymentStatus(appt), 'partially_paid', 'the session should expose its partial payment')
+  assert.equal(appliedTo(appt), 500, 'available ordinary money remains applied')
+  assert.equal(unspentCredit(patient), 0, 'the receipt is fully applied, with ₹200 due')
 })
 
 test('lowering a paid session fee releases the overpayment as credit', { skip }, () => {
@@ -89,14 +90,14 @@ test('lowering a paid session fee releases the overpayment as credit', { skip },
   assert.equal(paymentStatus(appt), 'paid')
 
   // The session was actually ₹300 — the ₹200 overpayment must be freed as credit.
-  query(DB, `update appointments set fee = 300 where id = '${appt}'`)
+  assert.equal(rpc(adminId, `public.adjust_appointment_fee('${appt}', 300, 'correct actual fee')`).success, true)
 
   assert.equal(paymentStatus(appt), 'paid', 'the ₹500 still covers the ₹300 session')
   assert.equal(appliedTo(appt), 300, 'only the current ₹300 fee should stay tied to the session')
   assert.equal(unspentCredit(patient), 200, 'the ₹200 overpayment should surface as credit')
 })
 
-test('re-deriving money does not disturb package session usage', { skip }, () => {
+test('re-deriving money does not disturb a scheduled package reservation', { skip }, () => {
   const patient = newPatient('Package Usage')
   const appt = query(
     DB,
@@ -105,15 +106,21 @@ test('re-deriving money does not disturb package session usage', { skip }, () =>
   )
   rpc(
     adminId,
-    `public.record_billing_entry('${patient}', 'package_with_payment', '10-pack', 10, 800, 'prepaid', 8000, 'cash', current_date, null)`
+    `public.record_billing_entry_v2(
+      '${patient}', 'package_with_payment', '10-pack', 10, 800,
+      (select id from appointment_types where clinic_id = '${clinicId}' and name = 'Home'),
+      current_date, 8000, 'cash', current_date, null
+    )`
   )
   const usedBefore = query(DB, `select used_sessions from packages where patient_id = '${patient}'`)
-  assert.equal(usedBefore, '1', 'the booked session is claimed by the package')
+  assert.equal(usedBefore, '0', 'scheduled reservations do not count as availed')
+  assert.equal(query(DB, `select count(*) from package_session_allocations where appointment_id = '${appt}' and lifecycle = 'scheduled'`), '1')
 
   // Editing the session fee triggers a money rebuild; the package quota counter must be untouched.
   query(DB, `update appointments set fee = 900 where id = '${appt}'`)
   const usedAfter = query(DB, `select used_sessions from packages where patient_id = '${patient}'`)
-  assert.equal(usedAfter, usedBefore, 'used_sessions is package quota, not money, and must not change')
+  assert.equal(usedAfter, usedBefore, 'used_sessions counts availed sessions only')
+  assert.equal(query(DB, `select count(*) from package_session_allocations where appointment_id = '${appt}' and lifecycle = 'scheduled'`), '1')
 })
 
 test('allocate_patient_payment_credit is idempotent', { skip }, () => {
@@ -133,9 +140,5 @@ test('allocate_patient_payment_credit is idempotent', { skip }, () => {
 
   assert.equal(paymentStatus(appt), firstStatus, 'status stable across repeated runs')
   assert.equal(appliedTo(appt), firstApplied, 'applied amount stable across repeated runs')
-  assert.equal(
-    query(DB, `select count(*) from appointment_payments where appointment_id = '${appt}'`),
-    '1',
-    'no duplicate ties accumulate'
-  )
+  assert.equal(query(DB, `select count(*) from payment_applications pa join appointment_charges c on c.id = pa.charge_id where c.appointment_reference_id = '${appt}' and pa.status = 'active'`), '1', 'no duplicate active applications accumulate')
 })

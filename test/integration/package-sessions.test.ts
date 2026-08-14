@@ -28,8 +28,16 @@ before(() => {
   patientId = query(DB, `insert into patients (clinic_id, name, phone) values ('${clinicId}', 'Asha Rao', '1') returning id`)
   packageId = query(
     DB,
-    `insert into packages (clinic_id, patient_id, name, total_sessions, used_sessions, total_amount, per_session_amount, paid_amount, payment_timing, status)
-     values ('${clinicId}', '${patientId}', '10-Session Physiotherapy Package', 10, 0, 8000, 800, 8000, 'prepaid', 'active')
+    `insert into packages (
+       clinic_id, patient_id, name, total_sessions, used_sessions, total_amount,
+       per_session_amount, paid_amount, payment_timing, status,
+       appointment_type_id, starts_on, billing_version
+     ) values (
+       '${clinicId}', '${patientId}', '10-Session Physiotherapy Package', 10, 0, 8000,
+       800, 8000, 'prepaid', 'active',
+       (select id from appointment_types where clinic_id = '${clinicId}' and name = 'Clinic'),
+       date '2026-07-01', 2
+     )
      returning id`,
   )
 })
@@ -62,7 +70,7 @@ test('lists each allocated session with its date, oldest first', { skip }, () =>
     `select coalesce(json_agg(json_build_object('date', to_char(a.date, 'YYYY-MM-DD'), 'fee', a.fee) order by a.date), '[]')
      from package_session_allocations psa
      join appointments a on a.id = psa.appointment_id
-     where psa.package_id = '${packageId}'`,
+     where psa.package_id = '${packageId}' and psa.lifecycle <> 'released'`,
   )
   const sessions = JSON.parse(json) as { date: string; fee: number }[]
 
@@ -74,10 +82,10 @@ test('lists each allocated session with its date, oldest first', { skip }, () =>
 
 test('the allocation ledger is readable by admins but not staff (RLS)', { skip }, () => {
   const seenByAdmin = queryAsAuthenticated(
-    DB, adminId, `select count(*) from package_session_allocations where package_id = '${packageId}'`,
+    DB, adminId, `select count(*) from package_session_allocations where package_id = '${packageId}' and lifecycle <> 'released'`,
   )
   const seenByStaff = queryAsAuthenticated(
-    DB, staffId, `select count(*) from package_session_allocations where package_id = '${packageId}'`,
+    DB, staffId, `select count(*) from package_session_allocations where package_id = '${packageId}' and lifecycle <> 'released'`,
   )
   assert.equal(seenByAdmin, '2', 'admin sees both allocations')
   assert.equal(seenByStaff, '0', 'staff cannot read the admin-only allocation ledger')

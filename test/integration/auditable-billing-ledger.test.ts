@@ -248,7 +248,11 @@ test('scheduled reservations become availed, complete and reopen, then release a
 
   query(DB, `update appointments set status = 'cancelled' where id = '${reserved}'`)
   assert.equal(query(DB, `select lifecycle from package_session_allocations where appointment_id = '${next}' and lifecycle <> 'released'`), 'scheduled')
-  assert.equal(query(DB, `select count(*) from package_session_allocations where appointment_id = '${reserved}' and lifecycle = 'released'`), '1')
+  assert.equal(
+    query(DB, `select count(*) from package_session_allocations where appointment_reference_id = '${reserved}' and lifecycle = 'released'`),
+    '3',
+    'scheduled → availed → scheduled → cancelled retains every released lifecycle transition',
+  )
 })
 
 test('refunds, voids, package cancellation, and fee adjustments require reasons and retain audit rows', { skip }, () => {
@@ -272,6 +276,63 @@ test('refunds, voids, package cancellation, and fee adjustments require reasons 
   assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}'`), '3')
 })
 
+test('package cancellation is audited, releases reservations, and retains receipts', { skip }, () => {
+  const patientId = patient('Cancelled Package')
+  const apptId = appointment(patientId, '2026-08-10')
+  const entry = createPackage(patientId, 'Cancelled package', 1, 100, clinicTypeId, '2026-08-01')
+  const packageId = entry.packageId as string
+  const paymentId = entry.paymentId as string
+
+  assert.equal(rpc(adminId, `public.cancel_package('${packageId}', '')`).success, false)
+  assert.equal(rpc(adminId, `public.cancel_package('${packageId}', 'created in error')`).success, true)
+  assert.equal(query(DB, `select status from packages where id = '${packageId}'`), 'cancelled')
+  assert.equal(query(DB, `select count(*) from payments where id = '${paymentId}'`), '1')
+  assert.equal(query(DB, `select lifecycle from package_session_allocations where appointment_id = '${apptId}' order by created_at desc limit 1`), 'released')
+  assert.equal(query(DB, `select count(*) from billing_events where entity_id = '${packageId}' and event_type = 'package_cancelled'`), '1')
+})
+
+test('legacy delete RPCs preserve rows by converting deletion to audited void and cancellation', { skip }, () => {
+  const patientId = patient('Legacy Delete Compatibility')
+  appointment(patientId, '2026-08-10')
+  const entry = createPackage(patientId, 'Legacy package', 1, 100, clinicTypeId, '2026-08-01')
+  const packageId = entry.packageId as string
+  const paymentId = entry.paymentId as string
+
+  assert.equal(rpc(adminId, `public.delete_payment('${paymentId}')`).success, true)
+  assert.equal(query(DB, `select status from payments where id = '${paymentId}'`), 'voided')
+  assert.equal(query(DB, `select count(*) from payments where id = '${paymentId}'`), '1')
+  assert.throws(() => query(DB, `delete from payments where id = '${paymentId}'`), /immutable/i)
+
+  assert.equal(rpc(adminId, `public.delete_package('${packageId}')`).success, true)
+  assert.equal(query(DB, `select status from packages where id = '${packageId}'`), 'cancelled')
+  assert.equal(query(DB, `select count(*) from packages where id = '${packageId}'`), '1')
+  assert.throws(() => query(DB, `delete from packages where id = '${packageId}'`), /immutable/i)
+})
+
+test('deleting a scheduled appointment preserves a reconstructable released ledger history', { skip }, () => {
+  const patientId = patient('Appointment History')
+  const apptId = appointment(patientId, '2026-08-10')
+  createPackage(patientId, 'History package', 1, 100, clinicTypeId, '2026-08-01')
+  const chargeId = query(DB, `select id from appointment_charges where appointment_id = '${apptId}'`)
+  const allocationId = query(DB, `select id from package_session_allocations where appointment_id = '${apptId}' and lifecycle <> 'released'`)
+
+  query(DB, `delete from appointments where id = '${apptId}'`)
+
+  assert.equal(query(DB, `select status || '/' || (appointment_id is null)::text || '/' || (appointment_reference_id = '${apptId}')::text from appointment_charges where id = '${chargeId}'`), 'voided/true/true')
+  assert.equal(query(DB, `select lifecycle || '/' || (appointment_id is null)::text || '/' || (appointment_reference_id = '${apptId}')::text from package_session_allocations where id = '${allocationId}'`), 'released/true/true')
+  assert.equal(query(DB, `select count(*) from billing_events where entity_id = '${apptId}' and event_type = 'appointment_deleted'`), '1')
+})
+
+test('completed appointment fees can change only through the audited adjustment RPC', { skip }, () => {
+  const patientId = patient('Fee Guard')
+  const apptId = appointment(patientId, '2026-08-10', clinicTypeId, 'completed', 100)
+
+  assert.throws(() => query(DB, `update appointments set fee = 120 where id = '${apptId}'`), /adjust_appointment_fee/i)
+  assert.equal(rpc(adminId, `public.adjust_appointment_fee('${apptId}', 120, 'correct actual fee')`).success, true)
+  assert.equal(query(DB, `select fee from appointments where id = '${apptId}'`), '120.00')
+  assert.equal(query(DB, `select adjusted_amount from appointment_charge_adjustments where appointment_id = '${apptId}'`), '120.00')
+})
+
 test('reconciliation is idempotent and does not append duplicate active ledger rows', { skip }, () => {
   const patientId = patient('Idempotent')
   appointment(patientId, '2026-08-11', clinicTypeId, 'completed', 100)
@@ -287,6 +348,7 @@ test('reconciliation is idempotent and does not append duplicate active ledger r
 
 test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, () => {
   const patientId = patient('Tenant Ledger')
+  appointment(patientId, '2026-08-12', clinicTypeId, 'completed', 100)
   recordPayment(patientId, 'ordinary', 100)
 
   assert.equal(queryAsAuthenticated(DB, adminId, `select count(*) from payments where patient_id = '${patientId}'`), '1')
@@ -295,4 +357,35 @@ test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, ()
   assert.equal(rpc(staffId, `public.reconcile_patient_billing_v2('${patientId}')`).success, false)
   assert.equal(rpc(otherAdminId, `public.reconcile_patient_billing_v2('${patientId}')`).success, false)
   assert.equal(rpc(otherAdminId, `public.preview_billing_allocation_v2('${patientId}')`).success, false)
+
+  const expectedAdminRows: Record<string, string> = {
+    appointment_charges: '1',
+    appointment_charge_adjustments: '0',
+    refunds: '0',
+    payment_applications: '1',
+    package_session_allocations: '0',
+    billing_events: '0',
+  }
+  for (const table of Object.keys(expectedAdminRows)) {
+    assert.equal(queryAsAuthenticated(DB, adminId, `select count(*) from ${table} where patient_id = '${patientId}'`), expectedAdminRows[table])
+    assert.equal(queryAsAuthenticated(DB, staffId, `select count(*) from ${table} where patient_id = '${patientId}'`), '0')
+  }
+  assert.throws(
+    () => queryAsAuthenticated(DB, adminId, `insert into billing_events (clinic_id, patient_id, event_type, entity_type, entity_id) values ('${clinicId}', '${patientId}', 'forged', 'patient', '${patientId}') returning id`),
+    /permission denied|row-level security/i,
+  )
+
+  for (const signature of [
+    'record_billing_entry_v2(uuid,text,text,integer,numeric,uuid,date,numeric,text,date,text)',
+    'record_payment_v2(uuid,text,uuid,numeric,text,date,text)',
+    'record_refund(uuid,numeric,text)',
+    'void_payment(uuid,text)',
+    'cancel_package(uuid,text)',
+    'adjust_appointment_fee(uuid,numeric,text)',
+    'reconcile_patient_billing_v2(uuid)',
+    'preview_billing_allocation_v2(uuid)',
+  ]) {
+    assert.equal(query(DB, `select has_function_privilege('anon', 'public.${signature}', 'execute')`), 'f')
+    assert.equal(query(DB, `select has_function_privilege('authenticated', 'public.${signature}', 'execute')`), 't')
+  }
 })

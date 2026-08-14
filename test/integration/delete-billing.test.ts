@@ -1,8 +1,5 @@
-// Deleting a payment or package (migration 026) hard-deletes the row(s) and re-runs the
-// idempotent allocators. Because credit is allocated oldest-first, shrinking the pool leaves
-// the most-recent completed sessions unpaid while older ones stay paid. Deleting a prepaid
-// package also removes its linked payment so the collected money leaves the credit pool.
-// These tests pin that behaviour and the admin-only guard.
+// Legacy delete RPC names now preserve the financial record and perform audited void/cancel
+// transitions. Reconciliation still releases applications/reservations oldest-first.
 
 import { before, after, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -48,7 +45,7 @@ function completedSession(patient: string, daysAgo: number, fee: number): string
   )
 }
 
-test('deleting the most recent payment leaves the newest completed session unpaid', { skip }, () => {
+test('legacy payment deletion voids the receipt and leaves the newest completed session unpaid', { skip }, () => {
   const patient = newPatient('Delete Payment')
   // Three ₹500 completed sessions, oldest → newest.
   const oldest = completedSession(patient, 3, 500)
@@ -62,7 +59,7 @@ test('deleting the most recent payment leaves the newest completed session unpai
   assert.equal(paymentStatus(middle), 'paid')
   assert.equal(paymentStatus(newest), 'paid')
 
-  // Delete the more recent ₹500 payment: the ₹1000 pool now only covers the two oldest sessions.
+  // Void the more recent ₹500 payment: the ₹1000 pool now only covers the two oldest sessions.
   const del = rpc(adminId, `public.delete_payment('${later.paymentId}')`)
   assert.equal(del.success, true)
   assert.equal(del.patientId, patient)
@@ -71,13 +68,13 @@ test('deleting the most recent payment leaves the newest completed session unpai
   assert.equal(paymentStatus(middle), 'paid', 'middle stays paid')
   assert.equal(paymentStatus(newest), 'unpaid', 'newest completed session falls back to unpaid')
   assert.equal(
-    query(DB, `select count(*) from payments where id = '${later.paymentId}'`),
-    '0',
-    'the payment row is gone'
+    query(DB, `select status from payments where id = '${later.paymentId}'`),
+    'voided',
+    'the immutable payment row is retained as voided'
   )
 })
 
-test('deleting a package removes its linked payment and withdraws the credit', { skip }, () => {
+test('legacy package deletion cancels it, releases its session, and retains refundable funds', { skip }, () => {
   const patient = newPatient('Delete Package')
   const session = query(
     DB,
@@ -86,7 +83,11 @@ test('deleting a package removes its linked payment and withdraws the credit', {
   )
   const entry = rpc(
     adminId,
-    `public.record_billing_entry('${patient}', 'package_with_payment', '10-pack', 10, 800, 'prepaid', 8000, 'cash', current_date, null)`
+    `public.record_billing_entry_v2(
+      '${patient}', 'package_with_payment', '10-pack', 10, 800,
+      (select id from appointment_types where clinic_id = '${clinicId}' and name = 'Home'),
+      current_date, 8000, 'cash', current_date, null
+    )`
   )
   assert.equal(paymentStatus(session), 'prepaid', 'the ₹8000 prepays the booked session')
   const packageId = entry.packageId as string
@@ -95,11 +96,11 @@ test('deleting a package removes its linked payment and withdraws the credit', {
   assert.equal(del.success, true)
   assert.equal(del.patientId, patient)
 
-  assert.equal(query(DB, `select count(*) from packages where id = '${packageId}'`), '0', 'package removed')
+  assert.equal(query(DB, `select status from packages where id = '${packageId}'`), 'cancelled', 'package is retained as cancelled')
   assert.equal(
-    query(DB, `select count(*) from payments where patient_id = '${patient}'`),
-    '0',
-    'the linked prepaid payment is removed too'
+    query(DB, `select count(*) from payments where patient_id = '${patient}' and status = 'posted'`),
+    '1',
+    'the linked payment remains available for an explicit refund or void'
   )
   assert.equal(paymentStatus(session), 'unpaid', 'the session reverts to unpaid once the money is gone')
 })

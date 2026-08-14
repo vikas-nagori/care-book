@@ -39,29 +39,29 @@ function bookSession(patient: string, dayOffset: number, fee: number): string {
   )
 }
 
-test('cancelling a prepaid session untallies its payment links', { skip }, () => {
+test('cancelling an ordinary-paid session reverses its payment applications', { skip }, () => {
   const patient = newPatient('Cancel')
   const appt = bookSession(patient, 1, 500)
   pay(patient, 500)
-  assert.equal(query(DB, `select payment_status from appointments where id = '${appt}'`), 'prepaid')
+  assert.equal(query(DB, `select payment_status from appointments where id = '${appt}'`), 'paid')
 
   query(DB, `update appointments set status = 'cancelled' where id = '${appt}'`)
 
   assert.equal(query(DB, `select payment_status from appointments where id = '${appt}'`), 'unpaid')
   assert.equal(
-    query(DB, `select count(*) from appointment_payments where appointment_id = '${appt}'`),
+    query(DB, `select count(*) from payment_applications pa join appointment_charges c on c.id = pa.charge_id where c.appointment_reference_id = '${appt}' and pa.status = 'active'`),
     '0',
     'cancellation should remove the appointment payment links'
   )
 })
 
-test('deleting a prepaid session re-allocates its credit to the next session', { skip }, () => {
+test('deleting an ordinary-paid session preserves history and reallocates credit', { skip }, () => {
   const patient = newPatient('Delete Resync')
   const first = bookSession(patient, 1, 500)
   const second = bookSession(patient, 2, 500)
   pay(patient, 500) // covers only the earliest session
 
-  assert.equal(query(DB, `select payment_status from appointments where id = '${first}'`), 'prepaid')
+  assert.equal(query(DB, `select payment_status from appointments where id = '${first}'`), 'paid')
   assert.equal(query(DB, `select payment_status from appointments where id = '${second}'`), 'unpaid')
 
   query(DB, `delete from appointments where id = '${first}'`)
@@ -69,7 +69,7 @@ test('deleting a prepaid session re-allocates its credit to the next session', {
   // The AFTER DELETE resync trigger frees the credit and prepays the remaining session.
   assert.equal(
     query(DB, `select payment_status from appointments where id = '${second}'`),
-    'prepaid',
+    'paid',
     'freed credit should re-allocate to the surviving session'
   )
 })
