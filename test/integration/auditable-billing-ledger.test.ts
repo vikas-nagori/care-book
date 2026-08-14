@@ -378,6 +378,72 @@ test('dated refunds persist their method/date, enforce capacity, and prevent lat
   assert.equal(query(DB, `select status from payments where id = '${paymentId}'`), 'posted')
 })
 
+test('one refund reconciliation normalizes imported commitments before package eligibility', { skip }, () => {
+  const patientId = patient('Runtime Legacy Commitment Cap')
+  const older = appointment(patientId, '2026-07-31', clinicTypeId, 'completed', 100)
+  const protectedAppointment = appointment(patientId, '2026-08-01', clinicTypeId, 'completed', 100)
+  const releasedAppointment = appointment(patientId, '2026-08-02', clinicTypeId, 'scheduled', 100)
+  const ordinaryPayment = recordPayment(patientId, 'ordinary', 80)
+  const paymentId = ordinaryPayment.paymentId as string
+
+  query(
+    DB,
+    `update payment_applications
+     set status = 'reversed', reversed_at = now(), reversal_reason = 'runtime legacy fixture'
+     where payment_id = '${paymentId}' and status = 'active'`,
+  )
+  const protectedChargeId = query(DB, `select id from appointment_charges where appointment_id = '${protectedAppointment}'`)
+  const releasedChargeId = query(DB, `select id from appointment_charges where appointment_id = '${releasedAppointment}'`)
+  query(
+    DB,
+    `insert into payment_applications (
+       clinic_id, patient_id, payment_id, charge_id, funding_scope, amount,
+       allocation_origin, applied_at
+     ) values
+       ('${clinicId}', '${patientId}', '${paymentId}', '${protectedChargeId}', 'ordinary', 40, 'legacy_import', timestamptz '2026-08-01 12:00:00+05:30'),
+       ('${clinicId}', '${patientId}', '${paymentId}', '${releasedChargeId}', 'ordinary', 40, 'legacy_import', timestamptz '2026-08-01 13:00:00+05:30')`,
+  )
+
+  const packageResult = createPackage(patientId, 'Runtime overlap', 1, 100, clinicTypeId, '2026-08-01')
+  assert.equal(packageResult.success, true)
+  assert.equal(query(DB, `select count(*) from package_session_allocations where package_id = '${packageResult.packageId}' and lifecycle <> 'released'`), '0')
+
+  const refund = rpc(adminId, `public.record_refund('${paymentId}', 50, 'upi', current_date, 'reduce imported capacity')`)
+  assert.equal(refund.success, true)
+  assert.equal(
+    query(DB, `select charge.appointment_reference_id || '/' || application.amount || '/' || application.allocation_origin from payment_applications application join appointment_charges charge on charge.id = application.charge_id where application.payment_id = '${paymentId}' and application.status = 'active'`),
+    `${protectedAppointment}/30.00/legacy_import`,
+  )
+  assert.equal(
+    query(DB, `select appointment_reference_id from package_session_allocations where package_id = '${packageResult.packageId}' and lifecycle <> 'released'`),
+    releasedAppointment,
+    'the same refund-triggered reconcile must claim the appointment whose commitment was released',
+  )
+  assert.equal(query(DB, `select payment_status from appointments where id = '${protectedAppointment}'`), 'partially_paid')
+  assert.equal(query(DB, `select payment_status from appointments where id = '${releasedAppointment}'`), 'prepaid')
+  assert.equal(query(DB, `select payment_status from appointments where id = '${older}'`), 'unpaid')
+
+  const beforeRepeat = query(
+    DB,
+    `select jsonb_build_object(
+       'applications', (select jsonb_agg(to_jsonb(application) order by application.id) from payment_applications application where application.patient_id = '${patientId}'),
+       'allocations', (select jsonb_agg(to_jsonb(allocation) order by allocation.id) from package_session_allocations allocation where allocation.patient_id = '${patientId}')
+     )`,
+  )
+  assert.equal(rpc(adminId, `public.reconcile_patient_billing_v2('${patientId}')`).success, true)
+  assert.equal(
+    query(
+      DB,
+      `select jsonb_build_object(
+         'applications', (select jsonb_agg(to_jsonb(application) order by application.id) from payment_applications application where application.patient_id = '${patientId}'),
+         'allocations', (select jsonb_agg(to_jsonb(allocation) order by allocation.id) from package_session_allocations allocation where allocation.patient_id = '${patientId}')
+       )`,
+    ),
+    beforeRepeat,
+    'a second reconcile must preserve every row identity, state, and timestamp',
+  )
+})
+
 test('legacy delete RPCs preserve rows by converting deletion to audited void and cancellation', { skip }, () => {
   const patientId = patient('Legacy Delete Compatibility')
   appointment(patientId, '2026-08-10')

@@ -322,6 +322,106 @@ begin
         else appointment_charges.updated_at
       end;
 
+  -- Normalize every existing ordinary commitment before packages inspect eligibility.
+  -- Receipt and charge capacity are consumed deterministically in original application
+  -- order; stale/overflow commitments are reversed now, in this same invocation.
+  create temporary table if not exists normalized_ordinary_applications_v2 (
+    payment_id uuid not null,
+    charge_id uuid not null,
+    amount numeric(10,2) not null,
+    allocation_origin text not null,
+    applied_at timestamptz not null,
+    primary key (payment_id, charge_id)
+  ) on commit drop;
+  truncate normalized_ordinary_applications_v2;
+
+  for application_row in
+    select
+      application.*,
+      greatest(payment.amount - coalesce((
+        select sum(refund.amount) from public.refunds refund where refund.payment_id = payment.id
+      ), 0), 0)::numeric(12,2) as net_payment_amount,
+      charge.amount as charge_amount
+    from public.payment_applications application
+    join public.payments payment on payment.id = application.payment_id
+    join public.appointment_charges charge on charge.id = application.charge_id
+    join public.appointments appointment on appointment.id = charge.appointment_id
+    where application.patient_id = target_patient_id
+      and application.status = 'active'
+      and application.funding_scope = 'ordinary'
+      and payment.patient_id = target_patient_id
+      and payment.clinic_id = target_clinic_id
+      and payment.status = 'posted'
+      and payment.funding_scope = 'ordinary'
+      and charge.status in ('pending', 'posted')
+      and charge.amount > 0
+    order by payment.date, payment.created_at, payment.id, application.applied_at, application.id
+  loop
+    select greatest(application_row.net_payment_amount - coalesce(sum(normalized.amount), 0), 0)
+    into remaining_payment
+    from normalized_ordinary_applications_v2 normalized
+    where normalized.payment_id = application_row.payment_id;
+
+    select greatest(application_row.charge_amount - coalesce(sum(normalized.amount), 0), 0)
+    into remaining_charge
+    from normalized_ordinary_applications_v2 normalized
+    where normalized.charge_id = application_row.charge_id;
+
+    draw_amount := least(application_row.amount, remaining_payment, remaining_charge);
+    if draw_amount > 0 then
+      insert into normalized_ordinary_applications_v2 (
+        payment_id, charge_id, amount, allocation_origin, applied_at
+      ) values (
+        application_row.payment_id,
+        application_row.charge_id,
+        draw_amount,
+        application_row.allocation_origin,
+        application_row.applied_at
+      );
+    end if;
+  end loop;
+
+  update public.payment_applications application
+  set status = 'reversed',
+      reversed_at = now(),
+      reversal_reason = 'reconciled: ordinary commitment capacity changed'
+  where application.patient_id = target_patient_id
+    and application.status = 'active'
+    and application.funding_scope = 'ordinary'
+    and not exists (
+      select 1
+      from normalized_ordinary_applications_v2 normalized
+      where normalized.payment_id = application.payment_id
+        and normalized.charge_id = application.charge_id
+        and normalized.amount = application.amount
+        and normalized.allocation_origin = application.allocation_origin
+    );
+
+  insert into public.payment_applications (
+    clinic_id, patient_id, payment_id, charge_id, funding_scope, package_id,
+    amount, allocation_origin, applied_at
+  )
+  select
+    target_clinic_id,
+    target_patient_id,
+    normalized.payment_id,
+    normalized.charge_id,
+    'ordinary',
+    null,
+    normalized.amount,
+    normalized.allocation_origin,
+    normalized.applied_at
+  from normalized_ordinary_applications_v2 normalized
+  where not exists (
+    select 1
+    from public.payment_applications application
+    where application.payment_id = normalized.payment_id
+      and application.charge_id = normalized.charge_id
+      and application.status = 'active'
+      and application.amount = normalized.amount
+      and application.allocation_origin = normalized.allocation_origin
+  );
+
   create temporary table if not exists desired_package_allocations_v2 (
     package_id uuid not null,
     appointment_id uuid primary key,
@@ -425,54 +525,23 @@ begin
     package_id uuid,
     amount numeric(10,2) not null,
     allocation_origin text not null,
+    applied_at timestamptz not null,
     primary key (payment_id, charge_id)
   ) on commit drop;
   truncate desired_payment_applications_v2;
 
-  -- Legacy ordinary applications are historical commitments, not unspent FIFO credit.
-  -- Reserve their still-valid amount first so subsequent reconciliations remain a fixed
-  -- point; refunds, voids, fee reductions, and cancellations still cap or release them.
-  for application_row in
-    select
-      application.*,
-      greatest(payment.amount - coalesce((
-        select sum(refund.amount) from public.refunds refund where refund.payment_id = payment.id
-      ), 0), 0)::numeric(12,2) as net_payment_amount,
-      charge.amount as charge_amount
-    from public.payment_applications application
-    join public.payments payment on payment.id = application.payment_id
-    join public.appointment_charges charge on charge.id = application.charge_id
-    join public.appointments appointment on appointment.id = charge.appointment_id
-    where application.patient_id = target_patient_id
-      and application.status = 'active'
-      and application.allocation_origin = 'legacy_import'
-      and application.funding_scope = 'ordinary'
-      and payment.status = 'posted'
-      and payment.funding_scope = 'ordinary'
-      and charge.status in ('pending', 'posted')
-      and charge.amount > 0
-    order by payment.date, payment.created_at, payment.id, application.applied_at, application.id
-  loop
-    select greatest(application_row.net_payment_amount - coalesce(sum(desired.amount), 0), 0)
-    into remaining_payment
-    from desired_payment_applications_v2 desired
-    where desired.payment_id = application_row.payment_id;
-
-    select greatest(application_row.charge_amount - coalesce(sum(desired.amount), 0), 0)
-    into remaining_charge
-    from desired_payment_applications_v2 desired
-    where desired.charge_id = application_row.charge_id;
-
-    draw_amount := least(application_row.amount, remaining_payment, remaining_charge);
-    if draw_amount > 0 then
-      insert into desired_payment_applications_v2 (
-        payment_id, charge_id, funding_scope, package_id, amount, allocation_origin
-      ) values (
-        application_row.payment_id, application_row.charge_id, 'ordinary', null,
-        draw_amount, 'legacy_import'
-      );
-    end if;
-  end loop;
+  insert into desired_payment_applications_v2 (
+    payment_id, charge_id, funding_scope, package_id, amount, allocation_origin, applied_at
+  )
+  select
+    normalized.payment_id,
+    normalized.charge_id,
+    'ordinary',
+    null,
+    normalized.amount,
+    normalized.allocation_origin,
+    normalized.applied_at
+  from normalized_ordinary_applications_v2 normalized;
 
   for payment_row in
     select
@@ -499,10 +568,6 @@ begin
       where charge.patient_id = target_patient_id
         and charge.status in ('pending', 'posted')
         and charge.amount > 0
-        and not exists (
-          select 1 from desired_payment_applications_v2 desired
-          where desired.payment_id = payment_row.id and desired.charge_id = charge.id
-        )
         and (
           (
             payment_row.funding_scope = 'ordinary'
@@ -537,15 +602,18 @@ begin
 
       draw_amount := least(remaining_payment, remaining_charge);
       insert into desired_payment_applications_v2 (
-        payment_id, charge_id, funding_scope, package_id, amount, allocation_origin
+        payment_id, charge_id, funding_scope, package_id, amount, allocation_origin, applied_at
       ) values (
         payment_row.id,
         charge_row.id,
         payment_row.funding_scope,
         payment_row.package_id,
         draw_amount,
-        'reconciled'
-      );
+        'reconciled',
+        now()
+      )
+      on conflict (payment_id, charge_id) do update
+      set amount = desired_payment_applications_v2.amount + excluded.amount;
       remaining_payment := remaining_payment - draw_amount;
     end loop;
   end loop;
@@ -569,7 +637,7 @@ begin
 
   insert into public.payment_applications (
     clinic_id, patient_id, payment_id, charge_id, funding_scope, package_id, amount,
-    allocation_origin
+    allocation_origin, applied_at
   )
   select
     target_clinic_id,
@@ -579,7 +647,8 @@ begin
     desired.funding_scope,
     desired.package_id,
     desired.amount,
-    desired.allocation_origin
+    desired.allocation_origin,
+    desired.applied_at
   from desired_payment_applications_v2 desired
   where not exists (
     select 1
@@ -886,9 +955,6 @@ do $$
 declare patient_row record;
 begin
   for patient_row in select id from public.patients order by id loop
-    perform private.reconcile_patient_billing_v2(patient_row.id);
-    -- A second pass settles any package eligibility released by capacity-capping
-    -- inconsistent legacy rows; valid legacy_import reservations remain unchanged.
     perform private.reconcile_patient_billing_v2(patient_row.id);
   end loop;
 end;
