@@ -831,7 +831,7 @@ test('concurrent appointment deletion fails before child-ledger locks instead of
 })
 
 test('soft-deleting an auth actor preserves immutable package, payment, and event history', { skip }, () => {
-  const actorId = seedUser(DB, 'admin', clinicId)
+  const actorId = seedUser(DB, 'admin', clinicId, 'billing-actor@carebook.test')
   const patientId = patient('Deleted Audit Actor')
   const packageResult = rpc(
     actorId,
@@ -862,9 +862,22 @@ test('soft-deleting an auth actor preserves immutable package, payment, and even
   assert.equal(query(DB, `select voided_by from payments where id = '${ordinaryPayment.paymentId}'`), actorId)
   assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '2')
   assert.throws(
-    () => query(DB, `delete from auth.users where id = '${actorId}'`),
-    /must be soft-deleted/i,
+    () => query(
+      DB,
+      `set role supabase_auth_admin;
+       update auth.users
+       set raw_app_meta_data = jsonb_build_object(
+         'carebook_e2e_cleanup', jsonb_build_object('state', 'requested', 'reason', 'attempted actor cleanup')
+       )
+       where id = '${actorId}';
+       delete from auth.users where id = '${actorId}';
+       reset role`,
+    ),
+    /audit history|cannot be hard-deleted/i,
   )
+  assert.equal(query(DB, `select cancelled_by from packages where id = '${packageResult.packageId}'`), actorId)
+  assert.equal(query(DB, `select voided_by from payments where id = '${ordinaryPayment.paymentId}'`), actorId)
+  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '2')
 })
 
 test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, () => {

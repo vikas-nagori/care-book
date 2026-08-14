@@ -106,7 +106,7 @@ test('soft deletion retains auth identity and immutable billing actor references
   )
   assert.throws(
     () => query(DB, `delete from auth.users where id = '${actorId}'`),
-    /must be soft-deleted|foreign key|violates/i,
+    /cannot be hard-deleted|must be soft-deleted|foreign key|violates/i,
   )
 })
 
@@ -120,6 +120,26 @@ test('deleted profiles cannot be unblocked, rewritten, or deleted by authenticat
   }
 
   const targetId = seedUser(DB, 'staff', clinicId, 'target@test.local')
+  assert.throws(
+    () => query(
+      DB,
+      `set request.jwt.claim.role = 'service_role';
+       set carebook.validated_e2e_cleanup_user = '${targetId}';
+       delete from profiles where id = '${targetId}';
+       reset carebook.validated_e2e_cleanup_user;
+       reset request.jwt.claim.role`,
+    ),
+    /cannot be hard-deleted|must be soft-deleted/i,
+  )
+  assert.throws(
+    () => query(
+      DB,
+      `set request.jwt.claim.role = 'service_role';
+       delete from profiles where id = '${targetId}';
+       reset request.jwt.claim.role`,
+    ),
+    /cannot be hard-deleted|must be soft-deleted/i,
+  )
   assert.throws(
     () => queryAsAuthenticated(DB, deleterId, `delete from profiles where id = '${targetId}'`),
     /must be soft-deleted|permission denied/i,
@@ -167,21 +187,56 @@ test('deleted profiles cannot be unblocked, rewritten, or deleted by authenticat
   )
 })
 
-test('hard-deleting an auth identity without billing history is blocked outside test cleanup service role', { skip }, () => {
-  const disposableId = seedUser(DB, 'staff', clinicId, 'no-history@test.local')
+test('hard deletion requires an explicitly marked disposable E2E identity with no history', { skip }, () => {
+  const disposableId = seedUser(DB, 'staff', clinicId, 'no-history@carebook.test')
 
   assert.throws(
     () => query(DB, `delete from auth.users where id = '${disposableId}'`),
-    /must be soft-deleted/i,
+    /cannot be hard-deleted|must be soft-deleted/i,
   )
   assert.equal(query(DB, `select count(*) from auth.users where id = '${disposableId}'`), '1')
   assert.equal(query(DB, `select count(*) from profiles where id = '${disposableId}'`), '1')
 
+  assert.throws(
+    () => query(
+      DB,
+      `set request.jwt.claim.role = 'service_role';
+       delete from auth.users where id = '${disposableId}';
+       reset request.jwt.claim.role`,
+    ),
+    /production identities cannot be hard-deleted/i,
+  )
+
   query(
     DB,
     `set request.jwt.claim.role = 'service_role';
+     update auth.users
+     set raw_app_meta_data = jsonb_build_object(
+       'carebook_e2e_cleanup', jsonb_build_object('state', 'requested', 'reason', 'Playwright test cleanup')
+     )
+     where id = '${disposableId}';
+     delete from profiles where id = '${disposableId}';
      delete from auth.users where id = '${disposableId}';
      reset request.jwt.claim.role`,
   )
   assert.equal(query(DB, `select count(*) from auth.users where id = '${disposableId}'`), '0')
+  assert.equal(query(DB, `select count(*) from profiles where id = '${disposableId}'`), '0')
+
+  const authAdminDisposableId = seedUser(DB, 'staff', clinicId, 'auth-admin-cleanup@carebook.test')
+  query(
+    DB,
+    `update auth.users
+     set raw_app_meta_data = jsonb_build_object(
+       'carebook_e2e_cleanup', jsonb_build_object('state', 'requested', 'reason', 'Auth admin cleanup')
+     )
+     where id = '${authAdminDisposableId}'`,
+  )
+  query(
+    DB,
+    `set role supabase_auth_admin;
+     delete from auth.users where id = '${authAdminDisposableId}';
+     reset role`,
+  )
+  assert.equal(query(DB, `select count(*) from auth.users where id = '${authAdminDisposableId}'`), '0')
+  assert.equal(query(DB, `select count(*) from profiles where id = '${authAdminDisposableId}'`), '0')
 })

@@ -10,9 +10,10 @@
 -- test databases building at the same time don't race on role creation.
 do $$
 begin
-  begin create role anon nologin noinherit; exception when duplicate_object then null; end;
-  begin create role authenticated nologin noinherit; exception when duplicate_object then null; end;
-  begin create role service_role nologin noinherit bypassrls; exception when duplicate_object then null; end;
+  begin create role anon nologin noinherit; exception when duplicate_object or unique_violation then null; end;
+  begin create role authenticated nologin noinherit; exception when duplicate_object or unique_violation then null; end;
+  begin create role service_role nologin noinherit bypassrls; exception when duplicate_object or unique_violation then null; end;
+  begin create role supabase_auth_admin nologin noinherit bypassrls; exception when duplicate_object or unique_violation then null; end;
 end
 $$;
 
@@ -22,8 +23,12 @@ create schema if not exists auth;
 create table if not exists auth.users (
   id uuid primary key default gen_random_uuid(),
   email text unique,
+  raw_app_meta_data jsonb not null default '{}'::jsonb,
   created_at timestamptz default now()
 );
+
+grant usage on schema auth to supabase_auth_admin;
+grant select, update, delete on auth.users to supabase_auth_admin;
 
 -- auth.uid() / auth.role() mirror Supabase by reading the request JWT claims from session GUCs.
 -- Tests set `request.jwt.claim.sub` / `.role` via set_config() to act as a given user.

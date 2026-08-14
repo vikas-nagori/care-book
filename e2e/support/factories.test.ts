@@ -8,6 +8,7 @@ import { E2EFactory } from './factories.ts'
 type MockRow = Record<string, unknown> & { id: string }
 type DeleteCall = { table: string; ids: string[] }
 type AuthDeleteCall = { id: string }
+type AuthUpdateCall = { id: string; attributes: Record<string, unknown> }
 
 function testInfo(): TestInfo {
   return {
@@ -22,6 +23,7 @@ function queryableDb(
   deletes: DeleteCall[],
   authUsers: { id: string; email: string }[] = [],
   authDeletes: AuthDeleteCall[] = [],
+  authUpdates: AuthUpdateCall[] = [],
 ): SupabaseClient {
   return {
     auth: {
@@ -32,6 +34,10 @@ function queryableDb(
         async deleteUser(id: string) {
           authDeletes.push({ id })
           return { data: { user: null }, error: null }
+        },
+        async updateUserById(id: string, attributes: Record<string, unknown>) {
+          authUpdates.push({ id, attributes })
+          return { data: { user: { id } }, error: null }
         },
       },
     },
@@ -107,10 +113,11 @@ test('tracked UI row IDs are cleaned in dependency order without touching baseli
 test('disposable platform resources clean exact profile, clinic, request, and auth IDs in FK-safe order', async () => {
   const deletes: DeleteCall[] = []
   const authDeletes: AuthDeleteCall[] = []
+  const authUpdates: AuthUpdateCall[] = []
   const db = queryableDb({}, deletes, [
     { id: 'temp-auth-id', email: 'temp-platform-user@carebook.test' },
     { id: 'baseline-auth-id', email: 'admin@carebook.test' },
-  ], authDeletes)
+  ], authDeletes, authUpdates)
   const factory = new E2EFactory(testInfo(), db)
 
   factory.trackOnboardingRequest('temp-request-id')
@@ -125,6 +132,17 @@ test('disposable platform resources clean exact profile, clinic, request, and au
     { table: 'clinics', ids: ['temp-clinic-id'] },
   ])
   assert.deepEqual(authDeletes, [{ id: 'temp-auth-id' }])
+  assert.deepEqual(authUpdates, [{
+    id: 'temp-auth-id',
+    attributes: {
+      app_metadata: {
+        carebook_e2e_cleanup: {
+          state: 'requested',
+          reason: `Playwright cleanup ${factory.token}`,
+        },
+      },
+    },
+  }])
 })
 
 test('looking up a seeded clinic and profile never enrolls them for cleanup', async () => {

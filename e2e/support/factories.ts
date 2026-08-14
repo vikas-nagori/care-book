@@ -799,6 +799,28 @@ export class E2EFactory {
 
   async cleanup(): Promise<void> {
     const failures: string[] = []
+    const markedAuthUsers = new Set<string>()
+    const markAuthUserForCleanup = async (id: string, email: string) => {
+      if (markedAuthUsers.has(id)) return
+      if (!email.endsWith('@carebook.test')) {
+        failures.push(`refuse to hard-delete non-E2E auth user ${id} (${email})`)
+        return
+      }
+      const { error } = await this.db.auth.admin.updateUserById(id, {
+        app_metadata: {
+          carebook_e2e_cleanup: {
+            state: 'requested',
+            reason: `Playwright cleanup ${this.token}`,
+          },
+        },
+      })
+      if (error) {
+        failures.push(`mark auth user ${id} (${email}) for cleanup: ${error.message}`)
+        return
+      }
+      markedAuthUsers.add(id)
+    }
+
     for (const { ownerEmail, clinicName } of this.watchedOnboardingRequests.values()) {
       const { data, error } = await this.db
         .from('clinic_onboarding_requests')
@@ -909,6 +931,10 @@ export class E2EFactory {
       }
     }
 
+    for (const [id, email] of this.authUsers) {
+      await markAuthUserForCleanup(id, email)
+    }
+
     for (const table of cleanupOrder) {
       const ids = [...(this.created.get(table) ?? [])]
       if (ids.length === 0) continue
@@ -926,11 +952,14 @@ export class E2EFactory {
           if (!user.email || !this.watchedInviteEmails.has(user.email.toLowerCase())) continue
           this.trackAuthUser(user.id, user.email)
           this.trackProfile(user.id, user.email)
+          await markAuthUserForCleanup(user.id, user.email.toLowerCase())
         }
         if (data.users.length < 200) break
       }
     }
     for (const [id, email] of this.authUsers) {
+      await markAuthUserForCleanup(id, email)
+      if (!markedAuthUsers.has(id)) continue
       const { error } = await this.db.auth.admin.deleteUser(id)
       if (error) failures.push(`delete auth user ${id} (${email}): ${error.message}`)
     }
