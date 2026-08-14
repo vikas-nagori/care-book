@@ -151,6 +151,8 @@ create table public.payment_applications (
   package_id uuid references public.packages(id) on delete restrict,
   amount numeric(10,2) not null check (amount > 0),
   status text not null default 'active' check (status in ('active', 'reversed')),
+  allocation_origin text not null default 'reconciled'
+    check (allocation_origin in ('reconciled', 'legacy_import')),
   applied_at timestamptz not null default now(),
   reversed_at timestamptz,
   reversal_reason text,
@@ -271,6 +273,7 @@ declare
   package_row record;
   appointment_row record;
   payment_row record;
+  application_row record;
   charge_row record;
   remaining_sessions integer;
   remaining_payment numeric(12,2);
@@ -421,9 +424,55 @@ begin
     funding_scope text not null,
     package_id uuid,
     amount numeric(10,2) not null,
+    allocation_origin text not null,
     primary key (payment_id, charge_id)
   ) on commit drop;
   truncate desired_payment_applications_v2;
+
+  -- Legacy ordinary applications are historical commitments, not unspent FIFO credit.
+  -- Reserve their still-valid amount first so subsequent reconciliations remain a fixed
+  -- point; refunds, voids, fee reductions, and cancellations still cap or release them.
+  for application_row in
+    select
+      application.*,
+      greatest(payment.amount - coalesce((
+        select sum(refund.amount) from public.refunds refund where refund.payment_id = payment.id
+      ), 0), 0)::numeric(12,2) as net_payment_amount,
+      charge.amount as charge_amount
+    from public.payment_applications application
+    join public.payments payment on payment.id = application.payment_id
+    join public.appointment_charges charge on charge.id = application.charge_id
+    join public.appointments appointment on appointment.id = charge.appointment_id
+    where application.patient_id = target_patient_id
+      and application.status = 'active'
+      and application.allocation_origin = 'legacy_import'
+      and application.funding_scope = 'ordinary'
+      and payment.status = 'posted'
+      and payment.funding_scope = 'ordinary'
+      and charge.status in ('pending', 'posted')
+      and charge.amount > 0
+    order by payment.date, payment.created_at, payment.id, application.applied_at, application.id
+  loop
+    select greatest(application_row.net_payment_amount - coalesce(sum(desired.amount), 0), 0)
+    into remaining_payment
+    from desired_payment_applications_v2 desired
+    where desired.payment_id = application_row.payment_id;
+
+    select greatest(application_row.charge_amount - coalesce(sum(desired.amount), 0), 0)
+    into remaining_charge
+    from desired_payment_applications_v2 desired
+    where desired.charge_id = application_row.charge_id;
+
+    draw_amount := least(application_row.amount, remaining_payment, remaining_charge);
+    if draw_amount > 0 then
+      insert into desired_payment_applications_v2 (
+        payment_id, charge_id, funding_scope, package_id, amount, allocation_origin
+      ) values (
+        application_row.payment_id, application_row.charge_id, 'ordinary', null,
+        draw_amount, 'legacy_import'
+      );
+    end if;
+  end loop;
 
   for payment_row in
     select
@@ -438,7 +487,10 @@ begin
     having greatest(payment.amount - coalesce(sum(refund.amount), 0), 0) > 0
     order by payment.date, payment.created_at, payment.id
   loop
-    remaining_payment := payment_row.net_amount;
+    select greatest(payment_row.net_amount - coalesce(sum(desired.amount), 0), 0)
+    into remaining_payment
+    from desired_payment_applications_v2 desired
+    where desired.payment_id = payment_row.id;
 
     for charge_row in
       select charge.id
@@ -447,6 +499,10 @@ begin
       where charge.patient_id = target_patient_id
         and charge.status in ('pending', 'posted')
         and charge.amount > 0
+        and not exists (
+          select 1 from desired_payment_applications_v2 desired
+          where desired.payment_id = payment_row.id and desired.charge_id = charge.id
+        )
         and (
           (
             payment_row.funding_scope = 'ordinary'
@@ -481,13 +537,14 @@ begin
 
       draw_amount := least(remaining_payment, remaining_charge);
       insert into desired_payment_applications_v2 (
-        payment_id, charge_id, funding_scope, package_id, amount
+        payment_id, charge_id, funding_scope, package_id, amount, allocation_origin
       ) values (
         payment_row.id,
         charge_row.id,
         payment_row.funding_scope,
         payment_row.package_id,
-        draw_amount
+        draw_amount,
+        'reconciled'
       );
       remaining_payment := remaining_payment - draw_amount;
     end loop;
@@ -507,10 +564,12 @@ begin
         and desired.funding_scope = application.funding_scope
         and desired.package_id is not distinct from application.package_id
         and desired.amount = application.amount
+        and desired.allocation_origin = application.allocation_origin
     );
 
   insert into public.payment_applications (
-    clinic_id, patient_id, payment_id, charge_id, funding_scope, package_id, amount
+    clinic_id, patient_id, payment_id, charge_id, funding_scope, package_id, amount,
+    allocation_origin
   )
   select
     target_clinic_id,
@@ -519,7 +578,8 @@ begin
     desired.charge_id,
     desired.funding_scope,
     desired.package_id,
-    desired.amount
+    desired.amount,
+    desired.allocation_origin
   from desired_payment_applications_v2 desired
   where not exists (
     select 1
@@ -530,6 +590,7 @@ begin
       and application.amount = desired.amount
       and application.funding_scope = desired.funding_scope
       and application.package_id is not distinct from desired.package_id
+      and application.allocation_origin = desired.allocation_origin
   );
 
   -- Temporary read compatibility for pages still reading appointment_payments during the
@@ -767,11 +828,67 @@ exception when others then
 end;
 $$;
 
+-- Preserve legacy ordinary applications before the first package eligibility pass. Without
+-- this ordering, payment_applications is empty and an overlapping package can steal an
+-- appointment that already has ordinary money applied through appointment_payments.
+insert into public.appointment_charges (
+  clinic_id, patient_id, appointment_id, amount, status, created_at, updated_at
+)
+select
+  appointment.clinic_id,
+  appointment.patient_id,
+  appointment.id,
+  coalesce(appointment.fee, 0),
+  case appointment.status
+    when 'scheduled' then 'pending'
+    when 'completed' then 'posted'
+    else 'voided'
+  end,
+  coalesce(appointment.created_at, now()),
+  now()
+from public.appointments appointment
+on conflict (appointment_id) do update
+set clinic_id = excluded.clinic_id,
+    patient_id = excluded.patient_id,
+    amount = excluded.amount,
+    status = excluded.status,
+    updated_at = excluded.updated_at;
+
+insert into public.payment_applications (
+  clinic_id, patient_id, payment_id, charge_id, funding_scope, package_id,
+  amount, status, allocation_origin, applied_at
+)
+select
+  payment.clinic_id,
+  payment.patient_id,
+  payment.id,
+  charge.id,
+  'ordinary',
+  null,
+  least(legacy_application.amount_applied, payment.amount, charge.amount),
+  'active',
+  'legacy_import',
+  legacy_application.created_at
+from public.appointment_payments legacy_application
+join public.payments payment on payment.id = legacy_application.payment_id
+join public.appointment_charges charge on charge.appointment_id = legacy_application.appointment_id
+where payment.funding_scope = 'ordinary'
+  and payment.status = 'posted'
+  and payment.patient_id = charge.patient_id
+  and payment.clinic_id = charge.clinic_id
+  and legacy_application.amount_applied > 0
+  and payment.amount > 0
+  and charge.amount > 0
+on conflict do nothing;
+
 -- Materialize charges, scoped applications, and package memberships for pre-v2 patients.
 do $$
 declare patient_row record;
 begin
   for patient_row in select id from public.patients order by id loop
+    perform private.reconcile_patient_billing_v2(patient_row.id);
+    -- A second pass settles any package eligibility released by capacity-capping
+    -- inconsistent legacy rows; valid legacy_import reservations remain unchanged.
     perform private.reconcile_patient_billing_v2(patient_row.id);
   end loop;
 end;
