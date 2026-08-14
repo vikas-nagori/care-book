@@ -59,7 +59,8 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof PatientDetail>
     treatmentPlans: [],
     packages: [],
     payments: [],
-    outstanding: 0,
+    patientBalance: null,
+    packageBalances: {},
     ...overrides,
   }
 }

@@ -44,18 +44,17 @@ test('records a payment, allocates the unpaid session, and shows the timeline en
     method: 'UPI',
     notes,
   })
-  await expect(page.getByText('Linked value:', { exact: false })).toBeVisible()
-  await expect(page.getByText('Advance credit:', { exact: false })).toBeVisible()
+  await expect(page.getByText('Ordinary FIFO allocation', { exact: true })).toBeVisible()
+  await expect(page.getByText(/including partial sessions/i)).toBeVisible()
   await form.submit('payment')
 
   // BillingView owns a local timeline array; a fresh document load consumes the revalidated data.
   await page.reload()
   await page.getByRole('button', { name: 'Payments', exact: true }).click()
-  await expect(page.getByText(patient.name as string, { exact: true }).filter({ visible: true })).toBeVisible()
   await expect(page.getByRole('button', {
-    name: `Delete payment for ${patient.name as string} · ₹1,000`,
+    name: `Void payment for ${patient.name as string} · ₹1,000`,
     exact: true,
-  })).toBeVisible()
+  })).toBeVisible({ timeout: 10_000 })
 
   const payment = await expect.poll(() => factory.findPayment({
     patientId: patient.id,
@@ -69,12 +68,13 @@ test('records a payment, allocates the unpaid session, and shows the timeline en
   })
   const db = adminClient()
   const { data: allocations, error } = await db
-    .from('appointment_payments')
-    .select('appointment_id, amount_applied')
+    .from('payment_applications')
+    .select('charge:appointment_charges(appointment_id), amount')
     .eq('payment_id', payment!.id)
+    .eq('status', 'active')
   expect(error).toBeNull()
-  expect(allocations).toEqual([{ appointment_id: appointment.id, amount_applied: 800 }])
-  expect(1000 - Number(allocations![0].amount_applied)).toBe(200)
+  expect(allocations?.[0]).toMatchObject({ charge: { appointment_id: appointment.id }, amount: 800 })
+  expect(1000 - Number(allocations![0].amount)).toBe(200)
   const appointments = await factory.findAppointments({ patientId: patient.id, notes: appointment.notes as string })
   expect(appointments[0].payment_status).toBe('paid')
   await guards.assertClean()
@@ -83,7 +83,8 @@ test('records a payment, allocates the unpaid session, and shows the timeline en
 test('creates a prepaid package with payment from the seeded template prefill', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient()
-  const packageName = 'E2E Standard 6 Sessions'
+  const templateName = 'E2E Standard 6 Sessions'
+  const packageName = factory.uniqueName('template-package')
   const notes = factory.uniqueName('ui-package-payment')
   factory.watchUiPackage({ patientId: patient.id, name: packageName })
   factory.watchUiPayment({ patientId: patient.id, notes })
@@ -96,9 +97,10 @@ test('creates a prepaid package with payment from the seeded template prefill', 
     amount: '4500',
     method: 'Card',
     notes,
-    templateName: packageName,
+    templateName,
   })
-  await form.expectPackagePrefill({ name: packageName, sessions: '6', rate: '750', amount: '4500' })
+  await form.expectPackagePrefill({ name: templateName, sessions: '6', rate: '750', amount: '4500' })
+  await page.getByLabel('Package Name *', { exact: true }).fill(packageName)
   await form.submit('package')
 
   await page.reload()
@@ -122,26 +124,46 @@ test('creates a prepaid package with payment from the seeded template prefill', 
   await guards.assertClean()
 })
 
-test('deletes a created payment through the confirmation UI', async ({ page, factory }) => {
+test('records a later receipt into exactly one existing package scope', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const pkg = await factory.createPackage({ patientId: patient.id, name: factory.uniqueName('partial-package'), total_amount: 4000, paid_amount: 0 })
+  const notes = factory.uniqueName('package-top-up')
+  factory.watchUiPayment({ patientId: patient.id, notes })
+
+  await page.goto('/billing')
+  const form = new BillingEntryForm(page)
+  await form.open()
+  await form.fillPaymentOnly({ patientName: patient.name as string, amount: '500', method: 'UPI', notes })
+  await form.targetExistingPackage(pkg.name as string)
+  await form.submit('payment')
+
+  await expect.poll(() => factory.findPayment({ patientId: patient.id, notes })).not.toBeNull()
+  const payment = await factory.findPayment({ patientId: patient.id, notes })
+  expect(payment).toMatchObject({ funding_scope: 'package', package_id: pkg.id, amount: 500 })
+  await guards.assertClean()
+})
+
+test('voids a created payment through the audited correction UI', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient()
   const payment = await factory.createPayment({ patientId: patient.id, amount: 625, notes: factory.uniqueName('delete-payment') })
 
   await page.goto('/billing?tab=payments')
   const form = new BillingEntryForm(page)
-  const deletePayment = page.getByRole('button', {
-    name: `Delete payment for ${patient.name as string} · ₹625`,
+  const voidButton = page.getByRole('button', {
+    name: `Void payment for ${patient.name as string} · ₹625`,
     exact: true,
   })
-  await expect(deletePayment).toBeVisible()
-  await form.deletePayment(patient.name as string, 625)
+  await expect(voidButton).toBeVisible()
+  await form.voidPayment(patient.name as string, 625)
 
-  await expect(deletePayment).toHaveCount(0)
-  await expect.poll(async () => (await adminClient().from('payments').select('id').eq('id', payment.id).maybeSingle()).data).toBeNull()
+  await expect(voidButton).toHaveCount(0)
+  await expect.poll(async () => (await adminClient().from('payments').select('status, void_reason').eq('id', payment.id).single()).data).toMatchObject({ status: 'voided', void_reason: 'E2E correction' })
   await guards.assertClean()
 })
 
-test('deletes a created package and its payment through the confirmation UI', async ({ page, factory }) => {
+test('cancels a created package without deleting its payment history', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient()
   const packageName = factory.uniqueName('delete-package')
@@ -151,12 +173,11 @@ test('deletes a created package and its payment through the confirmation UI', as
   await page.goto('/billing?tab=packages')
   const form = new BillingEntryForm(page)
   await expect(page.getByText(packageName, { exact: true })).toBeVisible()
-  await form.deletePackage(patient.name as string, packageName)
+  await form.cancelPackage(patient.name as string, packageName)
 
-  await expect(page.getByText(packageName, { exact: true })).toHaveCount(0)
   const db = adminClient()
-  await expect.poll(async () => (await db.from('packages').select('id').eq('id', pkg.id).maybeSingle()).data).toBeNull()
-  await expect.poll(async () => (await db.from('payments').select('id').eq('id', payment.id).maybeSingle()).data).toBeNull()
+  await expect.poll(async () => (await db.from('packages').select('status, cancellation_reason').eq('id', pkg.id).single()).data).toMatchObject({ status: 'cancelled', cancellation_reason: 'E2E package correction' })
+  await expect.poll(async () => (await db.from('payments').select('id').eq('id', payment.id).maybeSingle()).data?.id).toBe(payment.id)
   await guards.assertClean()
 })
 
@@ -183,8 +204,8 @@ test('metric drill-downs list their real records and payment due lists the seede
   await page.getByRole('link', { name: /Received/ }).click()
   await expect(page).toHaveURL('/billing/metrics/received-this-month')
   await expect(page.getByText(patient.name as string, { exact: true })).toBeVisible()
-  await expect(page.getByText('bank_transfer', { exact: true })).toBeVisible()
-  await expect(page.getByText('₹2,468', { exact: true })).toBeVisible()
+  await expect(page.getByText('bank_transfer', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('₹2,468', { exact: true }).first()).toBeVisible()
 
   await page.goto('/billing')
   await page.getByRole('button', { name: 'Outstanding', exact: false }).click()

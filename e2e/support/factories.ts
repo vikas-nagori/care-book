@@ -596,11 +596,19 @@ export class E2EFactory {
 
   async createPackage({
     patientId,
+    appointmentTypeId,
     ...overrides
   }: {
     patientId: string
+    appointmentTypeId?: string
     [key: string]: unknown
   }): Promise<Row> {
+    let typeId = appointmentTypeId
+    if (!typeId) {
+      const { data, error } = await this.db.from('appointment_types').select('id').eq('clinic_id', CLINIC_A.id).eq('is_shared', true).order('sort_order').limit(1).single()
+      if (error || !data) throw new Error(`factory package appointment type: ${error?.message ?? 'missing'}`)
+      typeId = data.id
+    }
     return this.insert('packages', {
       id: randomUUID(),
       clinic_id: CLINIC_A.id,
@@ -613,6 +621,9 @@ export class E2EFactory {
       paid_amount: 3000,
       payment_timing: 'prepaid',
       status: 'active',
+      appointment_type_id: typeId,
+      starts_on: clinicDate(-365),
+      billing_version: 2,
       ...overrides,
     })
   }
@@ -624,6 +635,7 @@ export class E2EFactory {
     patientId: string
     [key: string]: unknown
   }): Promise<Row> {
+    const packageId = typeof overrides.package_id === 'string' ? overrides.package_id : null
     return this.insert('payments', {
       id: randomUUID(),
       clinic_id: CLINIC_A.id,
@@ -632,6 +644,10 @@ export class E2EFactory {
       payment_method: 'UPI',
       date: clinicDate(),
       notes: this.uniqueName('payment'),
+      package_id: packageId,
+      funding_scope: packageId ? 'package' : 'ordinary',
+      status: 'posted',
+      billing_version: 2,
       ...overrides,
     })
   }
@@ -934,6 +950,22 @@ export class E2EFactory {
     for (const [id, email] of this.authUsers) {
       await markAuthUserForCleanup(id, email)
     }
+
+    // Ledger receipts and packages are intentionally immutable, including in the local E2E
+    // database. Retain their owning patient as the audit root instead of turning teardown into a
+    // second, destructive billing path. Test data is uniquely named and the E2E database is
+    // disposable, so retained audit fixtures cannot collide with later tests.
+    const retainedBillingPatientIds = new Set<string>()
+    for (const table of ['payments', 'packages'] as const) {
+      const ids = [...(this.created.get(table) ?? [])]
+      if (ids.length === 0) continue
+      const { data, error } = await this.db.from(table).select('patient_id').in('id', ids)
+      if (error) failures.push(`discover retained ${table}: ${error.message}`)
+      for (const row of data ?? []) retainedBillingPatientIds.add(row.patient_id)
+      this.created.delete(table)
+    }
+    const trackedPatients = this.created.get('patients')
+    for (const patientId of retainedBillingPatientIds) trackedPatients?.delete(patientId)
 
     for (const table of cleanupOrder) {
       const ids = [...(this.created.get(table) ?? [])]

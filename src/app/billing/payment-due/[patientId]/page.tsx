@@ -12,7 +12,7 @@ export default async function PaymentDueDetailPage({ params }: { params: Promise
   await requireAdmin()
   const supabase = await createClient()
 
-  const [{ data: patient }, { data: sessions, error: sessionsError }, { data: payments }, { data: appointmentPayments }] =
+  const [{ data: patient }, { data: sessions, error: sessionsError }, { data: patientBalance, error: balanceError }, { data: packageBalances, error: packageBalancesError }] =
     await Promise.all([
       supabase.from('patients').select('id, name').eq('id', patientId).maybeSingle(),
       supabase
@@ -20,18 +20,16 @@ export default async function PaymentDueDetailPage({ params }: { params: Promise
         .select('id, date, time, type, fee')
         .eq('patient_id', patientId)
         .eq('status', 'completed')
-        .eq('payment_status', 'unpaid')
+        .in('payment_status', ['unpaid', 'partially_paid', 'partially_prepaid'])
         .order('date', { ascending: true })
         .order('time', { ascending: true }),
-      supabase.from('payments').select('amount').eq('patient_id', patientId),
-      // amount_applied across this patient's payments (inner join filters to the patient).
-      supabase
-        .from('appointment_payments')
-        .select('amount_applied, payment:payments!inner(patient_id)')
-        .eq('payment.patient_id', patientId),
+      supabase.from('patient_billing_balances_v2').select('*').eq('patient_id', patientId).maybeSingle(),
+      supabase.from('package_billing_balances_v2').select('*').eq('patient_id', patientId),
     ])
 
   if (sessionsError) logger.error('PaymentDueDetail/sessions', sessionsError, { patientId })
+  if (balanceError) logger.error('PaymentDueDetail/balance', balanceError, { patientId })
+  if (packageBalancesError) logger.error('PaymentDueDetail/packageBalances', packageBalancesError, { patientId })
   if (!patient) notFound()
 
   const dueSessions: PaymentDueSession[] = (sessions ?? []).map((s) => ({
@@ -42,21 +40,19 @@ export default async function PaymentDueDetailPage({ params }: { params: Promise
     fee: Number(s.fee ?? 0),
   }))
 
-  const grossDue = dueSessions.reduce((sum, s) => sum + s.fee, 0)
-  const totalPaid = (payments ?? []).reduce((sum, p) => sum + Number(p.amount ?? 0), 0)
-  const appliedTotal = (appointmentPayments ?? []).reduce((sum, r) => sum + Number(r.amount_applied ?? 0), 0)
-  const unspentCredit = Math.max(0, totalPaid - appliedTotal)
-  const netDue = Math.max(0, grossDue - unspentCredit)
-  const netCredit = Math.max(0, unspentCredit - grossDue)
+  const packageDue = (packageBalances ?? []).reduce((sum, balance) => sum + Number(balance.due_amount ?? 0), 0)
+  const packageCredit = (packageBalances ?? []).reduce((sum, balance) => sum + Number(balance.refundable_credit ?? 0), 0)
+  const ordinaryDue = Math.max(0, Number(patientBalance?.due_amount ?? 0) - packageDue)
+  const ordinaryCredit = Math.max(0, Number(patientBalance?.refundable_credit ?? 0) - packageCredit)
 
   return (
     <PaymentDueDetail
       patientName={patient.name}
       sessions={dueSessions}
-      grossDue={grossDue}
-      unspentCredit={unspentCredit}
-      netDue={netDue}
-      netCredit={netCredit}
+      ordinaryDue={ordinaryDue}
+      ordinaryCredit={ordinaryCredit}
+      packageDue={packageDue}
+      packageCredit={packageCredit}
     />
   )
 }

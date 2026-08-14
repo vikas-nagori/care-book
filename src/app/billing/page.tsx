@@ -2,7 +2,7 @@ import { requireAdmin } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 import { BillingView } from './billing-view'
-import { buildPaymentDueRows } from '@/lib/billing/payment-due'
+import { buildV2PaymentBalanceRows } from '@/lib/billing/v2-balances'
 import { CLINIC_TIME_ZONE, getZonedCalendarContext, getZonedDate } from '@/lib/timezone'
 import { getUserTimeZone } from '@/lib/timezone/server'
 
@@ -27,15 +27,21 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
 
   const [
     { data: packages, error: packagesError, count: packagesCount },
+    { data: fundablePackages, error: fundablePackagesError },
     { data: payments, error: paymentsError, count: paymentsCount },
     { data: patients, error: patientsError },
     { data: appointments, error: appointmentsError },
-    { data: appointmentPayments, error: appointmentPaymentsError },
-    { data: allPayments, error: allPaymentsError },
+    { data: paymentApplications, error: paymentApplicationsError },
+    { data: patientBalances, error: patientBalancesError },
+    { data: packageBalances, error: packageBalancesError },
     { data: monthPayments, error: monthPaymentsError },
     { data: packageTemplates, error: packageTemplatesError },
+    { data: appointmentTypes, error: appointmentTypesError },
+    { data: monthRefunds, error: monthRefundsError },
+    { data: recentRefunds, error: recentRefundsError },
   ] = await Promise.all([
     supabase.from('packages').select('*, patient:patients(id, name)', { count: 'exact' }).order('created_at', { ascending: false }).range(0, PAGE_SIZE - 1),
+    supabase.from('packages').select('id, patient_id, name, status').neq('status', 'cancelled').order('created_at', { ascending: false }),
     supabase
       .from('payments')
       .select('*, patient:patients(id, name), package:packages(id, name)', { count: 'exact' })
@@ -46,23 +52,44 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       .select('id, patient_id, date, time, status, payment_status, fee, type, patient:patients(id, name)')
       .in('status', ['completed', 'scheduled'])
       .order('date', { ascending: true }),
-    supabase.from('appointment_payments').select('payment_id, amount_applied'),
-    // All payments (id, patient, amount) — unpaginated — to compute each patient's unspent
-    // advance credit, so the entry form preview reflects pooled FIFO allocation (migration 014).
-    supabase.from('payments').select('id, patient_id, amount'),
+    supabase.from('payment_applications').select('payment_id').eq('status', 'active'),
+    supabase.from('patient_billing_balances_v2').select('*'),
+    supabase.from('package_billing_balances_v2').select('*'),
     // This-month payments — unpaginated — for the "Received (this month)" tile.
-    supabase.from('payments').select('amount').gte('date', calendar.monthStart).lte('date', calendar.monthEnd),
+    supabase.from('payments').select('amount').eq('status', 'posted').gte('date', calendar.monthStart).lte('date', calendar.monthEnd),
     supabase.from('package_templates').select('*').order('created_at', { ascending: false }),
+    supabase.from('appointment_types').select('id, name, session_rate').order('sort_order'),
+    supabase.from('refunds').select('id, amount, refund_date').gte('refund_date', calendar.monthStart).lte('refund_date', calendar.monthEnd),
+    supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason').order('refund_date', { ascending: false }).range(0, 99),
   ])
 
   if (packagesError) logger.error('BillingPage/packages', packagesError)
+  if (fundablePackagesError) logger.error('BillingPage/fundablePackages', fundablePackagesError)
   if (paymentsError) logger.error('BillingPage/payments', paymentsError)
   if (patientsError) logger.error('BillingPage/patients', patientsError)
   if (appointmentsError) logger.error('BillingPage/appointments', appointmentsError)
-  if (appointmentPaymentsError) logger.error('BillingPage/appointmentPayments', appointmentPaymentsError)
-  if (allPaymentsError) logger.error('BillingPage/allPayments', allPaymentsError)
+  if (paymentApplicationsError) logger.error('BillingPage/paymentApplications', paymentApplicationsError)
+  if (patientBalancesError) logger.error('BillingPage/patientBalances', patientBalancesError)
+  if (packageBalancesError) logger.error('BillingPage/packageBalances', packageBalancesError)
   if (monthPaymentsError) logger.error('BillingPage/monthPayments', monthPaymentsError)
   if (packageTemplatesError) logger.error('BillingPage/packageTemplates', packageTemplatesError)
+  if (appointmentTypesError) logger.error('BillingPage/appointmentTypes', appointmentTypesError)
+  if (monthRefundsError) logger.error('BillingPage/monthRefunds', monthRefundsError)
+  if (recentRefundsError) logger.error('BillingPage/recentRefunds', recentRefundsError)
+
+  // The recent history is capped for display, but every visible payment must include all of its
+  // refunds so remaining refundable capacity and correction actions are exact.
+  const visiblePaymentIds = (payments ?? []).map((payment) => payment.id)
+  const { data: visiblePaymentRefunds, error: visiblePaymentRefundsError } = visiblePaymentIds.length > 0
+    ? await supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason').in('payment_id', visiblePaymentIds)
+    : { data: [], error: null }
+  if (visiblePaymentRefundsError) logger.error('BillingPage/visiblePaymentRefunds', visiblePaymentRefundsError)
+  const refundRowsById = new Map([...(recentRefunds ?? []), ...(visiblePaymentRefunds ?? [])].map((refund) => [refund.id, refund]))
+  const relevantRefundIds = [...new Set([...(monthRefunds ?? []).map((refund) => refund.id), ...refundRowsById.keys()])]
+  const { data: reversedRefunds, error: reversedRefundsError } = relevantRefundIds.length > 0
+    ? await supabase.from('refund_reversals').select('refund_id').in('refund_id', relevantRefundIds)
+    : { data: [], error: null }
+  if (reversedRefundsError) logger.error('BillingPage/reversedRefunds', reversedRefundsError)
 
   // Billed (completed sessions' fees) per period — captures package + standalone sessions
   // without double-counting, since every session is an appointment carrying its own fee.
@@ -76,53 +103,33 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     )
   const billedThisMonth = sumCompletedFees(calendar.monthStart, calendar.monthEnd)
   const billedLastMonth = sumCompletedFees(calendar.previousMonthStart, calendar.previousMonthEnd)
+  const reversedRefundIds = new Set((reversedRefunds ?? []).map((row) => row.refund_id))
   const receivedThisMonth = (monthPayments ?? []).reduce((s, p) => s + Number(p.amount), 0)
+    - (monthRefunds ?? []).reduce((sum, refund) => sum + (refund.refund_date >= calendar.monthStart && refund.refund_date <= calendar.monthEnd && !reversedRefundIds.has(refund.id) ? Number(refund.amount) : 0), 0)
 
-  const linkedSessionCounts = (appointmentPayments ?? []).reduce<Record<string, number>>((counts, row) => {
+  const linkedSessionCounts = (paymentApplications ?? []).reduce<Record<string, number>>((counts, row) => {
     counts[row.payment_id] = (counts[row.payment_id] ?? 0) + 1
     return counts
   }, {})
 
-  // Unspent credit per payment, then rolled up per patient (payment.amount − Σ amount_applied).
-  const appliedByPayment = (appointmentPayments ?? []).reduce<Record<string, number>>((sums, row) => {
-    sums[row.payment_id] = (sums[row.payment_id] ?? 0) + Number(row.amount_applied ?? 0)
-    return sums
-  }, {})
-  const patientCredit = (allPayments ?? []).reduce<Record<string, number>>((credit, payment) => {
-    const unspent = Math.max(0, Number(payment.amount ?? 0) - (appliedByPayment[payment.id] ?? 0))
-    credit[payment.patient_id] = (credit[payment.patient_id] ?? 0) + unspent
-    return credit
-  }, {})
-
-  const paymentDueRows = buildPaymentDueRows({
-    appointments: (appointments ?? []).map((appointment) => ({
-      ...appointment,
-      patient: Array.isArray(appointment.patient)
-        ? (appointment.patient[0] ?? null)
-        : (appointment.patient ?? null),
-    })),
-    payments: allPayments ?? [],
-    appointmentPayments: appointmentPayments ?? [],
-    // Name credit-only patients (overpaid, no completed unpaid session to source a name from).
-    patientNames: (patients ?? []).reduce<Record<string, string>>((names, patient) => {
-      names[patient.id] = patient.name
-      return names
-    }, {}),
-  })
+  const paymentDueRows = buildV2PaymentBalanceRows({ patients: patients ?? [], patientBalances: patientBalances ?? [], packageBalances: packageBalances ?? [] })
+  const packageBalanceMap = Object.fromEntries((packageBalances ?? []).map((balance) => [balance.package_id, balance]))
 
   return (
     <div className="p-4 md:p-6">
       <BillingView
         packages={packages ?? []}
+        fundablePackages={fundablePackages ?? []}
         packagesTotalCount={packagesCount ?? 0}
         packageTemplates={packageTemplates ?? []}
+        appointmentTypes={appointmentTypes ?? []}
         payments={payments ?? []}
         paymentsTotalCount={paymentsCount ?? 0}
         pageSize={PAGE_SIZE}
         patients={patients ?? []}
-        appointments={appointments ?? []}
         linkedSessionCounts={linkedSessionCounts}
-        patientCredit={patientCredit}
+        packageBalances={packageBalanceMap}
+        refunds={[...refundRowsById.values()].map((refund) => ({ ...refund, amount: Number(refund.amount), reversed: reversedRefundIds.has(refund.id) }))}
         paymentDueRows={paymentDueRows}
         billedThisMonth={billedThisMonth}
         billedLastMonth={billedLastMonth}

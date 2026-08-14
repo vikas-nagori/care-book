@@ -16,10 +16,10 @@ export type PaymentDueSession = {
 type PaymentDueDetailProps = {
   patientName: string
   sessions: PaymentDueSession[]
-  grossDue: number
-  unspentCredit: number
-  netDue: number
-  netCredit: number
+  ordinaryDue: number
+  ordinaryCredit: number
+  packageDue: number
+  packageCredit: number
 }
 
 function Money({ n, className = '' }: { n: number; className?: string }) {
@@ -36,12 +36,11 @@ function Money({ n, className = '' }: { n: number; className?: string }) {
 export function PaymentDueDetail({
   patientName,
   sessions,
-  grossDue,
-  unspentCredit,
-  netDue,
-  netCredit,
+  ordinaryDue, ordinaryCredit, packageDue, packageCredit,
 }: PaymentDueDetailProps) {
-  const isCredit = netCredit > 0
+  const totalDue = ordinaryDue + packageDue
+  const totalCredit = ordinaryCredit + packageCredit
+  const isCredit = totalDue === 0 && totalCredit > 0
 
   return (
     <div className="px-4 pb-4 md:p-6">
@@ -65,25 +64,26 @@ export function PaymentDueDetail({
       </div>
 
       {/* Summary: how the balance is calculated */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-2 gap-3 mb-5 md:grid-cols-4">
         <div className="ph-stat">
-          <div className="ph-stat-label"><span>Gross due</span></div>
-          <div className="ph-stat-value"><Money n={grossDue} /></div>
-          <div className="ph-stat-meta">{sessions.length} unpaid session{sessions.length === 1 ? '' : 's'}</div>
+          <div className="ph-stat-label"><span>Ordinary due</span></div>
+          <div className="ph-stat-value"><Money n={ordinaryDue} /></div>
+          <div className="ph-stat-meta">ordinary FIFO only</div>
         </div>
         <div className="ph-stat">
-          <div className="ph-stat-label"><span>Credit</span></div>
-          <div className="ph-stat-value" style={{ color: unspentCredit > 0 ? 'var(--ph-ok)' : undefined }}>
-            <Money n={unspentCredit} />
-          </div>
-          <div className="ph-stat-meta">unspent advance</div>
+          <div className="ph-stat-label"><span>Ordinary credit</span></div>
+          <div className="ph-stat-value" style={{ color: ordinaryCredit > 0 ? 'var(--ph-ok)' : undefined }}><Money n={ordinaryCredit} /></div>
+          <div className="ph-stat-meta">refundable ordinary</div>
         </div>
         <div className="ph-stat">
-          <div className="ph-stat-label"><span>{isCredit ? 'Net credit' : 'Net due'}</span></div>
-          <div className="ph-stat-value" style={{ color: isCredit ? 'var(--ph-ok)' : netDue > 0 ? 'var(--ph-warn)' : undefined }}>
-            <Money n={isCredit ? netCredit : netDue} />
-          </div>
-          <div className="ph-stat-meta">gross − credit</div>
+          <div className="ph-stat-label"><span>Package due</span></div>
+          <div className="ph-stat-value" style={{ color: packageDue > 0 ? 'var(--ph-warn)' : undefined }}><Money n={packageDue} /></div>
+          <div className="ph-stat-meta">not covered by ordinary credit</div>
+        </div>
+        <div className="ph-stat">
+          <div className="ph-stat-label"><span>Package credit</span></div>
+          <div className="ph-stat-value" style={{ color: packageCredit > 0 ? 'var(--ph-ok)' : undefined }}><Money n={packageCredit} /></div>
+          <div className="ph-stat-meta">refundable within packages</div>
         </div>
       </div>
 
@@ -92,7 +92,7 @@ export function PaymentDueDetail({
       <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
         {sessions.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ph-ink-4)', fontSize: 13 }}>
-            No unpaid sessions — this balance is {isCredit ? 'a credit from advance payments.' : 'settled.'}
+            No unpaid or partially paid sessions — this balance is {isCredit ? 'refundable credit.' : 'settled.'}
           </div>
         ) : (
           sessions.map((session, index) => (
@@ -123,8 +123,8 @@ export function PaymentDueDetail({
             padding: '12px 16px', borderTop: '1px solid var(--ph-line)', background: 'var(--ph-bg-soft)',
             fontSize: 13, fontWeight: 600,
           }}>
-            <span>Gross due</span>
-            <Money n={grossDue} />
+            <span>Session fees shown</span>
+            <Money n={sessions.reduce((sum, session) => sum + session.fee, 0)} />
           </div>
         )}
       </div>

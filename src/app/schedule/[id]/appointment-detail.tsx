@@ -11,12 +11,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
 import { formatTime12 } from '@/lib/format-time'
 import { AppointmentForm } from '../appointment-form'
 import { SessionNoteForm } from './session-note-form'
 import { deleteAppointment, updateAppointmentStatus } from '../actions'
+import { adjustAppointmentFee } from '@/app/billing/actions'
 import type { Appointment, AppointmentAssigneeOption, ExternalStaff, SessionNote } from '@/lib/supabase/types'
 
 interface Props {
@@ -31,6 +35,7 @@ interface Props {
   currentProfileId: string | null
   canManageExternalStaff: boolean
   canViewPaymentSignals: boolean
+  canManageBilling: boolean
 }
 
 export function AppointmentDetail({
@@ -42,6 +47,7 @@ export function AppointmentDetail({
   currentProfileId,
   canManageExternalStaff,
   canViewPaymentSignals,
+  canManageBilling,
 }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -53,6 +59,10 @@ export function AppointmentDetail({
   // be stale during a rapid burst, so a ref is used to block stacked submits.
   const statusInFlight = useRef(false)
   const [deletePending, setDeletePending] = useState(false)
+  const [feeDialogOpen, setFeeDialogOpen] = useState(false)
+  const [adjustedFee, setAdjustedFee] = useState(String(appointment.fee ?? ''))
+  const [feeReason, setFeeReason] = useState('')
+  const [feePending, setFeePending] = useState(false)
   const assignedProfile = appointment.assigned_to
     ? assigneeOptions.find((assignee) => assignee.id === appointment.assigned_to)
     : null
@@ -92,6 +102,20 @@ export function AppointmentDetail({
       toast({ title: 'Error', description: result.message, variant: 'destructive' })
       setDeletePending(false)
     }
+  }
+
+  async function handleFeeAdjustment() {
+    setFeePending(true)
+    const result = await adjustAppointmentFee(appointment.id, Number(adjustedFee), feeReason)
+    setFeePending(false)
+    if (!result.success) {
+      toast({ title: 'Fee adjustment not saved', description: result.message, variant: 'destructive' })
+      return
+    }
+    setFeeDialogOpen(false)
+    setFeeReason('')
+    toast({ title: 'Fee adjustment saved', description: 'The billing ledger was reconciled.' })
+    router.refresh()
   }
 
   return (
@@ -138,7 +162,7 @@ export function AppointmentDetail({
             <div className="flex items-center gap-2 text-sm">
               <IndianRupee className="h-4 w-4 text-muted-foreground shrink-0" />
               <span className="font-medium">₹{Number(appointment.fee).toLocaleString('en-IN')}</span>
-              <span className="text-muted-foreground capitalize">· {appointment.payment_status}</span>
+              <span className="text-muted-foreground capitalize">· {appointment.payment_status?.replaceAll('_', ' ')}</span>
             </div>
           )}
           {!appointment.type_is_shared && assignedName && (
@@ -230,12 +254,24 @@ export function AppointmentDetail({
               externalStaffOptions={externalStaffOptions}
               currentProfileId={currentProfileId}
               canManageExternalStaff={canManageExternalStaff}
-              canViewPaymentSignals={canViewPaymentSignals}
+              canViewPaymentSignals={canViewPaymentSignals && appointment.status !== 'completed'}
               appointment={appointment}
               onSuccess={() => { setEditOpen(false); router.refresh() }}
             />
           </DialogContent>
         </Dialog>
+        {canManageBilling && appointment.status === 'completed' && <Dialog open={feeDialogOpen} onOpenChange={setFeeDialogOpen}>
+          <DialogTrigger asChild><Button variant="outline" className="w-full md:w-auto"><IndianRupee className="h-4 w-4 mr-1" />Adjust fee</Button></DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader><DialogTitle>Adjust completed appointment fee</DialogTitle></DialogHeader>
+            <p className="text-sm text-muted-foreground">This creates an immutable adjustment and reconciles ordinary/package balances.</p>
+            <div className="space-y-2"><Label htmlFor="adjusted_fee">Adjusted fee *</Label><Input id="adjusted_fee" type="number" min="0.01" step="0.01" value={adjustedFee} onChange={(event) => setAdjustedFee(event.target.value)} /></div>
+            <div className="space-y-2"><Label htmlFor="fee_adjustment_reason">Reason *</Label><Textarea id="fee_adjustment_reason" rows={3} value={feeReason} onChange={(event) => setFeeReason(event.target.value)} /></div>
+            <Button onClick={handleFeeAdjustment} disabled={feePending || !feeReason.trim() || !Number.isFinite(Number(adjustedFee)) || Number(adjustedFee) <= 0 || Number(adjustedFee) === Number(appointment.fee)}>
+              {feePending ? <><Loader2 className="animate-spin" size={14} /> Saving…</> : 'Save fee adjustment'}
+            </Button>
+          </DialogContent>
+        </Dialog>}
 
         <Dialog open={noteOpen} onOpenChange={setNoteOpen}>
           <DialogTrigger asChild>

@@ -110,6 +110,8 @@ test('buildBillingTimelineItems attaches linked session counts and package label
     notes: 'advance',
     packageName: '8 Session Package',
     linkedSessionCount: 3,
+    fundingScope: 'package',
+    status: 'posted',
   })
 })
 

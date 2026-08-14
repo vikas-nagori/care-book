@@ -78,7 +78,7 @@ export type Appointment = {
   appointment_type_id: string
   type_is_shared: boolean
   status: 'scheduled' | 'completed' | 'cancelled'
-  payment_status: 'unpaid' | 'prepaid' | 'paid'
+  payment_status: 'unpaid' | 'prepaid' | 'partially_prepaid' | 'paid' | 'partially_paid'
   fee: number | null
   notes: string | null
   created_by: string | null
@@ -127,6 +127,13 @@ export type Package = {
   paid_amount: number
   payment_timing: 'prepaid'
   status: 'active' | 'completed' | 'cancelled'
+  appointment_type_id?: string | null
+  starts_on?: string | null
+  completed_at?: string | null
+  cancelled_at?: string | null
+  cancelled_by?: string | null
+  cancellation_reason?: string | null
+  billing_version?: number
   created_at: string
 }
 
@@ -140,7 +147,44 @@ export type Payment = {
   payment_method: string
   date: string
   notes: string | null
+  funding_scope?: 'ordinary' | 'package'
+  status?: 'posted' | 'voided'
+  voided_at?: string | null
+  voided_by?: string | null
+  void_reason?: string | null
+  billing_version?: number
   created_at: string
+}
+
+export type PackageBillingBalanceV2 = {
+  package_id: string
+  clinic_id: string
+  patient_id: string
+  name: string
+  appointment_type_id: string
+  starts_on: string
+  quote_amount: number
+  net_received: number
+  applied_amount: number
+  due_amount: number
+  refundable_credit: number
+  availed_sessions: number
+  scheduled_sessions: number
+  remaining_sessions: number
+  lifecycle: Package['status']
+  completed_at: string | null
+  cancelled_at: string | null
+  cancellation_reason: string | null
+}
+
+export type PatientBillingBalanceV2 = {
+  patient_id: string
+  clinic_id: string
+  quote_amount: number
+  net_received: number
+  applied_amount: number
+  due_amount: number
+  refundable_credit: number
 }
 
 export type GlobalSettings = {
@@ -172,7 +216,13 @@ export type AppointmentPayment = {
 export type PackageSessionAllocation = {
   id: string
   package_id: string
-  appointment_id: string
+  appointment_id: string | null
+  appointment_reference_id: string
+  clinic_id: string
+  patient_id: string
+  lifecycle: 'scheduled' | 'availed' | 'released'
+  released_at: string | null
+  release_reason: string | null
   created_at: string
 }
 
@@ -310,7 +360,8 @@ export type UpdateGlobalSettingsResult =
 
 export type RecordPaymentInput = {
   patientId: string
-  packageId: string | null
+  fundingScope: 'ordinary' | 'package'
+  packageId?: string | null
   amount: number
   paymentMethod: string
   date: string
@@ -335,6 +386,8 @@ export type CreateBillingEntryInput = {
   packageName?: string
   packageTotalSessions?: number
   packagePerSessionAmount?: number
+  appointmentTypeId?: string
+  packageStartsOn?: string
   paymentAmount?: number
   paymentMethod?: string
   paymentDate?: string
@@ -358,12 +411,21 @@ export type CreateBillingEntryResult =
   | CreateBillingEntrySuccessResult
   | CreateBillingEntryErrorResult
 
-export type DeleteBillingEntryResult =
+export type BillingMutationResult =
   | {
       success: true
       patientId: string
+      entityId?: string
     }
   | ActionErrorResult
+
+export type RefundInput = {
+  paymentId: string
+  amount: number
+  refundMethod: string
+  refundDate: string
+  reason: string
+}
 
 export type CreateUserInviteInput = {
   email: string

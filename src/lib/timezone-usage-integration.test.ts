@@ -29,7 +29,7 @@ test('billing pages derive user-facing periods from the synchronized browser tim
   assert.match(billingView, /defaultPaymentDate=\{defaultPaymentDate\}/)
 })
 
-test('billing allocation previews retain the Kolkata clinic business day', () => {
+test('package start dates retain the Kolkata clinic business day', () => {
   const billingPage = source('src/app/billing/page.tsx')
   const billingView = source('src/app/billing/billing-view.tsx')
   const billingForm = source('src/app/billing/billing-entry-form.tsx')
@@ -38,7 +38,7 @@ test('billing allocation previews retain the Kolkata clinic business day', () =>
   assert.match(billingPage, /clinicToday=\{clinicToday\}/)
   assert.match(billingView, /clinicToday: string/)
   assert.match(billingView, /clinicToday=\{clinicToday\}/)
-  assert.match(billingForm, /today: clinicToday/)
+  assert.match(billingForm, /defaultValue=\{clinicToday\}/)
   assert.match(billingForm, /defaultValue=\{defaultPaymentDate\}/)
   assert.doesNotMatch(billingForm, /const IST = 'Asia\/Kolkata'/)
 })

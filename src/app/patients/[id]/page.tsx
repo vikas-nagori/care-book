@@ -76,7 +76,8 @@ export default async function PatientPage({
     { data: treatmentPlans, error: treatmentPlansError },
     { data: packages, error: packagesError },
     { data: payments, error: paymentsError },
-    { data: outstandingAppts, error: outstandingError },
+    { data: patientBalance, error: balanceError },
+    { data: packageBalances, error: packageBalancesError },
   ] = await Promise.all([
     appointmentsQuery,
     activeCountQuery,
@@ -100,13 +101,10 @@ export default async function PatientPage({
           .order('date', { ascending: false })
       : Promise.resolve({ data: [], error: null }),
     access.canViewBilling
-      ? supabase
-          .from('appointments')
-          .select('fee')
-          .eq('patient_id', id)
-          .eq('status', 'completed')
-          .eq('payment_status', 'unpaid')
-          .not('fee', 'is', null)
+      ? supabase.from('patient_billing_balances_v2').select('*').eq('patient_id', id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    access.canViewBilling
+      ? supabase.from('package_billing_balances_v2').select('*').eq('patient_id', id)
       : Promise.resolve({ data: [], error: null }),
   ])
 
@@ -115,14 +113,13 @@ export default async function PatientPage({
   if (treatmentPlansError) logger.error('PatientPage/treatmentPlans', treatmentPlansError, { id: id })
   if (packagesError && access.canViewBilling) logger.error('PatientPage/packages', packagesError, { id: id })
   if (paymentsError && access.canViewBilling) logger.error('PatientPage/payments', paymentsError, { id: id })
-  if (outstandingError && access.canViewBilling) logger.error('PatientPage/outstanding', outstandingError, { id: id })
+  if (balanceError && access.canViewBilling) logger.error('PatientPage/balance', balanceError, { id: id })
+  if (packageBalancesError && access.canViewBilling) logger.error('PatientPage/packageBalances', packageBalancesError, { id: id })
 
   const appointmentTotalPages = Math.max(1, Math.ceil((appointmentsCount ?? 0) / APPOINTMENTS_PAGE_SIZE))
   if (appointmentPage > appointmentTotalPages) {
     redirect(`/patients/${id}?tab=appointments&appointments_page=${appointmentTotalPages}`)
   }
-
-  const outstanding = (outstandingAppts ?? []).reduce((s, a) => s + Number((a as { fee: number | null }).fee ?? 0), 0)
 
   return (
     <div className="px-4 pb-4 md:p-6">
@@ -140,7 +137,8 @@ export default async function PatientPage({
         treatmentPlans={treatmentPlans ?? []}
         packages={packages ?? []}
         payments={payments ?? []}
-        outstanding={outstanding}
+        patientBalance={patientBalance ?? null}
+        packageBalances={Object.fromEntries((packageBalances ?? []).map((balance) => [balance.package_id, balance]))}
       />
     </div>
   )

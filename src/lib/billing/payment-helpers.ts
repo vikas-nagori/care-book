@@ -3,8 +3,9 @@ export type PaymentCandidate = {
   patient_id: string
   date: string
   status: 'scheduled' | 'completed' | 'cancelled'
-  payment_status: 'unpaid' | 'prepaid' | 'paid'
+  payment_status: 'unpaid' | 'prepaid' | 'partially_prepaid' | 'paid' | 'partially_paid'
   fee: number | null
+  type?: string
 }
 
 type CandidateParams = {

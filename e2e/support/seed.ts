@@ -115,7 +115,7 @@ async function seedPackage(db: SupabaseClient) {
       payment_timing: 'prepaid',
       status: 'active',
     },
-    { onConflict: 'id' },
+    { onConflict: 'id', ignoreDuplicates: true },
   )
   if (error) throw new Error(`seed package: ${error.message}`)
 }
@@ -264,8 +264,11 @@ async function seedPayment(db: SupabaseClient) {
       payment_method: 'UPI',
       date: clinicDate(-2),
       notes: 'E2E baseline prepaid package payment',
+      funding_scope: 'package',
+      status: 'posted',
+      billing_version: 2,
     },
-    { onConflict: 'id' },
+    { onConflict: 'id', ignoreDuplicates: true },
   )
   if (error) throw new Error(`seed payment: ${error.message}`)
 }

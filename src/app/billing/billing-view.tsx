@@ -1,11 +1,15 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
-import { Loader2, Plus, IndianRupee, Receipt, AlertCircle, ChevronRight, Trash2 } from 'lucide-react'
+import { Loader2, Plus, IndianRupee, Receipt, AlertCircle, ChevronRight, Ban, RotateCcw } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,35 +27,28 @@ import {
   type BillingTimelinePackage,
   type BillingTimelinePayment,
 } from '@/lib/billing/unified-billing'
-import type { PaymentDueRow } from '@/lib/billing/payment-due'
-import type { PackageTemplate } from '@/lib/supabase/types'
+import type { V2PaymentBalanceRow } from '@/lib/billing/v2-balances'
+import type { PackageBillingBalanceV2, PackageTemplate } from '@/lib/supabase/types'
 import { PaginationNav } from '@/components/pagination-nav'
 import { BillingEntryForm } from './billing-entry-form'
-import { deletePackage, deletePayment } from './actions'
+import { cancelPackage, recordRefund, voidPayment, voidRefund } from './actions'
 
 type TabId = 'overview' | 'payment_due' | 'payments' | 'packages'
 
 interface BillingViewProps {
   packages: BillingTimelinePackage[]
+  fundablePackages: Pick<BillingTimelinePackage, 'id' | 'patient_id' | 'name' | 'status'>[]
   packagesTotalCount: number
   packageTemplates: PackageTemplate[]
+  appointmentTypes: { id: string; name: string; session_rate: number }[]
   payments: BillingTimelinePayment[]
   paymentsTotalCount: number
   pageSize: number
   patients: { id: string; name: string }[]
-  appointments: {
-    id: string
-    patient_id: string
-    date: string
-    time: string
-    status: 'scheduled' | 'completed' | 'cancelled'
-    payment_status: 'unpaid' | 'prepaid' | 'paid'
-    fee: number | null
-    type: string
-  }[]
   linkedSessionCounts: Record<string, number>
-  patientCredit: Record<string, number>
-  paymentDueRows: PaymentDueRow[]
+  packageBalances: Record<string, PackageBillingBalanceV2>
+  paymentDueRows: V2PaymentBalanceRow[]
+  refunds?: { id: string; payment_id: string; amount: number; refund_method: string; refund_date: string; reason: string; reversed: boolean }[]
   billedThisMonth: number
   billedLastMonth: number
   billedLastMonthLabel: string
@@ -108,7 +105,7 @@ function RevealButton({ label, onClick, loading = false }: { label: string; onCl
   )
 }
 
-function DeleteIconButton({ label, onClick }: { label: string; onClick: (event: React.MouseEvent) => void }) {
+function AuditActionButton({ label, onClick, reverse = false }: { label: string; onClick: (event: React.MouseEvent) => void; reverse?: boolean }) {
   return (
     <button
       type="button"
@@ -117,23 +114,36 @@ function DeleteIconButton({ label, onClick }: { label: string; onClick: (event: 
       title={label}
       className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-md text-[var(--ph-ink-4)] hover:text-[var(--ph-bad)] hover:bg-[var(--ph-bg-soft)] transition-colors"
     >
-      <Trash2 size={15} />
+      {reverse ? <RotateCcw size={15} /> : <Ban size={15} />}
     </button>
   )
 }
 
+function PaymentLedgerBadge({ status, refundedAmount, grossAmount }: { status: 'posted' | 'voided'; refundedAmount: number; grossAmount: number }) {
+  const state = status === 'voided'
+    ? { label: 'Voided', cls: 'bad' }
+    : refundedAmount >= grossAmount
+      ? { label: 'Refunded', cls: 'warn' }
+      : refundedAmount > 0
+        ? { label: 'Partially refunded', cls: 'warn' }
+        : { label: 'Posted', cls: 'ok' }
+  return <span className={`ph-badge ${state.cls}`}>{state.label}</span>
+}
+
 export function BillingView({
   packages: initialPackages,
+  fundablePackages,
   packagesTotalCount,
   packageTemplates,
+  appointmentTypes,
   payments: initialPayments,
   paymentsTotalCount,
   pageSize,
   patients,
-  appointments,
   linkedSessionCounts,
-  patientCredit,
+  packageBalances,
   paymentDueRows,
+  refunds = [],
   billedThisMonth,
   billedLastMonth,
   billedLastMonthLabel,
@@ -150,16 +160,25 @@ export function BillingView({
   const [tab, setTab] = useState<TabId>(initialTab)
   const [packages, setPackages] = useState(initialPackages)
   const [payments, setPayments] = useState(initialPayments)
+  const [refundRows, setRefundRows] = useState(refunds)
   const [loadingMorePayments, setLoadingMorePayments] = useState(false)
   const [loadingMorePackages, setLoadingMorePackages] = useState(false)
   const [duePage, setDuePage] = useState(1)
   const [showAllPayments, setShowAllPayments] = useState(false)
   const [showAllPackages, setShowAllPackages] = useState(false)
-  const [pendingDelete, setPendingDelete] = useState<
-    { kind: 'payment' | 'package'; id: string; label: string } | null
+  const [pendingAction, setPendingAction] = useState<
+    { kind: 'void_payment' | 'cancel_package' | 'refund_payment' | 'void_refund'; id: string; label: string; maxAmount?: number } | null
   >(null)
-  const [deleting, setDeleting] = useState(false)
+  const [actionReason, setActionReason] = useState('')
+  const [refundAmount, setRefundAmount] = useState('')
+  const [refundMethod, setRefundMethod] = useState('upi')
+  const [refundDate, setRefundDate] = useState(defaultPaymentDate)
+  const [savingAction, setSavingAction] = useState(false)
   const cleanBillingUrl = initialTab === 'overview' ? '/billing' : `/billing?tab=${initialTab}`
+
+  useEffect(() => setPackages(initialPackages), [initialPackages])
+  useEffect(() => setPayments(initialPayments), [initialPayments])
+  useEffect(() => setRefundRows(refunds), [refunds])
 
   function handleEntryOpenChange(open: boolean) {
     setEntryOpen(open)
@@ -176,32 +195,33 @@ export function BillingView({
     router.refresh()
   }
 
-  async function confirmDelete() {
-    if (!pendingDelete) return
-    setDeleting(true)
-    const { kind, id } = pendingDelete
-    const result = kind === 'payment' ? await deletePayment(id) : await deletePackage(id)
-    setDeleting(false)
+  async function confirmAuditedAction() {
+    if (!pendingAction || !actionReason.trim()) return
+    setSavingAction(true)
+    const result = pendingAction.kind === 'void_payment'
+      ? await voidPayment(pendingAction.id, actionReason)
+      : pendingAction.kind === 'cancel_package'
+        ? await cancelPackage(pendingAction.id, actionReason)
+        : pendingAction.kind === 'void_refund'
+          ? await voidRefund(pendingAction.id, actionReason)
+          : await recordRefund({ paymentId: pendingAction.id, amount: Number(refundAmount), refundMethod, refundDate, reason: actionReason })
+    setSavingAction(false)
 
     if (!result.success) {
       toast({
-        title: `Could not delete ${kind}`,
+        title: 'Audited change not saved',
         description: result.message,
         variant: 'destructive',
       })
       return
     }
 
-    // Drop the deleted entry locally; balances recompute server-side on refresh.
-    if (kind === 'payment') {
-      setPayments((prev) => prev.filter((p) => p.id !== id))
-    } else {
-      setPackages((prev) => prev.filter((p) => p.id !== id))
-    }
-    setPendingDelete(null)
+    setPendingAction(null)
+    setActionReason('')
+    setRefundAmount('')
     toast({
-      title: `${kind === 'payment' ? 'Payment' : 'Package'} deleted`,
-      description: 'Balances have been recomputed.',
+      title: 'Audited change saved',
+      description: 'The ledger and balances have been reconciled.',
     })
     router.refresh()
   }
@@ -214,7 +234,24 @@ export function BillingView({
       .select('*, patient:patients(id, name), package:packages(id, name)')
       .order('date', { ascending: false })
       .range(payments.length, payments.length + pageSize - 1)
-    if (data) setPayments((prev) => [...prev, ...(data as BillingTimelinePayment[])])
+    if (data) {
+      const nextPayments = data as BillingTimelinePayment[]
+      setPayments((prev) => [...prev, ...nextPayments])
+      const paymentIds = nextPayments.map((payment) => payment.id)
+      if (paymentIds.length > 0) {
+        const { data: nextRefunds } = await supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason').in('payment_id', paymentIds)
+        const refundIds = (nextRefunds ?? []).map((refund) => refund.id)
+        const { data: reversals } = refundIds.length > 0
+          ? await supabase.from('refund_reversals').select('refund_id').in('refund_id', refundIds)
+          : { data: [] }
+        const reversedIds = new Set((reversals ?? []).map((reversal) => reversal.refund_id))
+        setRefundRows((prev) => {
+          const byId = new Map(prev.map((refund) => [refund.id, refund]))
+          for (const refund of nextRefunds ?? []) byId.set(refund.id, { ...refund, amount: Number(refund.amount), reversed: reversedIds.has(refund.id) })
+          return [...byId.values()]
+        })
+      }
+    }
     setLoadingMorePayments(false)
   }
 
@@ -230,8 +267,11 @@ export function BillingView({
     setLoadingMorePackages(false)
   }
 
-  const paymentDueTotal = paymentDueRows.reduce((total, row) => total + row.netDue, 0)
-  const activePackages = packages.filter((p) => p.status === 'active')
+  const paymentDueTotal = paymentDueRows.reduce((total, row) => total + row.totalDue, 0)
+  const activePackages = packages.filter((pkg) => {
+    const availed = Number(packageBalances[pkg.id]?.availed_sessions ?? 0)
+    return pkg.status === 'active' || (pkg.status === 'completed' && availed !== pkg.total_sessions)
+  })
 
   const timelineItems = useMemo(
     () => buildBillingTimelineItems({ packages, payments, linkedSessionCounts }),
@@ -239,6 +279,7 @@ export function BillingView({
   )
 
   const recentPaymentItems = timelineItems.filter((i) => i.type === 'payment_recorded')
+  const postedPaymentItems = recentPaymentItems.filter((item) => item.status === 'posted')
   const packageItems       = timelineItems.filter((i) => i.type === 'package_created')
 
   // Payments Balance is paginated (25/page); payments & packages keep the recent-10 "View more" reveal.
@@ -247,6 +288,10 @@ export function BillingView({
   const visibleDueRows      = paymentDueRows.slice((safeDuePage - 1) * PAYMENT_DUE_PAGE_SIZE, safeDuePage * PAYMENT_DUE_PAGE_SIZE)
   const visiblePaymentItems = showAllPayments ? recentPaymentItems : recentPaymentItems.slice(0, RECENT_LIMIT)
   const visiblePackageItems = showAllPackages ? packageItems       : packageItems.slice(0, RECENT_LIMIT)
+  const activeRefundTotals = refundRows.reduce<Record<string, number>>((totals, refund) => {
+    if (!refund.reversed) totals[refund.payment_id] = (totals[refund.payment_id] ?? 0) + Number(refund.amount)
+    return totals
+  }, {})
 
   const pkgStatusCls: Record<string, string> = {
     active: 'ok', completed: 'info', cancelled: 'bad',
@@ -287,10 +332,9 @@ export function BillingView({
             <DialogHeader><DialogTitle>New Billing Entry</DialogTitle></DialogHeader>
             <BillingEntryForm
               patients={patients}
-              packages={packages}
+              packages={fundablePackages}
               packageTemplates={packageTemplates}
-              appointments={appointments}
-              patientCredit={patientCredit}
+              appointmentTypes={appointmentTypes}
               defaultPaymentDate={defaultPaymentDate}
               clinicToday={clinicToday}
               onSuccess={handleEntrySuccess}
@@ -354,12 +398,12 @@ export function BillingView({
               </button>
             </div>
             <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
-              {recentPaymentItems.length === 0 ? (
+              {postedPaymentItems.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '32px 20px', color: 'var(--ph-ink-4)', fontSize: 13 }}>
                   No payments yet.
                 </div>
               ) : (
-                recentPaymentItems.slice(0, 6).map((item, i, arr) => (
+                postedPaymentItems.slice(0, 6).map((item, i, arr) => (
                   item.type === 'payment_recorded' && (
                     <div
                       key={`${item.id}`}
@@ -401,9 +445,11 @@ export function BillingView({
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {activePackages.slice(0, 4).map((pkg) => {
-                const pct = pkg.total_sessions > 0
-                  ? Math.min(100, (pkg.used_sessions / pkg.total_sessions) * 100)
-                  : 0
+                const balance = packageBalances[pkg.id]
+                const availed = Number(balance?.availed_sessions ?? 0)
+                const scheduled = Number(balance?.scheduled_sessions ?? 0)
+                const availedPct = pkg.total_sessions > 0 ? Math.min(100, (availed / pkg.total_sessions) * 100) : 0
+                const scheduledPct = pkg.total_sessions > 0 ? Math.min(100 - availedPct, (scheduled / pkg.total_sessions) * 100) : 0
                 const patientName = (pkg as unknown as { patient?: { name: string } }).patient?.name ?? 'Patient'
                 return (
                   <Link
@@ -420,13 +466,16 @@ export function BillingView({
                       <span className="ph-badge ok">Active</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--ph-ink-3)', marginBottom: 6 }}>
-                      <span>{pkg.used_sessions}/{pkg.total_sessions} · {Math.max(pkg.total_sessions - pkg.used_sessions, 0)} due</span>
-                      <span className="font-mono-data">{Math.round(pct)}%</span>
+                      <span>{availed} availed · {scheduled} scheduled · {pkg.total_sessions} total</span>
+                      <span className="font-mono-data">{Math.round(availedPct)}%</span>
                     </div>
-                    <div className="ph-bar"><span style={{ width: `${pct}%` }} /></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12.5 }}>
-                      <span style={{ color: 'var(--ph-ink-3)' }}>Paid</span>
-                      <span><Money n={pkg.paid_amount} className="ok" /></span>
+                    <div className="ph-bar" style={{ display: 'flex' }}><span style={{ width: `${availedPct}%` }} /><span style={{ width: `${scheduledPct}%`, opacity: 0.35 }} /></div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1" style={{ marginTop: 8, fontSize: 11.5 }}>
+                      <span>Quote <Money n={Number(balance?.quote_amount ?? pkg.total_amount)} /></span>
+                      <span>Net received <Money n={Number(balance?.net_received ?? 0)} /></span>
+                      <span>Applied <Money n={Number(balance?.applied_amount ?? 0)} /></span>
+                      <span>Due <Money n={Number(balance?.due_amount ?? 0)} /></span>
+                      <span className="col-span-2">Refundable credit <Money n={Number(balance?.refundable_credit ?? 0)} className="ok" /></span>
                     </div>
                   </Link>
                 )
@@ -447,18 +496,17 @@ export function BillingView({
         <SectionBar title="Payments Balance" count={paymentDueRows.length} />
         <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
           <div className="hidden md:grid" style={{
-            gridTemplateColumns: '1.6fr 100px 120px 120px 130px 150px 20px',
+            gridTemplateColumns: '1.6fr 130px 130px 130px 130px 20px',
             gap: 14, padding: '10px 16px',
             fontSize: 10.5, color: 'var(--ph-ink-4)',
             textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600,
             borderBottom: '1px solid var(--ph-line)',
           }}>
             <div>Patient</div>
-            <div>Sessions</div>
-            <div style={{ textAlign: 'right' }}>Gross Due</div>
-            <div style={{ textAlign: 'right' }}>Credit</div>
-            <div style={{ textAlign: 'right' }}>Balance</div>
-            <div>Due Range</div>
+            <div style={{ textAlign: 'right' }}>Ordinary Due</div>
+            <div style={{ textAlign: 'right' }}>Package Due</div>
+            <div style={{ textAlign: 'right' }}>Ordinary Credit</div>
+            <div style={{ textAlign: 'right' }}>Package Credit</div>
             <div />
           </div>
           {paymentDueRows.length === 0 ? (
@@ -468,9 +516,6 @@ export function BillingView({
           ) : (
             visibleDueRows.map((row, index) => {
               const isCredit = row.direction === 'credit'
-              const range = row.oldestDueDate
-                ? `${format(parseISO(row.oldestDueDate), 'dd MMM')}${row.latestDueDate && row.latestDueDate !== row.oldestDueDate ? ` - ${format(parseISO(row.latestDueDate), 'dd MMM')}` : ''}`
-                : '—'
               return (
                 <Link
                   key={row.patientId}
@@ -483,22 +528,17 @@ export function BillingView({
                     fontSize: 13, textDecoration: 'none', color: 'inherit',
                   }}
                 >
-                  <div className="hidden md:grid" style={{ gridTemplateColumns: '1.6fr 100px 120px 120px 130px 150px 20px', gap: 14, alignItems: 'center' }}>
+                  <div className="hidden md:grid" style={{ gridTemplateColumns: '1.6fr 130px 130px 130px 130px 20px', gap: 14, alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontWeight: 500 }}>{row.patientName}</span>
                       <span className={`ph-badge ${isCredit ? 'ok' : 'warn'}`} style={{ fontSize: 10 }}>
                         <span className="ph-badge-dot" />{isCredit ? 'Credit' : 'Due'}
                       </span>
                     </div>
-                    <div className="font-mono-data" style={{ color: 'var(--ph-ink-3)' }}>{row.unpaidSessionCount}</div>
-                    <div style={{ textAlign: 'right' }}><Money n={row.grossDue} /></div>
-                    <div style={{ textAlign: 'right', color: row.unspentCredit > 0 ? 'var(--ph-ok)' : undefined }}>
-                      <Money n={row.unspentCredit} />
-                    </div>
-                    <div style={{ textAlign: 'right', color: isCredit ? 'var(--ph-ok)' : 'var(--ph-warn)', fontWeight: 600 }}>
-                      <Money n={isCredit ? row.netCredit : row.netDue} />
-                    </div>
-                    <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>{range}</div>
+                    <div style={{ textAlign: 'right' }}><Money n={row.ordinaryDue} /></div>
+                    <div style={{ textAlign: 'right' }}><Money n={row.packageDue} /></div>
+                    <div style={{ textAlign: 'right', color: row.ordinaryCredit > 0 ? 'var(--ph-ok)' : undefined }}><Money n={row.ordinaryCredit} /></div>
+                    <div style={{ textAlign: 'right', color: row.packageCredit > 0 ? 'var(--ph-ok)' : undefined }}><Money n={row.packageCredit} /></div>
                     <ChevronRight size={15} style={{ color: 'var(--ph-ink-4)', justifySelf: 'end' }} />
                   </div>
                   <div className="md:hidden space-y-2">
@@ -511,14 +551,14 @@ export function BillingView({
                           </span>
                         </div>
                         <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 1 }}>
-                          {row.unpaidSessionCount} session{row.unpaidSessionCount === 1 ? '' : 's'} · {range}
+                          Ordinary and package funds remain separate
                         </div>
                       </div>
-                      <Money n={isCredit ? row.netCredit : row.netDue} className={isCredit ? 'ok' : 'warn'} />
+                      <Money n={isCredit ? row.totalCredit : row.totalDue} className={isCredit ? 'ok' : 'warn'} />
                     </div>
                     <div className="flex justify-between text-xs" style={{ color: 'var(--ph-ink-4)' }}>
-                      <span>Gross <Money n={row.grossDue} /></span>
-                      <span>Credit <Money n={row.unspentCredit} /></span>
+                      <span>Ordinary due <Money n={row.ordinaryDue} /> · credit <Money n={row.ordinaryCredit} /></span>
+                      <span>Package due <Money n={row.packageDue} /> · credit <Money n={row.packageCredit} /></span>
                     </div>
                   </div>
                 </Link>
@@ -541,7 +581,7 @@ export function BillingView({
           <SectionBar title="Payments" count={recentPaymentItems.length} />
           <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
             <div className="hidden md:grid" style={{
-              gridTemplateColumns: '80px 1.6fr 1.4fr 100px 110px 44px',
+              gridTemplateColumns: '80px 1.6fr 1.4fr 100px 110px 96px',
               gap: 14, padding: '10px 16px',
               fontSize: 10.5, color: 'var(--ph-ink-4)',
               textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600,
@@ -564,45 +604,58 @@ export function BillingView({
                       fontSize: 13,
                     }}
                   >
-                    <div className="hidden md:grid" style={{ gridTemplateColumns: '80px 1.6fr 1.4fr 100px 110px 44px', gap: 14, alignItems: 'center' }}>
+                    <div className="hidden md:grid" style={{ gridTemplateColumns: '80px 1.6fr 1.4fr 100px 110px 96px', gap: 14, alignItems: 'center' }}>
                       <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>
                         {format(parseISO(item.sortDate), 'dd MMM')}
                       </div>
-                      <div style={{ fontWeight: 500 }}>{item.patientName}</div>
+                      <div className="flex flex-wrap items-center gap-2" style={{ fontWeight: 500 }}>
+                        {item.patientName}
+                        <PaymentLedgerBadge status={item.status} refundedAmount={activeRefundTotals[item.id] ?? 0} grossAmount={item.amount} />
+                      </div>
                       <div style={{ fontSize: 12, color: 'var(--ph-ink-3)' }}>
-                        {item.packageName ?? 'Session'}
+                        {item.fundingScope === 'package' ? item.packageName ?? 'Package' : 'Ordinary'}
                         {item.notes ? ` · ${item.notes}` : ''}
                       </div>
                       <div style={{ fontSize: 12, textTransform: 'capitalize' }}>{item.paymentMethod}</div>
                       <div style={{ textAlign: 'right' }}><Money n={item.amount} /></div>
-                      <div style={{ justifySelf: 'end' }}>
-                        <DeleteIconButton
-                          label={`Delete payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`}
-                          onClick={() => setPendingDelete({ kind: 'payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })}
-                        />
+                      <div style={{ justifySelf: 'end', display: 'flex' }}>
+                        {item.status === 'posted' && item.amount > (activeRefundTotals[item.id] ?? 0) && <AuditActionButton label={`Refund payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`} reverse onClick={() => { const refundable = item.amount - (activeRefundTotals[item.id] ?? 0); setRefundAmount(String(refundable)); setPendingAction({ kind: 'refund_payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`, maxAmount: refundable }) }} />}
+                        {item.status === 'posted' && (activeRefundTotals[item.id] ?? 0) === 0 && <AuditActionButton label={`Void payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`} onClick={() => setPendingAction({ kind: 'void_payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })} />}
                       </div>
                     </div>
                     {/* Mobile row */}
                     <div className="md:hidden flex justify-between gap-3">
                       <div>
-                        <div style={{ fontWeight: 500 }}>{item.patientName}</div>
+                        <div className="flex flex-wrap items-center gap-2" style={{ fontWeight: 500 }}>
+                          {item.patientName}
+                          <PaymentLedgerBadge status={item.status} refundedAmount={activeRefundTotals[item.id] ?? 0} grossAmount={item.amount} />
+                        </div>
                         <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 1 }}>
                           {format(parseISO(item.sortDate), 'dd MMM')} · {item.paymentMethod}
-                          {item.packageName ? ` · ${item.packageName}` : ''}
+                          {item.fundingScope === 'package' ? ` · ${item.packageName ?? 'Package'}` : ' · Ordinary'}
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
                         <Money n={item.amount} />
-                        <DeleteIconButton
-                          label={`Delete payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`}
-                          onClick={() => setPendingDelete({ kind: 'payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })}
-                        />
+                        {item.status === 'posted' && item.amount > (activeRefundTotals[item.id] ?? 0) && <AuditActionButton label={`Refund payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`} reverse onClick={() => { const refundable = item.amount - (activeRefundTotals[item.id] ?? 0); setRefundAmount(String(refundable)); setPendingAction({ kind: 'refund_payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`, maxAmount: refundable }) }} />}
+                        {item.status === 'posted' && (activeRefundTotals[item.id] ?? 0) === 0 && <AuditActionButton label={`Void payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`} onClick={() => setPendingAction({ kind: 'void_payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })} />}
                       </div>
                     </div>
                   </div>
                 ) : null
               )
             )}
+            {refundRows.length > 0 && <div className="p-3 border-t" style={{ background: 'var(--ph-bg-soft)' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ph-ink-3)', marginBottom: 6 }}>Refund history</div>
+              {refundRows.map((refund) => <div key={refund.id} className="flex flex-wrap items-center gap-3 py-1 text-xs">
+                <span>{format(parseISO(refund.refund_date), 'dd MMM yyyy')}</span>
+                <span><Money n={Number(refund.amount)} /></span>
+                <span style={{ textTransform: 'capitalize' }}>{refund.refund_method}</span>
+                <span className={`ph-badge ${refund.reversed ? 'soft' : 'warn'}`}>{refund.reversed ? 'Reversed' : 'Refunded'}</span>
+                <span className="truncate">{refund.reason}</span>
+                {!refund.reversed && <AuditActionButton label={`Reverse refund ₹${Number(refund.amount).toLocaleString('en-IN')}`} reverse onClick={() => setPendingAction({ kind: 'void_refund', id: refund.id, label: `Refund · ₹${Number(refund.amount).toLocaleString('en-IN')}` })} />}
+              </div>)}
+            </div>}
           </div>
           {!showAllPayments && recentPaymentItems.length > RECENT_LIMIT && (
             <RevealButton label={`View more (${recentPaymentItems.length - RECENT_LIMIT} more)`} onClick={() => setShowAllPayments(true)} />
@@ -632,9 +685,12 @@ export function BillingView({
             ) : (
               visiblePackageItems.map((item) => {
                 if (item.type !== 'package_created') return null
-                const pct = item.totalSessions > 0
-                  ? Math.min(100, (item.usedSessions / item.totalSessions) * 100)
-                  : 0
+                const balance = packageBalances[item.id]
+                const availed = Number(balance?.availed_sessions ?? 0)
+                const scheduled = Number(balance?.scheduled_sessions ?? 0)
+                const availedPct = item.totalSessions > 0 ? Math.min(100, (availed / item.totalSessions) * 100) : 0
+                const scheduledPct = item.totalSessions > 0 ? Math.min(100 - availedPct, (scheduled / item.totalSessions) * 100) : 0
+                const displayStatus = item.status === 'completed' && availed !== item.totalSessions ? 'active' : item.status
                 return (
                   <Link
                     key={item.id}
@@ -648,28 +704,30 @@ export function BillingView({
                         <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 1 }}>{item.packageName}</div>
                       </div>
                       <div className="flex items-start gap-1">
-                        <span className={`ph-badge ${pkgStatusCls[item.status] ?? ''}`}>{item.status}</span>
-                        <DeleteIconButton
-                          label={`Delete package for ${item.patientName} · ${item.packageName}`}
+                        <span className={`ph-badge ${pkgStatusCls[displayStatus] ?? ''}`}>{displayStatus}</span>
+                        {displayStatus === 'active' && <AuditActionButton
+                          label={`Cancel package for ${item.patientName} · ${item.packageName}`}
                           onClick={(event) => {
                             event.preventDefault()
                             event.stopPropagation()
-                            setPendingDelete({ kind: 'package', id: item.id, label: `${item.patientName} · ${item.packageName}` })
+                            setPendingAction({ kind: 'cancel_package', id: item.id, label: `${item.patientName} · ${item.packageName}` })
                           }}
-                        />
+                        />}
                       </div>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ph-ink-3)', marginBottom: 6 }}>
-                      <span>{item.usedSessions} availed · {Math.max(item.totalSessions - item.usedSessions, 0)} due · {item.totalSessions} total</span>
-                      <span className="font-mono-data">{Math.round(pct)}%</span>
+                      <span>{availed} availed · {scheduled} scheduled · {item.totalSessions} total</span>
+                      <span className="font-mono-data">{Math.round(availedPct)}%</span>
                     </div>
-                    <div className="ph-bar" style={{ marginBottom: 10 }}><span style={{ width: `${pct}%` }} /></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
-                      <span style={{ color: 'var(--ph-ink-3)' }}>Total / Paid</span>
-                      <span>
-                        <Money n={item.totalAmount} /> / <Money n={item.paidAmount} className="ok" />
-                      </span>
+                    <div className="ph-bar" style={{ marginBottom: 10, display: 'flex' }}><span style={{ width: `${availedPct}%` }} /><span style={{ width: `${scheduledPct}%`, opacity: 0.35 }} /></div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5" style={{ fontSize: 11.5 }}>
+                      <span>Quote <Money n={Number(balance?.quote_amount ?? item.totalAmount)} /></span>
+                      <span>Net received <Money n={Number(balance?.net_received ?? 0)} /></span>
+                      <span>Applied <Money n={Number(balance?.applied_amount ?? 0)} /></span>
+                      <span>Due <Money n={Number(balance?.due_amount ?? 0)} /></span>
+                      <span>Refundable credit <Money n={Number(balance?.refundable_credit ?? 0)} /></span>
                     </div>
+                    {displayStatus === 'completed' && balance?.completed_at && <div style={{ fontSize: 11, color: 'var(--ph-ok)', marginTop: 6 }}>Completed {format(parseISO(balance.completed_at), 'dd MMM yyyy')}</div>}
                     <div style={{ fontSize: 11, color: 'var(--ph-ink-4)', marginTop: 6 }}>
                       {format(parseISO(item.sortDate), 'dd MMM yyyy')}
                     </div>
@@ -694,25 +752,34 @@ export function BillingView({
         </>
       )}
 
-      <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => { if (!open && !deleting) setPendingDelete(null) }}>
+      <AlertDialog open={pendingAction !== null} onOpenChange={(open) => { if (!open && !savingAction) { setPendingAction(null); setActionReason(''); setRefundAmount('') } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete this {pendingDelete?.kind === 'package' ? 'package' : 'payment'}?
+              {pendingAction?.kind === 'cancel_package' ? 'Cancel package' : pendingAction?.kind === 'refund_payment' ? 'Record refund' : pendingAction?.kind === 'void_refund' ? 'Reverse refund' : 'Void payment'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingDelete?.label ? <><span className="font-medium">{pendingDelete.label}</span><br /></> : null}
-              This permanently removes the {pendingDelete?.kind === 'package' ? 'package and its collected payment' : 'payment'} and recomputes balances. The most recent completed sessions may become unpaid. This cannot be undone.
+              {pendingAction?.label ? <><span className="font-medium">{pendingAction.label}</span><br /></> : null}
+              This records an immutable audited ledger event and then reconciles balances. No history is deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {pendingAction?.kind === 'refund_payment' && <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="space-y-1"><Label htmlFor="refund_amount">Amount *</Label><Input id="refund_amount" type="number" min="0.01" max={pendingAction.maxAmount} step="0.01" value={refundAmount} onChange={(event) => setRefundAmount(event.target.value)} /></div>
+            <div className="space-y-1"><Label htmlFor="refund_method">Method *</Label><Select value={refundMethod} onValueChange={setRefundMethod}><SelectTrigger id="refund_method"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">Cash</SelectItem><SelectItem value="upi">UPI</SelectItem><SelectItem value="card">Card</SelectItem><SelectItem value="bank_transfer">Bank Transfer</SelectItem></SelectContent></Select></div>
+            <div className="space-y-1"><Label htmlFor="refund_date">Date *</Label><Input id="refund_date" type="date" value={refundDate} onChange={(event) => setRefundDate(event.target.value)} /></div>
+          </div>}
+          <div className="space-y-2">
+            <Label htmlFor="audit_reason">Reason *</Label>
+            <Textarea id="audit_reason" value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder="Explain why this correction is needed" rows={3} />
+          </div>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={savingAction}>Back</AlertDialogCancel>
             <AlertDialogAction
-              onClick={(event) => { event.preventDefault(); confirmDelete() }}
-              disabled={deleting}
+              onClick={(event) => { event.preventDefault(); confirmAuditedAction() }}
+              disabled={savingAction || !actionReason.trim() || (pendingAction?.kind === 'refund_payment' && (!Number.isFinite(Number(refundAmount)) || Number(refundAmount) <= 0 || Number(refundAmount) > Number(pendingAction.maxAmount ?? 0)))}
               className="bg-[var(--ph-bad)] hover:bg-[var(--ph-bad)]/90"
             >
-              {deleting ? <><Loader2 size={14} className="animate-spin" /> Deleting…</> : 'Delete'}
+              {savingAction ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : 'Save audited change'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

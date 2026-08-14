@@ -1,9 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { format, parseISO } from 'date-fns'
+import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,30 +9,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
-import {
-  calculatePackageTotal,
-  getPaymentAllocationPreview,
-  sumAppointmentFees,
-} from '@/lib/billing/payment-helpers'
+import { calculatePackageTotal } from '@/lib/billing/payment-helpers'
 import { getBillingModeLabel, type BillingTimelinePackage } from '@/lib/billing/unified-billing'
 import { applyPackageTemplate } from '@/lib/billing/package-template'
-import type {
-  Appointment,
-  BillingEntryKind,
-  CreateBillingEntryInput,
-  PackageTemplate,
-} from '@/lib/supabase/types'
-import { createBillingEntry } from './actions'
-
-type AppointmentSlim = Pick<Appointment, 'id' | 'patient_id' | 'date' | 'time' | 'status' | 'payment_status' | 'fee' | 'type'>
+import type { BillingEntryKind, CreateBillingEntryInput, PackageTemplate } from '@/lib/supabase/types'
+import { createBillingEntry, recordPayment } from './actions'
 
 interface Props {
   patients: { id: string; name: string }[]
-  packages: BillingTimelinePackage[]
+  packages: Pick<BillingTimelinePackage, 'id' | 'patient_id' | 'name' | 'status'>[]
   packageTemplates?: PackageTemplate[]
-  appointments: AppointmentSlim[]
-  // Each patient's unspent advance credit, so the preview reflects pooled FIFO allocation.
-  patientCredit?: Record<string, number>
+  appointmentTypes: { id: string; name: string; session_rate: number }[]
   defaultPaymentDate: string
   clinicToday: string
   onSuccess?: () => void
@@ -56,9 +41,9 @@ function Money({ amount }: { amount: number }) {
 
 export function BillingEntryForm({
   patients,
+  packages,
   packageTemplates = [],
-  appointments,
-  patientCredit,
+  appointmentTypes,
   defaultPaymentDate,
   clinicToday,
   onSuccess,
@@ -71,6 +56,8 @@ export function BillingEntryForm({
   const [packageName, setPackageName] = useState('')
   const [packageSessions, setPackageSessions] = useState('')
   const [packagePerSessionAmount, setPackagePerSessionAmount] = useState('')
+  const [fundingScope, setFundingScope] = useState<'ordinary' | 'package'>('ordinary')
+  const [selectedPackageId, setSelectedPackageId] = useState('')
 
   function handleTemplateSelect(templateId: string) {
     const template = packageTemplates.find((t) => t.id === templateId)
@@ -84,22 +71,11 @@ export function BillingEntryForm({
   }
 
   const selectedPatientName = patients.find((patient) => patient.id === selectedPatient)?.name
+  const patientPackages = packages.filter((pkg) => pkg.patient_id === selectedPatient && pkg.status !== 'cancelled')
   const paymentAmount = numberFromInput(amount)
   const packageTotalSessions = integerFromInput(packageSessions)
   const packageRate = numberFromInput(packagePerSessionAmount)
   const packageTotal = calculatePackageTotal(packageTotalSessions, packageRate)
-
-  const allocationPreview = useMemo(
-    () =>
-      getPaymentAllocationPreview({
-        appointments,
-        patientId: selectedPatient,
-        amount: paymentAmount,
-        today: clinicToday,
-        existingCredit: patientCredit?.[selectedPatient] ?? 0,
-      }),
-    [appointments, selectedPatient, paymentAmount, clinicToday, patientCredit],
-  )
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -119,9 +95,21 @@ export function BillingEntryForm({
       input.packageName = packageName
       input.packageTotalSessions = packageTotalSessions
       input.packagePerSessionAmount = packageRate
+      input.appointmentTypeId = (formData.get('appointment_type_id') as string) || undefined
+      input.packageStartsOn = (formData.get('package_starts_on') as string) || undefined
     }
 
-    const result = await createBillingEntry(input)
+    const result = mode === 'payment_only'
+      ? await recordPayment({
+        patientId: selectedPatient,
+        fundingScope,
+        packageId: fundingScope === 'package' ? selectedPackageId : null,
+        amount: paymentAmount,
+        paymentMethod: input.paymentMethod ?? '',
+        date: input.paymentDate ?? '',
+        notes: input.paymentNotes ?? null,
+      })
+      : await createBillingEntry(input)
 
     if (!result.success) {
       toast({
@@ -137,7 +125,7 @@ export function BillingEntryForm({
     if (result.linkedAppointmentIds.length > 0) {
       descriptionParts.push(`Linked ${result.linkedAppointmentIds.length} session(s)`)
     }
-    if (result.remainingCredit > 0) {
+    if ('remainingCredit' in result && result.remainingCredit > 0) {
       descriptionParts.push(`${result.remainingCredit.toLocaleString('en-IN')} advance credit`)
     }
 
@@ -157,7 +145,7 @@ export function BillingEntryForm({
           id="billing_patient"
           options={patients.map((patient) => ({ value: patient.id, label: patient.name }))}
           value={selectedPatient || null}
-          onChange={setSelectedPatient}
+          onChange={(patientId) => { setSelectedPatient(patientId); setSelectedPackageId('') }}
           placeholder="Select patient"
           searchPlaceholder="Search patient…"
           emptyText="No patients found."
@@ -248,12 +236,31 @@ export function BillingEntryForm({
                 id="package_per_session_amount"
                 name="package_per_session_amount"
                 type="number"
-                min="0"
+                min="0.01"
                 step="0.01"
                 required
                 value={packagePerSessionAmount}
                 onChange={(event) => setPackagePerSessionAmount(event.target.value)}
               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2 min-w-0">
+              <Label htmlFor="appointment_type_id">Appointment Type *</Label>
+              <Select name="appointment_type_id" required>
+                <SelectTrigger id="appointment_type_id"><SelectValue placeholder="Select type" /></SelectTrigger>
+                <SelectContent>
+                  {appointmentTypes.map((type) => (
+                    <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Only matching appointments on or after the start date use this package.</p>
+            </div>
+            <div className="space-y-2 min-w-0">
+              <Label htmlFor="package_starts_on">Package Start Date *</Label>
+              <Input id="package_starts_on" name="package_starts_on" type="date" required defaultValue={clinicToday} />
             </div>
           </div>
         </div>
@@ -271,7 +278,7 @@ export function BillingEntryForm({
               id="payment_amount"
               name="payment_amount"
               type="number"
-              min="0"
+              min="0.01"
               step="0.01"
               required
               value={amount}
@@ -279,7 +286,7 @@ export function BillingEntryForm({
             />
           </div>
           <div className="space-y-2 min-w-0 overflow-hidden">
-            <Label htmlFor="payment_date">Date *</Label>
+            <Label htmlFor="payment_date">Payment Date *</Label>
             <Input
               id="payment_date"
               name="payment_date"
@@ -291,67 +298,48 @@ export function BillingEntryForm({
           </div>
         </div>
 
-        {selectedPatient && paymentAmount > 0 && (
-          <div className="rounded-md border bg-muted/40 p-3">
-            <p className="text-sm font-medium">Payment Allocation</p>
-
-            {allocationPreview.outstandingSessions.length > 0 && (
-              <div className="mt-2 space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">Outstanding</p>
-                {allocationPreview.outstandingSessions.map((appointment) => (
-                  <div key={appointment.id} className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Badge variant="outline" className="text-xs">
-                      {appointment.type}
-                    </Badge>
-                    <span>{format(parseISO(appointment.date), 'dd MMM yyyy')}</span>
-                    {appointment.fee && <span className="ml-auto">₹{Number(appointment.fee).toLocaleString('en-IN')}</span>}
-                  </div>
-                ))}
+        {mode === 'payment_only' && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="funding_scope">Funding Scope *</Label>
+              <Select value={fundingScope} onValueChange={(value) => { setFundingScope(value as 'ordinary' | 'package'); if (value === 'ordinary') setSelectedPackageId('') }}>
+                <SelectTrigger id="funding_scope"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ordinary">Ordinary FIFO</SelectItem>
+                  <SelectItem value="package">Existing package</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {fundingScope === 'package' && (
+              <div className="space-y-2">
+                <Label htmlFor="existing_package_id">Package *</Label>
+                <Select value={selectedPackageId} onValueChange={setSelectedPackageId} required>
+                  <SelectTrigger id="existing_package_id"><SelectValue placeholder="Select package" /></SelectTrigger>
+                  <SelectContent>
+                    {patientPackages.map((pkg) => <SelectItem key={pkg.id} value={pkg.id}>{pkg.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {selectedPatient && patientPackages.length === 0 && <p className="text-xs text-muted-foreground">This patient has no non-cancelled package.</p>}
               </div>
-            )}
-
-            {allocationPreview.prepaidSessions.length > 0 && (
-              <div className="mt-3 space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">Advance Sessions</p>
-                {allocationPreview.prepaidSessions.map((appointment) => (
-                  <div key={appointment.id} className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Badge variant="outline" className="text-xs">
-                      {appointment.type}
-                    </Badge>
-                    <span>{format(parseISO(appointment.date), 'dd MMM yyyy')}</span>
-                    {appointment.fee && <span className="ml-auto">₹{Number(appointment.fee).toLocaleString('en-IN')}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {allocationPreview.allocatedTotal > 0 && (
-              <div className="mt-3 text-xs text-muted-foreground">
-                Linked value: <Money amount={allocationPreview.allocatedTotal} />
-              </div>
-            )}
-
-            {allocationPreview.remainingCredit > 0 && (
-              <div className="mt-1 text-xs text-muted-foreground">
-                Advance credit: <Money amount={allocationPreview.remainingCredit} />
-              </div>
-            )}
-
-            {allocationPreview.allocatedTotal === 0 && (
-              <p className="mt-2 text-sm text-muted-foreground">
-                Amount stays as advance credit.
-              </p>
             )}
           </div>
         )}
 
-        {selectedPatient && paymentAmount > 0 && allocationPreview.allocatedTotal > 0 && (
-          <div className="text-xs text-muted-foreground">
-            {sumAppointmentFees([
-              ...allocationPreview.outstandingSessions,
-              ...allocationPreview.prepaidSessions,
-            ]).toLocaleString('en-IN')} linked from available sessions.
+        {mode === 'payment_only' && selectedPatient && paymentAmount > 0 && (
+          <div className="rounded-md border bg-muted/40 p-3">
+            <p className="text-sm font-medium">{fundingScope === 'ordinary' ? 'Ordinary FIFO allocation' : 'Package-only allocation'}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {fundingScope === 'ordinary'
+                ? 'This receipt applies oldest-first to eligible ordinary charges, including partial sessions. Any remainder stays as ordinary refundable credit; package balances are never used.'
+                : 'This receipt applies only within the selected package, including partial sessions. Ordinary due and credit remain untouched.'}
+            </p>
           </div>
+        )}
+
+        {mode === 'package_with_payment' && paymentAmount > 0 && (
+          <p className="text-xs text-muted-foreground">
+            This receipt is scoped only to the new package. Ordinary credit remains separate.
+          </p>
         )}
 
         <div className="space-y-2">
@@ -370,12 +358,12 @@ export function BillingEntryForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="payment_notes">Notes</Label>
-          <Textarea id="payment_notes" name="payment_notes" rows={2} />
+          <Label htmlFor="payment_notes">Notes{mode === 'package_with_payment' ? ' *' : ''}</Label>
+          <Textarea id="payment_notes" name="payment_notes" rows={2} required={mode === 'package_with_payment'} />
         </div>
       </div>
 
-      <Button type="submit" className="w-full" disabled={loading || !selectedPatient}>
+      <Button type="submit" className="w-full" disabled={loading || !selectedPatient || (mode === 'payment_only' && fundingScope === 'package' && !selectedPackageId)}>
         {loading ? (
           <><Loader2 className="animate-spin" size={14} /> Saving...</>
         ) : mode === 'payment_only' ? 'Save Payment' : 'Save Package'}

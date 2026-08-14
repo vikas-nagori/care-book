@@ -6,6 +6,7 @@ import { formatDateOnly, getZonedCalendarContext } from '@/lib/timezone'
 import { getUserTimeZone } from '@/lib/timezone/server'
 import { buildAppointmentTypeBreakdown, type AppointmentTypeBreakdownRow } from '@/lib/billing/appointment-type-breakdown'
 import { buildMonthlyBilledSeries } from '@/lib/billing/monthly-billed-series'
+import { buildNetReceivedMetric } from '@/lib/billing/received-metric'
 import { parsePageParam } from '@/lib/pagination'
 import { MetricDetail, type MetricRow } from './metric-detail'
 import { BilledTrendDetail } from './billed-trend-detail'
@@ -116,31 +117,41 @@ export default async function BillingMetricPage({
       amount: Number(a.fee ?? 0),
     }))
   } else {
-    const { data: aggregate, error: aggregateError } = await supabase
-      .from('payments')
-      .select('amount')
-      .gte('date', from)
-      .lte('date', to)
-    if (aggregateError) logger.error('BillingMetric/received/aggregate', aggregateError, { metric })
-    total = (aggregate ?? []).reduce((sum, p) => sum + Number(p.amount ?? 0), 0)
+    const [
+      { data: periodPayments, error: paymentsError },
+      { data: periodRefunds, error: refundsError },
+      { data: refundReversals, error: reversalsError },
+    ] = await Promise.all([
+      supabase
+        .from('payments')
+        .select('id, date, amount, payment_method, status, patient:patients(name)')
+        .gte('date', from)
+        .lte('date', to),
+      supabase
+        .from('refunds')
+        .select('id, refund_date, amount, refund_method, patient:patients(name)')
+        .gte('refund_date', from)
+        .lte('refund_date', to),
+      supabase.from('refund_reversals').select('refund_id'),
+    ])
+    if (paymentsError) logger.error('BillingMetric/received/payments', paymentsError, { metric })
+    if (refundsError) logger.error('BillingMetric/received/refunds', refundsError, { metric })
+    if (reversalsError) logger.error('BillingMetric/received/refundReversals', reversalsError, { metric })
 
-    const { data, count, error } = await supabase
-      .from('payments')
-      .select('id, date, amount, payment_method, patient:patients(name)', { count: 'exact' })
-      .gte('date', from)
-      .lte('date', to)
-      .order('date', { ascending: false })
-      .order('id', { ascending: false })
-      .range(rangeStart, rangeEnd)
-    if (error) logger.error('BillingMetric/received', error, { metric })
-    totalCount = count ?? 0
-    rows = (data ?? []).map((p) => ({
-      id: p.id,
-      date: p.date,
-      title: normalizePatient(p.patient),
-      meta: p.payment_method ?? undefined,
-      amount: Number(p.amount ?? 0),
-    }))
+    const received = buildNetReceivedMetric({
+      payments: (periodPayments ?? []).map((payment) => ({
+        ...payment,
+        patientName: normalizePatient(payment.patient),
+      })),
+      refunds: (periodRefunds ?? []).map((refund) => ({
+        ...refund,
+        patientName: normalizePatient(refund.patient),
+      })),
+      reversedRefundIds: new Set((refundReversals ?? []).map((reversal) => reversal.refund_id)),
+    })
+    total = received.total
+    totalCount = received.rows.length
+    rows = received.rows.slice(rangeStart, rangeEnd + 1)
   }
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))

@@ -79,7 +79,7 @@ test('clicking a package shows the dates its sessions were taken', async ({ page
   await page.getByRole('link', { name: new RegExp(pkg.name as string) }).click()
 
   await expect(page).toHaveURL(`/billing/packages/${pkg.id}`)
-  await expect(page.getByRole('heading', { name: /Sessions taken/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Session history/ })).toBeVisible()
   await expect(page.getByText(clinicDateLabel(-3), { exact: true })).toBeVisible()
   await expect(page.getByText(clinicDateLabel(-1), { exact: true })).toBeVisible()
   await guards.assertClean()

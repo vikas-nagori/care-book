@@ -56,6 +56,14 @@ function queryableDb(
           filters.set(column, value)
           return builder
         },
+        in(column: string, values: unknown[]) {
+          const allowed = new Set(values)
+          const matching = (rows[table] ?? []).filter((row) =>
+            [...filters].every(([filterColumn, value]) => row[filterColumn] === value)
+              && allowed.has(row[column]),
+          )
+          return Promise.resolve({ data: matching, error: null })
+        },
         delete() {
           return {
             async in(_column: string, ids: string[]) {
@@ -222,7 +230,7 @@ test('watched UI values discover partial-failure rows without deleting fixed bas
   )
 })
 
-test('billing and settings UI watchers clean only exact matching rows and invited auth users', async () => {
+test('billing watchers retain immutable audit rows while settings watchers clean exact matches', async () => {
   const deletes: DeleteCall[] = []
   const authDeletes: AuthDeleteCall[] = []
   const invitedEmail = 'exact-invite@carebook.test'
@@ -276,8 +284,6 @@ test('billing and settings UI watchers clean only exact matching rows and invite
 
   assert.deepEqual(deletes, [
     { table: 'user_invites', ids: ['ui-invite-id'] },
-    { table: 'payments', ids: ['ui-payment-id'] },
-    { table: 'packages', ids: ['ui-package-id'] },
     { table: 'appointment_types', ids: ['ui-type-id'] },
     { table: 'package_templates', ids: ['ui-template-id'] },
     { table: 'external_staff', ids: ['ui-staff-id'] },

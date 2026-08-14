@@ -234,7 +234,7 @@ test('billing switches balance and payment tables at md and changes package grid
     : page.getByText('UPI', { exact: true })
   await expect(paymentMethod).toBeVisible()
   await expect(page.getByRole('button', {
-    name: 'Delete payment for Asha Rao · ₹8,000',
+    name: 'Void payment for Asha Rao · ₹8,000',
     exact: true,
   })).toBeVisible()
 
@@ -242,12 +242,12 @@ test('billing switches balance and payment tables at md and changes package grid
   const packageName = page.getByText('10-Session Physiotherapy Package', { exact: true })
   await expect(packageName).toBeVisible()
   await expect(page.getByText('Asha Rao', { exact: true }).filter({ visible: true })).toBeVisible()
-  const deletePackage = page.getByRole('button', {
-    name: 'Delete package for Asha Rao · 10-Session Physiotherapy Package',
+  const cancelPackage = page.getByRole('button', {
+    name: 'Cancel package for Asha Rao · 10-Session Physiotherapy Package',
     exact: true,
   })
-  await expect(deletePackage).toBeVisible()
-  expect(await deletePackage.evaluate((button) => (
+  await expect(cancelPackage).toBeVisible()
+  expect(await cancelPackage.evaluate((button) => (
     button.parentElement?.parentElement?.parentElement?.textContent
   ))).toContain('₹8,000')
   const packageColumnCount = await packageName.evaluate((element) => {

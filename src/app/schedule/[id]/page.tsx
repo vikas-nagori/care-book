@@ -88,6 +88,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
         currentProfileId={currentProfile?.id ?? null}
         canManageExternalStaff={currentProfile?.role === 'admin'}
         canViewPaymentSignals={access.canViewPaymentSignals}
+        canManageBilling={currentProfile?.role === 'admin'}
       />
     </div>
   )

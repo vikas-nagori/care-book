@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { format, parseISO } from 'date-fns'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Edit, Phone, Mail, MapPin, Calendar, Plus, Stethoscope, Trash2, Loader2 } from 'lucide-react'
@@ -29,7 +30,7 @@ import { formatDateOnly } from '@/lib/timezone'
 import { getPaginationItems } from '@/lib/patients/appointment-pagination'
 import { TreatmentPlanForm } from './treatment-plan-form'
 import { deletePatient } from '../actions'
-import type { Patient, Appointment, TreatmentPlan, Package, Payment, ReferralSource } from '@/lib/supabase/types'
+import type { Patient, Appointment, TreatmentPlan, Package, Payment, ReferralSource, PackageBillingBalanceV2, PatientBillingBalanceV2 } from '@/lib/supabase/types'
 
 const REFERRAL_SOURCE_LABEL: Record<ReferralSource, string> = {
   walk_in: 'Walk-in',
@@ -53,7 +54,8 @@ interface PatientDetailProps {
   treatmentPlans: TreatmentPlan[]
   packages: Package[]
   payments: Payment[]
-  outstanding: number
+  patientBalance: PatientBillingBalanceV2 | null
+  packageBalances: Record<string, PackageBillingBalanceV2>
 }
 
 const statusColors: Record<string, string> = {
@@ -80,7 +82,8 @@ export function PatientDetail({
   treatmentPlans,
   packages,
   payments,
-  outstanding,
+  patientBalance,
+  packageBalances,
 }: PatientDetailProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -124,8 +127,11 @@ export function PatientDetail({
     </Button>
   ) : null
 
-  const totalBilled = packages.reduce((sum, p) => sum + Number(p.total_amount), 0)
-  const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0)
+  const totalBilled = Number(patientBalance?.quote_amount ?? 0)
+  const totalPaid = Number(patientBalance?.net_received ?? 0)
+  const totalApplied = Number(patientBalance?.applied_amount ?? 0)
+  const outstanding = Number(patientBalance?.due_amount ?? 0)
+  const refundableCredit = Number(patientBalance?.refundable_credit ?? 0)
   const visiblePayments = showAllPayments ? payments : payments.slice(0, PAYMENT_LIST_INITIAL)
   const appointmentTotalPages = Math.max(1, Math.ceil(appointmentsTotalCount / appointmentPageSize))
   const appointmentPaginationItems = getPaginationItems(appointmentPage, appointmentTotalPages)
@@ -379,7 +385,7 @@ export function PatientDetail({
 
         {canViewBilling && (
           <TabsContent value="billing">
-            <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="grid grid-cols-2 gap-2 mb-4 md:grid-cols-5">
               <Card>
                 <CardContent className="p-3 text-center">
                   <p className="text-xs text-muted-foreground">Billed</p>
@@ -388,8 +394,14 @@ export function PatientDetail({
               </Card>
               <Card>
                 <CardContent className="p-3 text-center">
-                  <p className="text-xs text-muted-foreground">Paid</p>
+                  <p className="text-xs text-muted-foreground">Net received</p>
                   <p className="text-lg font-bold text-green-600">₹{totalPaid.toLocaleString()}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Applied</p>
+                  <p className="text-lg font-bold">₹{totalApplied.toLocaleString()}</p>
                 </CardContent>
               </Card>
               <Card>
@@ -398,30 +410,35 @@ export function PatientDetail({
                   <p className="text-lg font-bold text-red-600">₹{outstanding.toLocaleString()}</p>
                 </CardContent>
               </Card>
+              <Card>
+                <CardContent className="p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Refundable credit</p>
+                  <p className="text-lg font-bold text-green-600">₹{refundableCredit.toLocaleString()}</p>
+                </CardContent>
+              </Card>
             </div>
 
             {packages.length > 0 && (
               <div className="mb-4">
                 <h3 className="font-medium mb-2">Packages</h3>
                 <div className="space-y-2">
-                  {packages.map((pkg) => (
-                    <Link key={pkg.id} href={`/billing/packages/${pkg.id}`} className="block">
+                  {packages.map((pkg) => {
+                    const availed = Number(packageBalances[pkg.id]?.availed_sessions ?? 0)
+                    const displayStatus = pkg.status === 'completed' && availed !== pkg.total_sessions ? 'active' : pkg.status
+                    return <Link key={pkg.id} href={`/billing/packages/${pkg.id}`} className="block">
                       <Card className="transition-colors hover:bg-muted/50">
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between mb-1">
                             <p className="font-medium">{pkg.name}</p>
-                            <Badge className={statusColors[pkg.status] || ''}>{pkg.status}</Badge>
+                            <Badge className={statusColors[displayStatus] || ''}>{displayStatus}</Badge>
                           </div>
-                          <p className="text-sm text-muted-foreground">
-                            {pkg.used_sessions} availed · {Math.max(pkg.total_sessions - pkg.used_sessions, 0)} due · {pkg.total_sessions} total
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            ₹{Number(pkg.paid_amount).toLocaleString()}/₹{Number(pkg.total_amount).toLocaleString()}
-                          </p>
+                          <p className="text-sm text-muted-foreground">{availed} availed · {Number(packageBalances[pkg.id]?.scheduled_sessions ?? 0)} scheduled · {pkg.total_sessions} total</p>
+                          <p className="text-sm text-muted-foreground">Quote ₹{Number(packageBalances[pkg.id]?.quote_amount ?? pkg.total_amount).toLocaleString()} · Net received ₹{Number(packageBalances[pkg.id]?.net_received ?? 0).toLocaleString()} · Applied ₹{Number(packageBalances[pkg.id]?.applied_amount ?? 0).toLocaleString()} · Due ₹{Number(packageBalances[pkg.id]?.due_amount ?? 0).toLocaleString()} · Refundable credit ₹{Number(packageBalances[pkg.id]?.refundable_credit ?? 0).toLocaleString()}</p>
+                          {displayStatus === 'completed' && packageBalances[pkg.id]?.completed_at && <p className="text-xs text-green-700">Completed {format(parseISO(packageBalances[pkg.id].completed_at!), 'dd MMM yyyy')}</p>}
                         </CardContent>
                       </Card>
                     </Link>
-                  ))}
+                  })}
                 </div>
               </div>
             )}
@@ -436,7 +453,7 @@ export function PatientDetail({
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="font-medium">₹{Number(payment.amount).toLocaleString()}</p>
-                            <p className="text-sm text-muted-foreground">{payment.payment_method}</p>
+                            <p className="text-sm text-muted-foreground">{payment.payment_method} · {payment.funding_scope ?? (payment.package_id ? 'package' : 'ordinary')}{payment.status === 'voided' ? ' · voided' : ''}</p>
                           </div>
                           <p className="text-sm text-muted-foreground">{formatDateOnly(payment.date, 'dd MMM yyyy')}</p>
                         </div>

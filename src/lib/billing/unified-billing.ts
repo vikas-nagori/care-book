@@ -32,6 +32,8 @@ export type BillingTimelineItem =
       notes: string | null
       packageName: string | null
       linkedSessionCount: number
+      fundingScope: 'ordinary' | 'package'
+      status: 'posted' | 'voided'
     }
 
 export function getBillingModeLabel(mode: BillingMode) {
@@ -75,6 +77,8 @@ export function buildBillingTimelineItems({
     notes: payment.notes,
     packageName: payment.package?.name ?? null,
     linkedSessionCount: linkedSessionCounts[payment.id] ?? 0,
+    fundingScope: payment.funding_scope ?? (payment.package_id ? 'package' : 'ordinary'),
+    status: payment.status ?? 'posted',
   }))
 
   return [...packageItems, ...paymentItems].sort((left, right) =>

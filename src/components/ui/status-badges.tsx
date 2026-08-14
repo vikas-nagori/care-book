@@ -3,6 +3,8 @@ export function PaymentBadge({ status }: { status?: string }) {
   const map: Record<string, { cls: string; label: string }> = {
     paid:    { cls: 'ok',   label: 'Paid' },
     prepaid: { cls: 'info', label: 'Prepaid' },
+    partially_prepaid: { cls: 'info', label: 'Partially prepaid' },
+    partially_paid: { cls: 'warn', label: 'Partially paid' },
     unpaid:  { cls: 'warn', label: 'Due' },
   }
   const m = map[status] ?? { cls: '', label: status }

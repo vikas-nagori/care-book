@@ -33,6 +33,13 @@ export class BillingEntryForm {
     await this.fillPayment(data)
   }
 
+  async targetExistingPackage(packageName: string): Promise<void> {
+    await this.page.getByLabel('Funding Scope *', { exact: true }).click()
+    await this.page.getByRole('option', { name: 'Existing package', exact: true }).click()
+    await this.page.getByLabel('Package *', { exact: true }).click()
+    await this.page.getByRole('option', { name: packageName, exact: true }).click()
+  }
+
   async fillPackageFromTemplate(
     data: BillingPaymentData & { templateName: string },
   ): Promise<void> {
@@ -40,9 +47,11 @@ export class BillingEntryForm {
     await this.selectPatient(data.patientName)
     await this.page.getByLabel('Package Template', { exact: true }).click()
     await this.page.getByRole('option', { name: new RegExp(`^${data.templateName}`) }).click()
+    await this.page.getByLabel('Appointment Type *', { exact: true }).click()
+    await this.page.getByRole('option', { name: 'Clinic', exact: true }).click()
     await this.page.getByLabel('Payment Method *', { exact: true }).click()
     await this.page.getByRole('option', { name: data.method, exact: true }).click()
-    await this.page.getByLabel('Notes', { exact: true }).fill(data.notes)
+    await this.page.getByLabel('Notes *', { exact: true }).fill(data.notes)
   }
 
   async expectPackagePrefill(input: {
@@ -66,25 +75,27 @@ export class BillingEntryForm {
     await expect(this.page.getByText(kind === 'payment' ? 'Payment recorded' : 'Package saved', { exact: true })).toBeVisible()
   }
 
-  async deletePayment(patientName: string, amount: number): Promise<void> {
+  async voidPayment(patientName: string, amount: number): Promise<void> {
     await this.page.getByRole('button', { name: 'Payments', exact: true }).click()
     await this.page.getByRole('button', {
-      name: `Delete payment for ${patientName} · ₹${amount.toLocaleString('en-IN')}`,
+      name: `Void payment for ${patientName} · ₹${amount.toLocaleString('en-IN')}`,
       exact: true,
     }).click()
-    const dialog = this.page.getByRole('alertdialog', { name: 'Delete this payment?' })
-    await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
-    await expect(this.page.getByText('Payment deleted', { exact: true })).toBeVisible()
+    const dialog = this.page.getByRole('alertdialog', { name: 'Void payment' })
+    await dialog.getByLabel('Reason *', { exact: true }).fill('E2E correction')
+    await dialog.getByRole('button', { name: 'Save audited change', exact: true }).click()
+    await expect(this.page.getByText('Audited change saved', { exact: true })).toBeVisible()
   }
 
-  async deletePackage(patientName: string, packageName: string): Promise<void> {
+  async cancelPackage(patientName: string, packageName: string): Promise<void> {
     await this.page.getByRole('button', { name: 'Packages', exact: true }).click()
     await this.page.getByRole('button', {
-      name: `Delete package for ${patientName} · ${packageName}`,
+      name: `Cancel package for ${patientName} · ${packageName}`,
       exact: true,
     }).click()
-    const dialog = this.page.getByRole('alertdialog', { name: 'Delete this package?' })
-    await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
-    await expect(this.page.getByText('Package deleted', { exact: true })).toBeVisible()
+    const dialog = this.page.getByRole('alertdialog', { name: 'Cancel package' })
+    await dialog.getByLabel('Reason *', { exact: true }).fill('E2E package correction')
+    await dialog.getByRole('button', { name: 'Save audited change', exact: true }).click()
+    await expect(this.page.getByText('Audited change saved', { exact: true })).toBeVisible()
   }
 }

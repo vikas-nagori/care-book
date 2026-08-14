@@ -2,7 +2,6 @@ import { getCurrentProfile } from '@/lib/auth'
 import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { getAppointmentVisibilityFilter } from '@/lib/access/appointment-visibility'
 import { createClient } from '@/lib/supabase/server'
-import { buildPaymentDueRows } from '@/lib/billing/payment-due'
 import { formatTime12 } from '@/lib/format-time'
 import { logger } from '@/lib/logger'
 import {
@@ -37,6 +36,8 @@ function PaymentBadge({ status }: { status: string }) {
   const map: Record<string, { cls: string; label: string }> = {
     paid:    { cls: 'ok',   label: 'Paid' },
     prepaid: { cls: 'info', label: 'Prepaid' },
+    partially_prepaid: { cls: 'info', label: 'Partially prepaid' },
+    partially_paid: { cls: 'warn', label: 'Partially paid' },
     unpaid:  { cls: 'warn', label: 'Due' },
   }
   const m = map[status] ?? { cls: '', label: status }
@@ -85,35 +86,29 @@ export default async function DashboardPage() {
 
   if (appointmentVisibilityFilter) weekCountQuery = weekCountQuery.or(appointmentVisibilityFilter)
 
-  // Outstanding (overall) — net due across all completed unpaid sessions minus unspent
-  // payment credit, computed the same way as the Billing page's Outstanding tile.
-  const dueAppointmentsP = access.canViewBilling
-    ? supabase
-        .from('appointments')
-        .select('id, patient_id, date, status, payment_status, fee, patient:patients(id, name)')
-        .eq('status', 'completed')
-        .eq('payment_status', 'unpaid')
-    : Promise.resolve({ data: [], error: null })
-
-  const allPaymentsP = access.canViewBilling
-    ? supabase.from('payments').select('id, patient_id, amount')
-    : Promise.resolve({ data: [], error: null })
-
-  const appointmentPaymentsP = access.canViewBilling
-    ? supabase.from('appointment_payments').select('payment_id, amount_applied')
+  const billingBalancesP = access.canViewBilling
+    ? supabase.from('patient_billing_balances_v2').select('due_amount')
     : Promise.resolve({ data: [], error: null })
 
   const monthRevP = access.canViewBilling
-    ? supabase.from('payments').select('amount').gte('date', calendar.monthStart).lte('date', calendar.monthEnd)
+    ? supabase.from('payments').select('amount').eq('status', 'posted').gte('date', calendar.monthStart).lte('date', calendar.monthEnd)
+    : Promise.resolve({ data: [], error: null })
+
+  const monthRefundsP = access.canViewBilling
+    ? supabase.from('refunds').select('id, amount').gte('refund_date', calendar.monthStart).lte('refund_date', calendar.monthEnd)
+    : Promise.resolve({ data: [], error: null })
+
+  const refundReversalsP = access.canViewBilling
+    ? supabase.from('refund_reversals').select('refund_id')
     : Promise.resolve({ data: [], error: null })
 
   const [
     { data: rawAppts, error: apptError },
     { data: rawWeekAppointments, error: weekAppointmentsError },
-    { data: dueAppointments },
-    { data: allPayments },
-    { data: appointmentPayments },
+    { data: billingBalances },
     { data: monthPayments },
+    { data: monthRefunds },
+    { data: refundReversals },
     { count: totalPatients },
     { data: patients },
     { data: doctors },
@@ -122,10 +117,10 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     apptQuery,
     weekCountQuery,
-    dueAppointmentsP,
-    allPaymentsP,
-    appointmentPaymentsP,
+    billingBalancesP,
     monthRevP,
+    monthRefundsP,
+    refundReversalsP,
     supabase.from('patients').select('*', { count: 'exact', head: true }),
     supabase.from('patients').select('id, name').order('name'),
     supabase.from('doctors').select('*').order('name'),
@@ -163,17 +158,10 @@ export default async function DashboardPage() {
     weekInterval.end,
   ).length
 
-  const paymentDueRows = buildPaymentDueRows({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    appointments: ((dueAppointments ?? []) as any[]).map((a) => ({
-      ...a,
-      patient: Array.isArray(a.patient) ? (a.patient[0] ?? null) : (a.patient ?? null),
-    })),
-    payments: allPayments ?? [],
-    appointmentPayments: appointmentPayments ?? [],
-  })
-  const outstanding = paymentDueRows.reduce((s, r) => s + r.netDue, 0)
+  const outstanding = (billingBalances ?? []).reduce((sum, balance) => sum + Number(balance.due_amount ?? 0), 0)
+  const reversedRefundIds = new Set((refundReversals ?? []).map((reversal) => reversal.refund_id))
   const monthRevenue = (monthPayments ?? []).reduce((s, p) => s + Number(p.amount), 0)
+    - (monthRefunds ?? []).reduce((sum, refund) => sum + (reversedRefundIds.has(refund.id) ? 0 : Number(refund.amount)), 0)
   const nextAppt = findNextScheduledAppointment(dashboardAppts, now)
   const cancelledCount = appts.filter((a) => a.status === 'cancelled').length
 
