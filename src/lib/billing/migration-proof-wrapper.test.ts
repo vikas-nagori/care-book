@@ -5,6 +5,8 @@ import { compareMigrationProofDocuments } from '../../../scripts/compare-migrati
 
 function proof(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
+    manifestVersion: 'carebook-migrations-030-034-v3',
+    readOnly: true,
     ok: true,
     requiredChecks: ['schema_pgcrypto_in_extensions_schema'],
     checks: [{ check: 'schema_pgcrypto_in_extensions_schema', passed: true }],
@@ -24,4 +26,8 @@ test('normalizes and compares complete migration proof documents, including defi
 test('fails closed when a proof is unhealthy or omits a required check', () => {
   assert.equal(compareMigrationProofDocuments(proof({ ok: false }), proof()).ok, false)
   assert.equal(compareMigrationProofDocuments(proof({ checks: [] }), proof()).ok, false)
+  assert.equal(compareMigrationProofDocuments(
+    JSON.stringify({ manifestVersion: 'carebook-migrations-030-034-v3', readOnly: true, ok: true, requiredChecks: [], checks: [] }),
+    JSON.stringify({ manifestVersion: 'carebook-migrations-030-034-v3', readOnly: true, ok: true, requiredChecks: [], checks: [] })
+  ).ok, false)
 })
