@@ -1,11 +1,19 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import test from 'node:test'
 
-import { getZonedDayInterval } from '../timezone.ts'
+import {
+  addCalendarDays,
+  CLINIC_TIME_ZONE,
+  getZonedDateInterval,
+  getZonedDayInterval,
+} from '../timezone.ts'
 import {
   filterAppointmentsInInterval,
   findNextScheduledAppointment,
   getDashboardAppointmentQueryRange,
+  getDashboardAppointmentUnionRange,
 } from './appointments.ts'
 
 interface Row {
@@ -16,6 +24,7 @@ interface Row {
 }
 
 const midnightKolkata = new Date('2026-07-18T18:30:00.000Z')
+const dashboardSource = readFileSync(join(process.cwd(), 'src/app/page.tsx'), 'utf8')
 
 test('midnight Kolkata excludes the previous morning appointment from the current day', () => {
   const { start, end } = getZonedDayInterval(midnightKolkata, 'Asia/Kolkata')
@@ -58,4 +67,59 @@ test('dashboard appointment query includes the following clinic date for Up next
     getDashboardAppointmentQueryRange({ startDate: '2026-07-19', endDate: '2026-07-19' }),
     { startDate: '2026-07-19', endDate: '2026-07-20' },
   )
+})
+
+test('dashboard appointment union uses the earliest start and preserves the complete clinic week', () => {
+  assert.deepEqual(
+    getDashboardAppointmentUnionRange(
+      { startDate: '2026-07-20', endDate: '2026-07-26' },
+      { startDate: '2026-07-19', endDate: '2026-07-20' },
+    ),
+    { startDate: '2026-07-19', endDate: '2026-07-26' },
+  )
+})
+
+test('dashboard appointment union includes the following clinic date across a week boundary', () => {
+  assert.deepEqual(
+    getDashboardAppointmentUnionRange(
+      { startDate: '2026-07-20', endDate: '2026-07-26' },
+      { startDate: '2026-07-26', endDate: '2026-07-27' },
+    ),
+    { startDate: '2026-07-20', endDate: '2026-07-27' },
+  )
+})
+
+test('Up next includes the scheduled following day across a week boundary only', () => {
+  const upNextRange = getDashboardAppointmentQueryRange({
+    startDate: '2026-07-26',
+    endDate: '2026-07-26',
+  })
+  const upNextInterval = getZonedDateInterval(
+    upNextRange.startDate,
+    addCalendarDays(upNextRange.endDate, 1),
+    CLINIC_TIME_ZONE,
+  )
+  const now = new Date('2026-07-26T03:30:00.000Z')
+  const appointments: Row[] = [
+    { id: 'following-day', date: '2026-07-27', time: '23:59:59', status: 'scheduled' },
+    { id: 'later-week', date: '2026-07-28', time: '08:00:00', status: 'scheduled' },
+  ]
+
+  const upNextAppointments = filterAppointmentsInInterval(
+    appointments,
+    upNextInterval.start,
+    upNextInterval.end,
+  )
+
+  assert.deepEqual(upNextAppointments.map((appointment) => appointment.id), ['following-day'])
+  assert.equal(findNextScheduledAppointment(upNextAppointments, now)?.id, 'following-day')
+})
+
+test('dashboard source issues exactly one Supabase appointments query', () => {
+  const appointmentQueries = dashboardSource.match(
+    /\.from\s*\(\s*['"]appointments['"]\s*\)/g,
+  ) ?? []
+
+  assert.equal(appointmentQueries.length, 1)
+  assert.doesNotMatch(dashboardSource, /\bweekCountQuery\b/)
 })

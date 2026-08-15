@@ -19,6 +19,20 @@ export function getDashboardAppointmentQueryRange(range: ClinicDateRange): Clini
   }
 }
 
+export function getDashboardAppointmentUnionRange(
+  weekRange: ClinicDateRange,
+  upNextRange: ClinicDateRange,
+): ClinicDateRange {
+  return {
+    startDate: weekRange.startDate < upNextRange.startDate
+      ? weekRange.startDate
+      : upNextRange.startDate,
+    endDate: weekRange.endDate > upNextRange.endDate
+      ? weekRange.endDate
+      : upNextRange.endDate,
+  }
+}
+
 export function filterAppointmentsInInterval<T extends AppointmentTimeRow>(
   appointments: T[],
   start: Date,

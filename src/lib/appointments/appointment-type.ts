@@ -7,7 +7,10 @@ export type { AppointmentType }
 // code reads `appointment.type` directly; these helpers operate on the fetched
 // list for forms, filters, and Settings CRUD.
 
-export function sortAppointmentTypes(types: AppointmentType[]): AppointmentType[] {
+type SortableAppointmentType = Pick<AppointmentType, 'name' | 'sort_order'>
+type DefaultableAppointmentType = SortableAppointmentType & Pick<AppointmentType, 'is_shared'>
+
+export function sortAppointmentTypes<T extends SortableAppointmentType>(types: readonly T[]): T[] {
   return [...types].sort(
     (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name),
   )
@@ -15,7 +18,7 @@ export function sortAppointmentTypes(types: AppointmentType[]): AppointmentType[
 
 // The type selected by default in the booking form: the first shared default,
 // else the first type by sort order.
-export function defaultAppointmentType(types: AppointmentType[]): AppointmentType | null {
+export function defaultAppointmentType<T extends DefaultableAppointmentType>(types: readonly T[]): T | null {
   const sorted = sortAppointmentTypes(types)
   return sorted.find((type) => type.is_shared) ?? sorted[0] ?? null
 }
