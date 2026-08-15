@@ -34,7 +34,7 @@ test('production source never hard-deletes Supabase auth users', () => {
 test('operational profile selectors explicitly exclude blocked and deleted users', () => {
   const srcRoot = join(import.meta.dirname, '..', '..')
   for (const relativePath of [
-    'app/page.tsx',
+    'lib/dashboard/appointment-options.ts',
     'app/schedule/page.tsx',
     'app/schedule/new/page.tsx',
     'app/schedule/[id]/page.tsx',

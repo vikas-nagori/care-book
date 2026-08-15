@@ -6,6 +6,7 @@ import { formatTime12 } from '@/lib/format-time'
 import { logger } from '@/lib/logger'
 import {
   addCalendarDays,
+  CLINIC_TIME_ZONE,
   getClinicDateRangeForInterval,
   getZonedCalendarContext,
   getZonedDateInterval,
@@ -16,6 +17,7 @@ import {
   filterAppointmentsInInterval,
   findNextScheduledAppointment,
   getDashboardAppointmentQueryRange,
+  getDashboardAppointmentUnionRange,
 } from '@/lib/dashboard/appointments'
 import Link from 'next/link'
 import { CalendarDays, Users, IndianRupee, AlertCircle } from 'lucide-react'
@@ -65,8 +67,17 @@ export default async function DashboardPage() {
     userTimeZone,
   )
   const dayClinicRange = getClinicDateRangeForInterval(dayInterval.start, dayInterval.end)
-  const appointmentQueryRange = getDashboardAppointmentQueryRange(dayClinicRange)
   const weekClinicRange = getClinicDateRangeForInterval(weekInterval.start, weekInterval.end)
+  const upNextClinicRange = getDashboardAppointmentQueryRange(dayClinicRange)
+  const appointmentQueryRange = getDashboardAppointmentUnionRange(
+    weekClinicRange,
+    upNextClinicRange,
+  )
+  const upNextInterval = getZonedDateInterval(
+    upNextClinicRange.startDate,
+    addCalendarDays(upNextClinicRange.endDate, 1),
+    CLINIC_TIME_ZONE,
+  )
 
   let apptQuery = supabase
     .from('appointments')
@@ -77,14 +88,6 @@ export default async function DashboardPage() {
     .order('time')
 
   if (appointmentVisibilityFilter) apptQuery = apptQuery.or(appointmentVisibilityFilter)
-
-  let weekCountQuery = supabase
-    .from('appointments')
-    .select('id, date, time, status')
-    .gte('date', weekClinicRange.startDate)
-    .lte('date', weekClinicRange.endDate)
-
-  if (appointmentVisibilityFilter) weekCountQuery = weekCountQuery.or(appointmentVisibilityFilter)
 
   const billingBalancesP = access.canViewBilling
     ? supabase.from('patient_billing_balances_v2').select('due_amount')
@@ -104,37 +107,21 @@ export default async function DashboardPage() {
 
   const [
     { data: rawAppts, error: apptError },
-    { data: rawWeekAppointments, error: weekAppointmentsError },
     { data: billingBalances },
     { data: monthPayments },
     { data: monthRefunds },
     { data: refundReversals },
     { count: totalPatients },
-    { data: patients },
-    { data: doctors },
-    { data: assigneeOptions, error: assigneeOptionsError },
-    { data: externalStaffOptions, error: externalStaffOptionsError },
   ] = await Promise.all([
     apptQuery,
-    weekCountQuery,
     billingBalancesP,
     monthRevP,
     monthRefundsP,
     refundReversalsP,
     supabase.from('patients').select('*', { count: 'exact', head: true }),
-    supabase.from('patients').select('id, name').order('name'),
-    supabase.from('doctors').select('*').order('name'),
-    supabase.from('profiles').select('id, full_name, email, role').eq('status', 'active').order('full_name'),
-    supabase
-      .from('external_staff')
-      .select('id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')
-      .order('name'),
   ])
 
   if (apptError) logger.error('Dashboard/appts', apptError)
-  if (weekAppointmentsError) logger.error('Dashboard/weekAppointments', weekAppointmentsError)
-  if (assigneeOptionsError) logger.error('Dashboard/assigneeOptions', assigneeOptionsError)
-  if (externalStaffOptionsError) logger.error('Dashboard/externalStaffOptions', externalStaffOptionsError)
 
   type ApptRow = Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status' | 'payment_status' | 'fee'> & {
     patient: { id: string; name: string; phone: string } | null
@@ -153,16 +140,21 @@ export default async function DashboardPage() {
     dayInterval.end,
   )
   const weekCount = filterAppointmentsInInterval(
-    (rawWeekAppointments ?? []) as Pick<Appointment, 'id' | 'date' | 'time' | 'status'>[],
+    dashboardAppts,
     weekInterval.start,
     weekInterval.end,
   ).length
+  const upNextAppointments = filterAppointmentsInInterval(
+    dashboardAppts,
+    upNextInterval.start,
+    upNextInterval.end,
+  )
 
   const outstanding = (billingBalances ?? []).reduce((sum, balance) => sum + Number(balance.due_amount ?? 0), 0)
   const reversedRefundIds = new Set((refundReversals ?? []).map((reversal) => reversal.refund_id))
   const monthRevenue = (monthPayments ?? []).reduce((s, p) => s + Number(p.amount), 0)
     - (monthRefunds ?? []).reduce((sum, refund) => sum + (reversedRefundIds.has(refund.id) ? 0 : Number(refund.amount)), 0)
-  const nextAppt = findNextScheduledAppointment(dashboardAppts, now)
+  const nextAppt = findNextScheduledAppointment(upNextAppointments, now)
   const cancelledCount = appts.filter((a) => a.status === 'cancelled').length
 
   return (
@@ -177,31 +169,13 @@ export default async function DashboardPage() {
           <DashboardDate />
         </div>
         <div className="hidden md:flex" style={{ gap: 8, alignItems: 'center' }}>
-          <DashboardNewAppointmentButton
-            defaultDate={calendar.date}
-            patients={patients ?? []}
-            doctors={doctors ?? []}
-            assigneeOptions={assigneeOptions ?? []}
-            externalStaffOptions={externalStaffOptions ?? []}
-            currentProfileId={currentProfile?.id ?? null}
-            canManageExternalStaff={currentProfile?.role === 'admin'}
-            canViewPaymentSignals={access.canViewPaymentSignals}
-          />
+          <DashboardNewAppointmentButton defaultDate={calendar.date} />
         </div>
       </div>
 
       {/* Mobile quick-actions */}
       <div className={`md:hidden grid gap-2 ${access.canViewBilling ? 'grid-cols-2' : 'grid-cols-1'}`}>
-        <DashboardNewAppointmentMobile
-          defaultDate={calendar.date}
-          patients={patients ?? []}
-          doctors={doctors ?? []}
-          assigneeOptions={assigneeOptions ?? []}
-          externalStaffOptions={externalStaffOptions ?? []}
-          currentProfileId={currentProfile?.id ?? null}
-          canManageExternalStaff={currentProfile?.role === 'admin'}
-          canViewPaymentSignals={access.canViewPaymentSignals}
-        />
+        <DashboardNewAppointmentMobile defaultDate={calendar.date} />
         {access.canViewBilling && (
           <Link
             href="/billing?new=1"

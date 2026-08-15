@@ -46,10 +46,9 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
     .from('session_notes')
     .select('*')
     .eq('appointment_id', id)
-    .single()
+    .maybeSingle()
 
-  // PGRST116 = no rows found, expected when no session note exists yet
-  if (sessionNoteError && sessionNoteError.code !== 'PGRST116') {
+  if (sessionNoteError) {
     logger.error('AppointmentPage/sessionNote', sessionNoteError, { id: id })
   }
 
