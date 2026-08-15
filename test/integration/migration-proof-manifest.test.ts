@@ -3,20 +3,40 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import test from 'node:test'
+import { after, before, test } from 'node:test'
+import { buildDatabase, dropDatabase, postgresAvailable } from './db.ts'
 
 const root = join(import.meta.dirname, '..', '..')
 const proofSql = join(root, 'scripts/verify-migrations-030-034.sql')
 const wrapper = join(root, 'scripts/compare-migration-proofs.ts')
-const databaseUrl = process.env.MIGRATION_PROOF_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+
+// The proof reads a fully migrated schema, not just any reachable Postgres. Without an explicit
+// target it builds the standard throwaway database from schema.sql + every migration, so a bare
+// Postgres (CI, via the PG* env vars) proves the same invariants as a local Supabase stack.
+// Set MIGRATION_PROOF_DATABASE_URL to point the proof at an already-migrated database instead —
+// a local Supabase (postgresql://postgres:postgres@127.0.0.1:54322/postgres) or production.
+const databaseUrl = process.env.MIGRATION_PROOF_DATABASE_URL
+const DB = 'carebook_it_migration_proof'
+const buildsOwnDatabase = !databaseUrl
+const hasPostgres = buildsOwnDatabase ? postgresAvailable() : true
+const skip = hasPostgres ? false : 'no local Postgres reachable'
+
+before(() => {
+  if (buildsOwnDatabase && hasPostgres) buildDatabase(DB)
+})
+
+after(() => {
+  if (buildsOwnDatabase && hasPostgres) dropDatabase(DB)
+})
 
 function runProof(): string {
-  return execFileSync('psql', [databaseUrl, '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1', '-f', proofSql], {
+  const target = databaseUrl ? [databaseUrl] : ['-d', DB]
+  return execFileSync('psql', [...target, '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1', '-f', proofSql], {
     encoding: 'utf8',
   }).trim()
 }
 
-test('migration proof is one deterministic sanitized read-only document and wrapper fails closed', () => {
+test('migration proof is one deterministic sanitized read-only document and wrapper fails closed', { skip }, () => {
   const first = runProof()
   const second = runProof()
   assert.equal(second, first)
