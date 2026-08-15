@@ -54,7 +54,7 @@ begin
     raise exception 'Correction inputs do not match the durable production gate.' using errcode = 'P0001';
   end if;
   if v_effective_role <> v_gate.authorized_db_role
-     or encode(digest(current_setting('carebook.ops.bypass_token'), 'sha256'), 'hex') <> v_gate.bypass_token_digest then
+     or encode(extensions.digest(current_setting('carebook.ops.bypass_token'), 'sha256'), 'hex') <> v_gate.bypass_token_digest then
     raise exception 'Correction bypass authorization failed.' using errcode = '42501';
   end if;
   if to_regclass('public.billing_events') is null

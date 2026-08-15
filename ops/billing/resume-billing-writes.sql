@@ -23,7 +23,7 @@ begin
     raise exception 'Approved billing corrections have not completed; writes remain paused.' using errcode = 'P0001';
   end if;
   if effective_role <> gate.authorized_db_role
-     or encode(digest(current_setting('carebook.ops.bypass_token'), 'sha256'), 'hex') <> gate.bypass_token_digest then
+     or encode(extensions.digest(current_setting('carebook.ops.bypass_token'), 'sha256'), 'hex') <> gate.bypass_token_digest then
     raise exception 'Billing resume bypass authorization failed.' using errcode = '42501';
   end if;
   select details into marker_details

@@ -2,7 +2,21 @@ begin;
 
 -- Auditable, scoped billing ledger. V2 is additive: legacy RPC signatures and columns remain.
 
-create extension if not exists "pgcrypto";
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+do $normalize_pgcrypto$
+begin
+  if exists (
+    select 1
+    from pg_extension extension_row
+    join pg_namespace extension_schema on extension_schema.oid = extension_row.extnamespace
+    where extension_row.extname = 'pgcrypto'
+      and extension_schema.nspname <> 'extensions'
+  ) then
+    alter extension pgcrypto set schema extensions;
+  end if;
+end
+$normalize_pgcrypto$;
 
 -- Stop the legacy allocators before introducing the single v2 reconciler.
 drop trigger if exists appointments_sync_patient_billing_allocations on public.appointments;

@@ -69,6 +69,8 @@ before(() => {
   if (!available) return
   buildDatabaseThrough(DB, '029_patient_appointment_history_index.sql')
   run(DB, `
+    create schema if not exists extensions;
+    alter extension pgcrypto set schema extensions;
     insert into public.clinics (id,name) values ('10000000-0000-4000-8000-000000000001','Amruta');
     insert into public.patients (id,clinic_id,name,phone) values
       ('20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Target','1'),

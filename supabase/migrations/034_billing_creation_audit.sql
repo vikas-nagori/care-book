@@ -56,7 +56,7 @@ begin
         where gate.id = true
           and gate.status in ('paused_verified', 'corrections_applied')
           and gate.authorized_db_role = effective_role
-          and encode(digest(current_setting('carebook.ops.bypass_token', true), 'sha256'), 'hex') = gate.bypass_token_digest
+          and encode(extensions.digest(current_setting('carebook.ops.bypass_token', true), 'sha256'), 'hex') = gate.bypass_token_digest
       ) into historical_authorized;
     end if;
     if not historical_authorized then

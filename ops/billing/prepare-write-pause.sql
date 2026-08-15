@@ -5,7 +5,21 @@
 -- bypass_token. The token must be a fresh random value of at least 32 characters.
 
 begin;
-create extension if not exists pgcrypto;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+do $normalize_pgcrypto$
+begin
+  if exists (
+    select 1
+    from pg_extension extension_row
+    join pg_namespace extension_schema on extension_schema.oid = extension_row.extnamespace
+    where extension_row.extname = 'pgcrypto'
+      and extension_schema.nspname <> 'extensions'
+  ) then
+    alter extension pgcrypto set schema extensions;
+  end if;
+end
+$normalize_pgcrypto$;
 create schema if not exists private;
 
 create table if not exists private.billing_ops_gate (
@@ -139,7 +153,7 @@ $$;
 
 create or replace function private.billing_source_fingerprint_v1()
 returns text language sql stable set search_path = public, private, pg_temp as $$
-  select encode(digest(private.billing_source_payload_v1(), 'sha256'), 'hex')
+  select encode(extensions.digest(private.billing_source_payload_v1(), 'sha256'), 'hex')
 $$;
 
 create or replace function private.billing_source_row_counts_v1()
@@ -178,7 +192,7 @@ begin
      and gate.paused_at >= clock_timestamp() - interval '24 hours'
      and effective_role = gate.authorized_db_role
      and supplied_token is not null
-     and encode(digest(supplied_token, 'sha256'), 'hex') = gate.bypass_token_digest then
+     and encode(extensions.digest(supplied_token, 'sha256'), 'hex') = gate.bypass_token_digest then
     insert into private.billing_ops_bypass_log (
       gate_paused_at, db_role, relation_name, operation, transaction_id
     ) values (gate.paused_at, session_user, tg_table_name, tg_op, txid_current());
@@ -240,7 +254,7 @@ begin
     true, 'byhccyhbdnqslqdktybt', 'carebook-billing-source-v1', source_fingerprint, plan_fingerprint, report_checksum,
     expected_fingerprint, observed_fingerprint, expected_row_counts, observed_row_counts,
     case when observed_fingerprint = expected_fingerprint and observed_row_counts = expected_row_counts then 'paused_verified' else 'paused_mismatch' end,
-    operator_role, encode(digest(token, 'sha256'), 'hex'), clock_timestamp(), null, null, clock_timestamp()
+    operator_role, encode(extensions.digest(token, 'sha256'), 'hex'), clock_timestamp(), null, null, clock_timestamp()
   ) on conflict (id) do update set
     project_ref = excluded.project_ref, fingerprint_version = excluded.fingerprint_version,
     source_fingerprint = excluded.source_fingerprint, plan_fingerprint = excluded.plan_fingerprint,
