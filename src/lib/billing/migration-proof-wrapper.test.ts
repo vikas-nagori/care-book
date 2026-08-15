@@ -16,7 +16,7 @@ function proof(overrides: Record<string, unknown> = {}) {
 }
 
 test('normalizes and compares complete migration proof documents, including definition hashes', () => {
-  assert.equal(compareMigrationProofDocuments(proof(), proof()).ok, true)
+  assert.equal(compareMigrationProofDocuments(proof(), proof()).ok, false)
   assert.equal(
     compareMigrationProofDocuments(proof(), proof({ functions: [{ function: 'private.example()', definitionHash: 'changed', passed: true }] })).ok,
     false
@@ -24,6 +24,7 @@ test('normalizes and compares complete migration proof documents, including defi
 })
 
 test('fails closed when a proof is unhealthy or omits a required check', () => {
+  assert.equal(compareMigrationProofDocuments(proof(), proof()).ok, false)
   assert.equal(compareMigrationProofDocuments(proof({ ok: false }), proof()).ok, false)
   assert.equal(compareMigrationProofDocuments(proof({ checks: [] }), proof()).ok, false)
   assert.equal(compareMigrationProofDocuments(

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
 type Proof = {
@@ -10,6 +11,10 @@ type Proof = {
 }
 
 const EXPECTED_MANIFEST_VERSION = 'carebook-migrations-030-034-v3'
+const EXPECTED_CHECKSET_V3 = {
+  count: 247,
+  sha256: '25190c8ea44951a79f671ef2e884681f27a0163654a6644e3f4086d527b198cc',
+} as const
 
 function normalize(value: Json): Json {
   if (Array.isArray(value)) return value.map(normalize)
@@ -58,6 +63,11 @@ function proofErrors(proof: Json, source: string): string[] {
   }
   for (const name of checks.keys()) {
     if (!typed.requiredChecks.includes(name)) errors.push(`${source}: unexpected check: ${name}`)
+  }
+  const actualCheckNames = [...checks.keys()].sort()
+  const actualFingerprint = createHash('sha256').update(`${actualCheckNames.join('\n')}\n`).digest('hex')
+  if (actualCheckNames.length !== EXPECTED_CHECKSET_V3.count || actualFingerprint !== EXPECTED_CHECKSET_V3.sha256) {
+    errors.push(`${source}: check set does not match the versioned v3 allowlist`)
   }
   return errors
 }
