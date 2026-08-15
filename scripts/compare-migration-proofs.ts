@@ -11,8 +11,11 @@ type Proof = {
 }
 
 const EXPECTED_MANIFEST_VERSION = 'carebook-migrations-030-034-v3'
+const REQUIRED_CHECK_ALLOWLIST_V3 = JSON.parse(
+  readFileSync(new URL('./migration-proof-required-checks.json', import.meta.url), 'utf8')
+) as string[]
 const EXPECTED_CHECKSET_V3 = {
-  count: 247,
+  count: REQUIRED_CHECK_ALLOWLIST_V3.length,
   sha256: '25190c8ea44951a79f671ef2e884681f27a0163654a6644e3f4086d527b198cc',
 } as const
 
@@ -66,7 +69,11 @@ function proofErrors(proof: Json, source: string): string[] {
   }
   const actualCheckNames = [...checks.keys()].sort()
   const actualFingerprint = createHash('sha256').update(`${actualCheckNames.join('\n')}\n`).digest('hex')
-  if (actualCheckNames.length !== EXPECTED_CHECKSET_V3.count || actualFingerprint !== EXPECTED_CHECKSET_V3.sha256) {
+  if (
+    actualCheckNames.length !== EXPECTED_CHECKSET_V3.count
+    || actualFingerprint !== EXPECTED_CHECKSET_V3.sha256
+    || actualCheckNames.some((name, index) => name !== REQUIRED_CHECK_ALLOWLIST_V3[index])
+  ) {
     errors.push(`${source}: check set does not match the versioned v3 allowlist`)
   }
   return errors

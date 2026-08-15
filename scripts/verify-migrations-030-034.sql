@@ -522,6 +522,25 @@ billing_event_counts as (
   from public.billing_events
   group by entity_id, entity_type, event_type, actor_id, details ->> 'creationOrigin'
 ),
+legacy_package_cancellation_event_counts as (
+  select entity_id, actor_id, count(*) as event_count
+  from public.billing_events
+  where entity_type = 'package'
+    and event_type = 'legacy_package_cancellation_migrated'
+    and details @> '{"source":"migration_031","billingVersion":2}'::jsonb
+  group by entity_id, actor_id
+),
+normal_package_cancellation_events as (
+  select entity_id, max(created_at) as latest_created_at
+  from public.billing_events
+  where entity_type = 'package' and event_type = 'package_cancelled'
+  group by entity_id
+),
+materialized_appointment_references as (
+  select appointment_id from public.appointment_charges where appointment_id is not null
+  union
+  select appointment_reference_id from public.appointment_charges
+),
 data_checks as (
   select jsonb_build_object('check', 'appointment_type_bootstrap_scoped', 'passed', count(*) = 0, 'violations', count(*)) as item
   from public.packages package_row
@@ -563,12 +582,9 @@ data_checks as (
   union all
   select jsonb_build_object('check', 'charge_application_materialization', 'passed', count(*) = 0, 'violations', count(*))
   from public.appointments appointment_row
-  where not exists (
-    select 1
-    from public.appointment_charges charge
-    where charge.appointment_id = appointment_row.id
-      or charge.appointment_reference_id = appointment_row.id
-  )
+  left join materialized_appointment_references materialized
+    on materialized.appointment_id = appointment_row.id
+  where materialized.appointment_id is null
   union all
   select jsonb_build_object('check', 'charge_application_reconciliation', 'passed', count(*) = 0, 'violations', count(*))
   from public.payment_applications application
@@ -757,27 +773,17 @@ data_checks as (
   union all
   select jsonb_build_object('check', 'legacy_cancellation_event_coverage', 'passed', count(*) = 0, 'violations', count(*))
   from public.packages package_row
+  left join normal_package_cancellation_events normal_cancellation_event
+    on normal_cancellation_event.entity_id = package_row.id
+  left join legacy_package_cancellation_event_counts legacy_cancellation_event
+    on legacy_cancellation_event.entity_id = package_row.id
+   and legacy_cancellation_event.actor_id is not distinct from package_row.cancelled_by
   where package_row.creation_origin = 'legacy_unknown'
     and package_row.status = 'cancelled'
     and package_row.billing_version = 2
     and package_row.cancellation_reason = 'Legacy cancelled package migrated to v2'
-    and not exists (
-      select 1
-      from public.billing_events normal_cancellation_event
-      where normal_cancellation_event.entity_id = package_row.id
-        and normal_cancellation_event.entity_type = 'package'
-        and normal_cancellation_event.event_type = 'package_cancelled'
-        and normal_cancellation_event.created_at >= package_row.cancelled_at
-    )
-    and 1 <> (
-      select count(*)
-      from public.billing_events event_row
-      where event_row.entity_id = package_row.id
-        and event_row.entity_type = 'package'
-        and event_row.event_type = 'legacy_package_cancellation_migrated'
-        and event_row.actor_id is not distinct from package_row.cancelled_by
-        and event_row.details @> '{"source":"migration_031","billingVersion":2}'::jsonb
-    )
+    and (normal_cancellation_event.latest_created_at is null or normal_cancellation_event.latest_created_at < package_row.cancelled_at)
+    and coalesce(legacy_cancellation_event.event_count, 0) <> 1
   union all
   select jsonb_build_object('check', 'profile_soft_delete_audit_complete', 'passed', count(*) = 0, 'violations', count(*))
   from public.profiles
