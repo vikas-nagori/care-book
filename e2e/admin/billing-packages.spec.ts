@@ -214,9 +214,12 @@ test('metric drill-downs list their real records and payment due lists the seede
   await page.getByRole('link', { name: /Meera Payment Due/ }).click()
   await expect(page).toHaveURL(`/billing/payment-due/${SEED.patientPaymentDue}`)
   await expect(page.getByText('Meera Payment Due', { exact: true }).filter({ visible: true })).toBeVisible()
-  await expect(page.getByText(format(parseISO(clinicDate(-1)), 'dd MMM yyyy'), { exact: true })).toBeVisible()
-  await expect(page.getByText('Clinic', { exact: true })).toBeVisible()
-  await expect(page.getByRole('main')).toContainText('₹800')
+  // Scoped to the completed-sessions card: the scheduled card below it renders its own 'Clinic'
+  // badge, so a page-wide exact-text match is ambiguous under Playwright strict mode.
+  const unpaidCard = page.getByTestId('unpaid-sessions-card')
+  await expect(unpaidCard.getByText(format(parseISO(clinicDate(-1)), 'dd MMM yyyy'), { exact: true })).toBeVisible()
+  await expect(unpaidCard.getByText('Clinic', { exact: true })).toBeVisible()
+  await expect(unpaidCard).toContainText('₹800')
   await guards.assertClean()
 })
 
