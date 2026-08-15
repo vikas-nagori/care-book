@@ -27,6 +27,8 @@ import type { Appointment, AppointmentAssigneeOption, AppointmentType, Doctor, E
 import { defaultAppointmentType, sortAppointmentTypes } from '@/lib/appointments/appointment-type'
 import { normalizeAppointmentAssignment, parseStaffAssignmentValue } from '@/lib/appointments/assignment'
 import { generateRecurringAppointmentDates } from '@/lib/appointments/recurrence'
+import { resolveAppointmentStatus } from '@/lib/appointments/appointment-creation'
+import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
 import type { DashboardAppointmentTypeOption } from '@/lib/dashboard/appointment-options'
 import { createAppointment } from './actions'
 import type { NewPatientInput } from './actions'
@@ -152,6 +154,15 @@ export function AppointmentForm({
     }
   }, [appointmentDate, repeatAppointment, selectedWeekdays, totalSessions])
   const recurringDates = recurringSchedule.dates
+
+  // Resolved after mount rather than during render: the clinic date is clock-derived, and deriving
+  // it on the server too would let a booking made across midnight hydrate with a different answer.
+  const [clinicToday, setClinicToday] = useState<string | null>(null)
+  useEffect(() => { setClinicToday(getZonedDate(new Date(), CLINIC_TIME_ZONE)) }, [])
+  const backdatedDates = clinicToday && !appointment
+    ? (recurringDates.length > 0 ? recurringDates : [appointmentDate])
+        .filter((date) => date && resolveAppointmentStatus(date, clinicToday) === 'completed')
+    : []
 
   // Load the clinic's appointment types once on mount
   useEffect(() => {
@@ -554,6 +565,13 @@ export function AppointmentForm({
             onChange={(event) => setAppointmentDate(event.target.value)}
             required
           />
+          {backdatedDates.length > 0 && (
+            <p className="text-xs text-muted-foreground" data-testid="backdated-status-hint">
+              {backdatedDates.length === 1
+                ? 'This date has already passed — the session will be saved as completed.'
+                : `${backdatedDates.length} of these dates have already passed — those sessions will be saved as completed.`}
+            </p>
+          )}
         </div>
         <div className="space-y-2">
           <Label htmlFor="time">Time *</Label>

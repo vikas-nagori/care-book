@@ -28,6 +28,7 @@ import {
   type BillingTimelinePackage,
   type BillingTimelinePayment,
 } from '@/lib/billing/unified-billing'
+import { getPackageProgress } from '@/lib/billing/package-progress'
 import type { V2PaymentBalanceRow } from '@/lib/billing/v2-balances'
 import type { PackageBillingBalanceV2, PackageTemplate } from '@/lib/supabase/types'
 import { PaginationNav } from '@/components/pagination-nav'
@@ -446,8 +447,12 @@ export function BillingView({
                 const balance = packageBalances[pkg.id]
                 const availed = Number(balance?.availed_sessions ?? 0)
                 const scheduled = Number(balance?.scheduled_sessions ?? 0)
-                const availedPct = pkg.total_sessions > 0 ? Math.min(100, (availed / pkg.total_sessions) * 100) : 0
-                const scheduledPct = pkg.total_sessions > 0 ? Math.min(100 - availedPct, (scheduled / pkg.total_sessions) * 100) : 0
+                const { availedPct, scheduledPct } = getPackageProgress({
+                  status: pkg.status,
+                  availedSessions: availed,
+                  scheduledSessions: scheduled,
+                  totalSessions: pkg.total_sessions,
+                })
                 const patientName = (pkg as unknown as { patient?: { name: string } }).patient?.name ?? 'Patient'
                 return (
                   <Link

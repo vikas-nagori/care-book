@@ -248,3 +248,63 @@ test('Balance detail lists scheduled sessions so the per-section subtotals recon
   await expect(page.getByText('₹1,600', { exact: true }).first()).toBeVisible()
   await guards.assertClean()
 })
+
+// The "Package due" and "Package credit" tiles on the balance detail are unexplainable on their own.
+// The drill-down now carries the packages behind them, each with its progress bar, and each still a
+// link onward to the same package detail the billing overview opens.
+test('Balance detail shows package progress and drills through to the package detail', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const pkg = await factory.createPackage({
+    patientId: patient.id,
+    name: factory.uniqueName('balance-detail-package'),
+    total_sessions: 4,
+    total_amount: 3200,
+    per_session_amount: 800,
+    paid_amount: 3200,
+    payment_timing: 'prepaid',
+  })
+  // One fee-matched completed session is auto-allocated to the prepaid package by the billing trigger.
+  await factory.createAppointment({
+    patientId: patient.id,
+    date: clinicDate(-2),
+    time: '08:05',
+    fee: 800,
+    status: 'completed',
+    payment_status: 'unpaid',
+  })
+
+  await page.goto(`/billing/payment-due/${patient.id}`)
+
+  await expect(page.getByRole('heading', { name: 'Packages' })).toBeVisible()
+  const card = page.getByTestId(`package-progress-${pkg.id}`)
+  await expect(card).toBeVisible()
+  await expect(card).toContainText(pkg.name as string)
+  await expect(card).toContainText('4 total')
+  await expect(card.getByLabel(`${pkg.name} session progress`)).toBeVisible()
+
+  await card.click()
+  await expect(page).toHaveURL(`/billing/packages/${pkg.id}`)
+  await expect(page.getByRole('heading', { name: /Session history/ })).toBeVisible()
+  await guards.assertClean()
+})
+
+test('Balance detail omits the packages section for a patient with no packages', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  await factory.createAppointment({
+    patientId: patient.id,
+    date: clinicDate(-2),
+    time: '08:15',
+    fee: 800,
+    status: 'completed',
+    payment_status: 'unpaid',
+  })
+
+  await page.goto(`/billing/payment-due/${patient.id}`)
+
+  await expect(page.getByRole('heading', { name: 'Unpaid sessions' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Packages' })).toHaveCount(0)
+  await expect(page.getByTestId('package-progress-list')).toHaveCount(0)
+  await guards.assertClean()
+})

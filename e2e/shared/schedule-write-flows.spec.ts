@@ -130,6 +130,62 @@ test('reports a deterministic recurring conflict and creates none of the request
   await guards.assertClean()
 })
 
+test('books a backdated appointment as completed, warning before it is saved', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const sharedType = await factory.findAppointmentType(true)
+  const date = clinicDate(-11)
+  const notes = factory.uniqueName('backdated-booking')
+  factory.watchUiAppointments({ patientId: patient.id, notes })
+
+  await page.goto('/schedule/new')
+  const form = new AppointmentForm(page, sharedType.name)
+  await form.fill({
+    patientName: patient.name as string,
+    date,
+    time: '07:45',
+    durationMinutes: '45',
+    notes,
+  })
+
+  // The form says what will happen before the click, so "completed" is never a surprise.
+  await expect(page.getByTestId('backdated-status-hint'))
+    .toHaveText('This date has already passed — the session will be saved as completed.')
+  await form.submitAndExpectBooked()
+
+  const rows = await factory.findAppointments({ patientId: patient.id, notes })
+  expect(rows).toHaveLength(1)
+  expect(rows[0]).toMatchObject({ date, time: '07:45:00', status: 'completed' })
+  await guards.assertClean()
+})
+
+test('books a future appointment as scheduled with no backdating warning', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const sharedType = await factory.findAppointmentType(true)
+  const date = clinicDate(96)
+  const notes = factory.uniqueName('future-booking')
+  factory.watchUiAppointments({ patientId: patient.id, notes })
+
+  await page.goto('/schedule/new')
+  const form = new AppointmentForm(page, sharedType.name)
+  await form.fill({
+    patientName: patient.name as string,
+    date,
+    time: '07:55',
+    durationMinutes: '45',
+    notes,
+  })
+
+  await expect(page.getByTestId('backdated-status-hint')).toHaveCount(0)
+  await form.submitAndExpectBooked()
+
+  const rows = await factory.findAppointments({ patientId: patient.id, notes })
+  expect(rows).toHaveLength(1)
+  expect(rows[0]).toMatchObject({ date, status: 'scheduled' })
+  await guards.assertClean()
+})
+
 test('changes appointment status from scheduled to completed and persists it', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient()
