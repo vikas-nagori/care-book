@@ -6,6 +6,7 @@ import { formatTime12 } from '@/lib/format-time'
 import { logger } from '@/lib/logger'
 import {
   addCalendarDays,
+  CLINIC_TIME_ZONE,
   getClinicDateRangeForInterval,
   getZonedCalendarContext,
   getZonedDateInterval,
@@ -16,6 +17,7 @@ import {
   filterAppointmentsInInterval,
   findNextScheduledAppointment,
   getDashboardAppointmentQueryRange,
+  getDashboardAppointmentUnionRange,
 } from '@/lib/dashboard/appointments'
 import Link from 'next/link'
 import { CalendarDays, Users, IndianRupee, AlertCircle } from 'lucide-react'
@@ -65,8 +67,17 @@ export default async function DashboardPage() {
     userTimeZone,
   )
   const dayClinicRange = getClinicDateRangeForInterval(dayInterval.start, dayInterval.end)
-  const appointmentQueryRange = getDashboardAppointmentQueryRange(dayClinicRange)
   const weekClinicRange = getClinicDateRangeForInterval(weekInterval.start, weekInterval.end)
+  const upNextClinicRange = getDashboardAppointmentQueryRange(dayClinicRange)
+  const appointmentQueryRange = getDashboardAppointmentUnionRange(
+    weekClinicRange,
+    upNextClinicRange,
+  )
+  const upNextInterval = getZonedDateInterval(
+    upNextClinicRange.startDate,
+    addCalendarDays(upNextClinicRange.endDate, 1),
+    CLINIC_TIME_ZONE,
+  )
 
   let apptQuery = supabase
     .from('appointments')
@@ -77,14 +88,6 @@ export default async function DashboardPage() {
     .order('time')
 
   if (appointmentVisibilityFilter) apptQuery = apptQuery.or(appointmentVisibilityFilter)
-
-  let weekCountQuery = supabase
-    .from('appointments')
-    .select('id, date, time, status')
-    .gte('date', weekClinicRange.startDate)
-    .lte('date', weekClinicRange.endDate)
-
-  if (appointmentVisibilityFilter) weekCountQuery = weekCountQuery.or(appointmentVisibilityFilter)
 
   const billingBalancesP = access.canViewBilling
     ? supabase.from('patient_billing_balances_v2').select('due_amount')
@@ -104,7 +107,6 @@ export default async function DashboardPage() {
 
   const [
     { data: rawAppts, error: apptError },
-    { data: rawWeekAppointments, error: weekAppointmentsError },
     { data: billingBalances },
     { data: monthPayments },
     { data: monthRefunds },
@@ -116,7 +118,6 @@ export default async function DashboardPage() {
     { data: externalStaffOptions, error: externalStaffOptionsError },
   ] = await Promise.all([
     apptQuery,
-    weekCountQuery,
     billingBalancesP,
     monthRevP,
     monthRefundsP,
@@ -132,7 +133,6 @@ export default async function DashboardPage() {
   ])
 
   if (apptError) logger.error('Dashboard/appts', apptError)
-  if (weekAppointmentsError) logger.error('Dashboard/weekAppointments', weekAppointmentsError)
   if (assigneeOptionsError) logger.error('Dashboard/assigneeOptions', assigneeOptionsError)
   if (externalStaffOptionsError) logger.error('Dashboard/externalStaffOptions', externalStaffOptionsError)
 
@@ -153,16 +153,21 @@ export default async function DashboardPage() {
     dayInterval.end,
   )
   const weekCount = filterAppointmentsInInterval(
-    (rawWeekAppointments ?? []) as Pick<Appointment, 'id' | 'date' | 'time' | 'status'>[],
+    dashboardAppts,
     weekInterval.start,
     weekInterval.end,
   ).length
+  const upNextAppointments = filterAppointmentsInInterval(
+    dashboardAppts,
+    upNextInterval.start,
+    upNextInterval.end,
+  )
 
   const outstanding = (billingBalances ?? []).reduce((sum, balance) => sum + Number(balance.due_amount ?? 0), 0)
   const reversedRefundIds = new Set((refundReversals ?? []).map((reversal) => reversal.refund_id))
   const monthRevenue = (monthPayments ?? []).reduce((s, p) => s + Number(p.amount), 0)
     - (monthRefunds ?? []).reduce((sum, refund) => sum + (reversedRefundIds.has(refund.id) ? 0 : Number(refund.amount)), 0)
-  const nextAppt = findNextScheduledAppointment(dashboardAppts, now)
+  const nextAppt = findNextScheduledAppointment(upNextAppointments, now)
   const cancelledCount = appts.filter((a) => a.status === 'cancelled').length
 
   return (

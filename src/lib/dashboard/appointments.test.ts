@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { getZonedDayInterval } from '../timezone.ts'
+import {
+  addCalendarDays,
+  CLINIC_TIME_ZONE,
+  getZonedDateInterval,
+  getZonedDayInterval,
+} from '../timezone.ts'
 import {
   filterAppointmentsInInterval,
   findNextScheduledAppointment,
   getDashboardAppointmentQueryRange,
+  getDashboardAppointmentUnionRange,
 } from './appointments.ts'
 
 interface Row {
@@ -58,4 +64,49 @@ test('dashboard appointment query includes the following clinic date for Up next
     getDashboardAppointmentQueryRange({ startDate: '2026-07-19', endDate: '2026-07-19' }),
     { startDate: '2026-07-19', endDate: '2026-07-20' },
   )
+})
+
+test('dashboard appointment union uses the earliest start and preserves the complete clinic week', () => {
+  assert.deepEqual(
+    getDashboardAppointmentUnionRange(
+      { startDate: '2026-07-20', endDate: '2026-07-26' },
+      { startDate: '2026-07-19', endDate: '2026-07-20' },
+    ),
+    { startDate: '2026-07-19', endDate: '2026-07-26' },
+  )
+})
+
+test('dashboard appointment union includes the following clinic date across a week boundary', () => {
+  assert.deepEqual(
+    getDashboardAppointmentUnionRange(
+      { startDate: '2026-07-20', endDate: '2026-07-26' },
+      { startDate: '2026-07-26', endDate: '2026-07-27' },
+    ),
+    { startDate: '2026-07-20', endDate: '2026-07-27' },
+  )
+})
+
+test('Up next excludes later-week appointments outside its original horizon', () => {
+  const upNextRange = getDashboardAppointmentQueryRange({
+    startDate: '2026-07-21',
+    endDate: '2026-07-21',
+  })
+  const upNextInterval = getZonedDateInterval(
+    upNextRange.startDate,
+    addCalendarDays(upNextRange.endDate, 1),
+    CLINIC_TIME_ZONE,
+  )
+  const now = new Date('2026-07-21T03:30:00.000Z')
+  const appointments: Row[] = [
+    { id: 'following-day', date: '2026-07-22', time: '09:00:00', status: 'completed' },
+    { id: 'later-week', date: '2026-07-23', time: '08:00:00', status: 'scheduled' },
+  ]
+
+  const upNextAppointments = filterAppointmentsInInterval(
+    appointments,
+    upNextInterval.start,
+    upNextInterval.end,
+  )
+
+  assert.equal(findNextScheduledAppointment(upNextAppointments, now), undefined)
 })
