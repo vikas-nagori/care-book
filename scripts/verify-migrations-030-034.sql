@@ -561,22 +561,25 @@ data_checks as (
      end
   union all
   select jsonb_build_object('check', 'appointment_payment_status_parity', 'passed', count(*) = 0, 'violations', count(*))
-  from public.appointments appointment_row
-  join public.appointment_charges charge on charge.appointment_id = appointment_row.id
-  left join public.payment_applications application
-    on application.charge_id = charge.id and application.status = 'active'
-  group by appointment_row.id, charge.id
-  having appointment_row.payment_status is distinct from case
-    when coalesce(sum(application.amount) filter (where application.funding_scope = 'package'), 0) >= charge.amount
-      and charge.amount > 0 then 'prepaid'
-    when coalesce(sum(application.amount) filter (where application.funding_scope = 'package'), 0) > 0
-      then 'partially_prepaid'
-    when coalesce(sum(application.amount) filter (where application.funding_scope = 'ordinary'), 0) >= charge.amount
-      and charge.amount > 0 then 'paid'
-    when coalesce(sum(application.amount) filter (where application.funding_scope = 'ordinary'), 0) > 0
-      then 'partially_paid'
-    else 'unpaid'
-  end
+  from (
+    select 1
+    from public.appointments appointment_row
+    join public.appointment_charges charge on charge.appointment_id = appointment_row.id
+    left join public.payment_applications application
+      on application.charge_id = charge.id and application.status = 'active'
+    group by appointment_row.id, charge.id
+    having appointment_row.payment_status is distinct from case
+      when coalesce(sum(application.amount) filter (where application.funding_scope = 'package'), 0) >= charge.amount
+        and charge.amount > 0 then 'prepaid'
+      when coalesce(sum(application.amount) filter (where application.funding_scope = 'package'), 0) > 0
+        then 'partially_prepaid'
+      when coalesce(sum(application.amount) filter (where application.funding_scope = 'ordinary'), 0) >= charge.amount
+        and charge.amount > 0 then 'paid'
+      when coalesce(sum(application.amount) filter (where application.funding_scope = 'ordinary'), 0) > 0
+        then 'partially_paid'
+      else 'unpaid'
+    end
+  ) appointment_payment_status_violation
   union all
   select jsonb_build_object('check', 'payment_application_amount_conservation', 'passed', count(*) = 0, 'violations', count(*))
   from public.payments payment_row
@@ -754,6 +757,14 @@ data_checks as (
     and package_row.status = 'cancelled'
     and package_row.billing_version = 2
     and package_row.cancellation_reason = 'Legacy cancelled package migrated to v2'
+    and not exists (
+      select 1
+      from public.billing_events normal_cancellation_event
+      where normal_cancellation_event.entity_id = package_row.id
+        and normal_cancellation_event.entity_type = 'package'
+        and normal_cancellation_event.event_type = 'package_cancelled'
+        and normal_cancellation_event.created_at >= package_row.cancelled_at
+    )
     and 1 <> (
       select count(*)
       from public.billing_events event_row
