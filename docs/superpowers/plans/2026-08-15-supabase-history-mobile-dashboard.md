@@ -4,9 +4,9 @@
 
 **Goal:** Prove and reconcile production migrations 030–034, apply migration 035, eliminate expected session-note 406s, and reduce the mobile dashboard's initial Supabase request fan-out.
 
-**Architecture:** Use a reproducible SQL proof manifest and the supported Supabase migration-repair/push workflow for production. In the app, request-memoize the current profile, query one union appointment range, and load all appointment-form options atomically through a typed server action only when the dialog opens.
+**Architecture:** Use a reproducible SQL proof manifest and the supported Supabase migration-repair/push workflow for production. In the app, query one union appointment range and load all appointment-form options atomically through a typed server action only when the dialog opens.
 
-**Tech Stack:** Supabase CLI/Postgres 17, Next.js App Router/Server Actions, React 19 request cache, TypeScript, Node test runner, Vitest/Testing Library.
+**Tech Stack:** Supabase CLI/Postgres 17, Next.js App Router/Server Actions, React 18.3, TypeScript, Node test runner, Vitest/Testing Library.
 
 ---
 
@@ -65,7 +65,9 @@ Expected: exit 0, including the `record_billing_entry_v2` partial/full package-p
 
 - [ ] **Step 3: Capture the local expected proof**
 
-Run the proof manifest against local Postgres and save sanitized output under `/tmp`, not the repository. Check that every migration reports `ok: true`.
+Run: `/opt/homebrew/opt/postgresql@16/bin/psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -X -v ON_ERROR_STOP=1 -f scripts/verify-migrations-030-034.sql > /tmp/care-book-migrations-030-034-local.json`
+
+Check that every migration reports `ok: true`.
 
 - [ ] **Step 4: Stop on any failure**
 
@@ -79,25 +81,33 @@ If reset, integration tests, or any proof fails, do not connect to production. D
 
 - [ ] **Step 1: Confirm the production target**
 
-Link the CLI to project `byhccyhbdnqslqdktybt` and verify the project name/region before mutation. Capture `supabase migration list --linked` to a sanitized `/tmp` file.
+Run `npm exec supabase -- link --project-ref byhccyhbdnqslqdktybt`, verify the project name/region, and capture `npm exec supabase -- migration list --linked` to a sanitized `/tmp` file.
 
 - [ ] **Step 2: Capture rollback and production proof**
 
-Run the read-only proof manifest in the authenticated production SQL context. Capture its sanitized JSON plus the exact pre-035 `pg_get_functiondef(public.record_billing_entry_v2(...))` under `/tmp`. Compare production proof to the local expected proof; every 030–034 check must match exactly.
+Open the authenticated SQL editor at `https://supabase.com/dashboard/project/byhccyhbdnqslqdktybt/sql/new`, execute the exact contents of `scripts/verify-migrations-030-034.sql`, and save its sanitized result under `/tmp`. In the same authenticated context run:
+
+```sql
+select pg_get_functiondef(
+  'public.record_billing_entry_v2(uuid,text,text,integer,numeric,uuid,date,numeric,text,date,text)'::regprocedure
+);
+```
+
+Save the result under `/tmp` without placing database credentials in commands, shell history, or repository files. Compare production proof to the local expected proof; every 030–034 check must match exactly.
 
 - [ ] **Step 3: Repair only proven versions**
 
-Run `supabase migration repair 030 --status applied --linked` through version 034 one version at a time. Re-run `supabase migration list --linked` and confirm 030–034 are aligned.
+Run `npm exec supabase -- migration repair 030 --status applied --linked` through version 034 one version at a time. Re-run `npm exec supabase -- migration list --linked` and confirm 030–034 are aligned.
 
 - [ ] **Step 4: Dry-run migration 035**
 
-Run: `supabase db push --linked --dry-run`
+Run: `npm exec supabase -- db push --linked --dry-run`
 
 Expected: only `035_package_full_payment_guard.sql` is pending. Any other pending/reverted migration stops the rollout.
 
 - [ ] **Step 5: Apply migration 035**
 
-Run: `supabase db push --linked`
+Run: `npm exec supabase -- db push --linked`
 
 Expected: migration 035 applies successfully.
 
@@ -117,7 +127,9 @@ Assert that the appointment detail's `session_notes` lookup uses `.maybeSingle()
 
 - [ ] **Step 2: Verify RED**
 
-Run the focused Node test and confirm it fails on `.single()`.
+Run: `node --test --experimental-strip-types src/lib/schedule/session-note-query.test.ts`
+
+Confirm it fails on `.single()`.
 
 - [ ] **Step 3: Implement the minimal fix**
 
@@ -125,31 +137,13 @@ Replace `.single()` with `.maybeSingle()` and remove the now-obsolete `PGRST116`
 
 - [ ] **Step 4: Verify GREEN and commit**
 
+Run: `node --test --experimental-strip-types src/lib/schedule/session-note-query.test.ts`
+
+Expected: PASS.
+
 Commit: `fix: treat missing session notes as expected`
 
-### Task 5: Request-memoize the current profile
-
-**Files:**
-- Modify: `src/lib/auth.ts`
-- Create: `src/lib/auth-request-cache.test.ts`
-
-- [ ] **Step 1: Write a failing source-contract test**
-
-Assert that the no-argument profile loader is wrapped with React `cache()` and both `getCurrentProfile` and `requireRole` use the cached loader.
-
-- [ ] **Step 2: Verify RED**
-
-Run the focused test and confirm the missing cache wrapper causes failure.
-
-- [ ] **Step 3: Implement request memoization**
-
-Import `cache` from React, keep an uncached private implementation, and expose one cached no-argument loader used by all exported auth helpers. Do not cache across requests or weaken middleware validation.
-
-- [ ] **Step 4: Verify GREEN and commit**
-
-Commit: `perf: deduplicate server profile lookups`
-
-### Task 6: Merge the dashboard appointment ranges
+### Task 5: Merge the dashboard appointment ranges
 
 **Files:**
 - Modify: `src/lib/dashboard/appointments.ts`
@@ -162,7 +156,9 @@ Add tests proving the union covers the complete clinic week, the current day, an
 
 - [ ] **Step 2: Verify RED**
 
-Run the focused dashboard appointment test and confirm the union helper is missing.
+Run: `node --test --experimental-strip-types src/lib/dashboard/appointments.test.ts`
+
+Confirm the union helper is missing.
 
 - [ ] **Step 3: Implement the pure union helper**
 
@@ -170,13 +166,17 @@ Return the earliest start date and latest end date from the week and up-next ran
 
 - [ ] **Step 4: Use one appointments query**
 
-In `src/app/page.tsx`, query the union range once with the fields needed by all three calculations, preserve `appointmentVisibilityFilter`, and derive today's appointments, weekly count, and next appointment from the returned rows.
+In `src/app/page.tsx`, query the union range once with the fields needed by all three calculations and preserve `appointmentVisibilityFilter`. Derive today's appointments and weekly count from the union result, but filter a separate in-memory subset back to the original up-next horizon before calling `findNextScheduledAppointment`.
 
 - [ ] **Step 5: Verify GREEN and commit**
 
-Commit: `perf: share dashboard appointment query`
+Run: `node --test --experimental-strip-types src/lib/dashboard/appointments.test.ts`
 
-### Task 7: Load appointment-form options on demand
+Expected: PASS, including week-boundary, following-day, and outside-horizon cases.
+
+Add a regression proving an appointment later in the week but outside the up-next horizon is not selected. Commit: `perf: share dashboard appointment query`
+
+### Task 6: Load appointment-form options on demand
 
 **Files:**
 - Create: `src/app/dashboard-actions.ts`
@@ -193,7 +193,9 @@ Create a discriminated result type and tests covering success, unauthenticated/i
 
 - [ ] **Step 2: Verify RED**
 
-Run the focused unit test and confirm the loader is missing.
+Run: `node --test --experimental-strip-types src/lib/dashboard/appointment-options.test.ts`
+
+Confirm the loader is missing.
 
 - [ ] **Step 3: Implement the typed server loader**
 
@@ -205,7 +207,9 @@ Test initial no-fetch state, loading UI, successful form render, retry after fai
 
 - [ ] **Step 5: Verify component RED**
 
-Run the focused Vitest file and confirm current eager-prop behavior fails the new expectations.
+Run: `npm exec vitest -- run src/app/dashboard-new-appointment.component.test.tsx`
+
+Confirm current eager-prop behavior fails the new expectations.
 
 - [ ] **Step 6: Implement the dialog state machine**
 
@@ -221,9 +225,9 @@ Delete patients/doctors/profiles/external-staff reads and related props from `sr
 
 - [ ] **Step 9: Verify GREEN and commit**
 
-Run focused unit/component tests and commit: `perf: lazy-load dashboard appointment options`
+Run both focused commands from Steps 2 and 5 and commit: `perf: lazy-load dashboard appointment options`
 
-### Task 8: Full verification and handoff
+### Task 7: Full verification and handoff
 
 **Files:**
 - Update plan checkboxes and rollout notes only; do not commit `/tmp` evidence
@@ -246,4 +250,3 @@ Run `git status --short`, `git diff --check`, and review every branch diff again
 - [ ] **Step 3: Record operational verification**
 
 Report the production migration ledger through 035, proof-manifest status, application test counts, and expected homepage query reduction. Do not claim mobile TTFB/LCP improvement until post-deployment Speed Insights contains new traffic.
-

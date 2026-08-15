@@ -27,7 +27,6 @@ Replace `.single()` with `.maybeSingle()`. It retains the one-row contract, retu
 
 Use a balanced application-side optimization before introducing a billing aggregation RPC:
 
-- Wrap the current-profile lookup in React request memoization so the root layout and page share one auth/profile lookup within a render request.
 - Move patients, doctors, internal assignees, external staff, and role-appropriate appointment-type queries behind a server action called when the New Appointment dialog first opens. Keep the successful result in client state for subsequent opens.
 - Render a clear loading state and a retryable error state in the dialog. Do not open an incomplete appointment form.
 - Merge the dashboard's overlapping appointment-window queries into one range query covering the union of the complete clinic week and the current up-next horizon. Preserve `appointmentVisibilityFilter` and RLS, then derive today's list, this week's count, and the next appointment from the returned rows.
@@ -35,6 +34,8 @@ Use a balanced application-side optimization before introducing a billing aggreg
 - Leave current billing queries and calculations unchanged in this change. They are financially sensitive and should be consolidated separately with dedicated database tests if the remaining latency warrants it.
 
 This reduces the initial dashboard Supabase queries from roughly eleven to approximately six, while moving five form-only reads off the critical rendering path.
+
+The repository currently uses React 18.3.1, which does not provide the React 19 `cache()` API. Auth/profile request memoization is therefore explicitly deferred rather than introducing a framework upgrade or unsafe cross-request cache into this fix.
 
 ## Security and error handling
 
@@ -45,7 +46,7 @@ Migration catalog checks and repair are performed against the production project
 ## Testing and verification
 
 - Add a failing regression test for `.maybeSingle()` before changing production code.
-- Add tests for request memoization and the lazy dashboard option-loading contract, covering each dependency failure, retry, cached subsequent opens, unauthenticated/inactive profiles, and staff-safe field projections.
+- Add tests for the lazy dashboard option-loading contract, covering each dependency failure, retry, cached subsequent opens, unauthenticated/inactive profiles, and staff-safe field projections.
 - Add tests for the single dashboard appointment range and its day/week filtering behavior, including week boundaries and an up-next appointment on the following clinic day.
 - Before production mutation, run `npm run e2e:db:reset` and `npm run test:integration`, then verify the linked migration dry run contains only 035.
 - Run focused tests after each application change, followed by `npm run test:unit`, `npm run test:component`, `npm run lint`, `npm run typecheck`, and `npm run build`.
