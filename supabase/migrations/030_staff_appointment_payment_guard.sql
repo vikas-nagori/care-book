@@ -6,6 +6,8 @@
 -- start unpaid. On staff updates, fee/payment_status retain their stored values.
 -- Admin writes and trusted nested billing-trigger writes remain unchanged.
 
+begin;
+
 create or replace function private.enforce_staff_appointment_payment_fields()
 returns trigger
 language plpgsql
@@ -56,3 +58,5 @@ create trigger appointments_staff_payment_fields
 -- follows appointments_set_creator (which resolves appointment_type_id/clinic)
 -- and precedes appointments_untally_cancelled_billing (which may legitimately
 -- set a cancelled appointment back to unpaid).
+
+commit;

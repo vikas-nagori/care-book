@@ -69,13 +69,27 @@ her account was corrected manually.
 3. Verify `private.billing_ops_gate.status = 'paused_verified'`, then take and verify the mandatory
    second full production backup. Do not continue on a mismatch. Keep writes paused.
 
-4. Using the same `DATABASE_URL`/database role that prepared the gate, apply migrations 030-034
-   through the normal Supabase migration command. Do not alter `schema_migrations`; the persistent
-   role+database setting crosses the separate migration connections automatically.
+4. Using the same authenticated Supabase project that prepared the gate, apply migrations 030-034
+   in order through the Management API query command. Each migration is transactional. Record a
+   migration as applied only after its SQL succeeds.
+
+   Production's migrations 001-029 were deployed with timestamped history versions while this
+   repository retained short filenames, so `supabase db push` intentionally refuses to reconcile
+   that pre-existing history. Do not use `--include-all` or replay the old files. Apply and record
+   only the five reviewed migrations below:
 
    ```sh
-   supabase db push --db-url "$DATABASE_URL" --include-all
+   for version in 030 031 032 033 034; do
+     file="$(find supabase/migrations -maxdepth 1 -name "${version}_*.sql" -print -quit)"
+     test -n "$file"
+     supabase db query --linked --file "$file"
+     supabase migration repair --linked --status applied "$version"
+   done
    ```
+
+   The pause gate's database/role-scoped token is inherited by each query connection. Afterward,
+   require all five versions to be present in `supabase_migrations.schema_migrations` and require
+   the migration-034 actor/audit columns, triggers, and functions before corrections can start.
 
 5. Run the correction. It refuses a missing, stale (older than 24 hours), mismatched, resumed, or
    wrongly authorized gate. Failure rolls back corrections and leaves writes paused.
