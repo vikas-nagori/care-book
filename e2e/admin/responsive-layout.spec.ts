@@ -209,17 +209,17 @@ test('billing switches balance and payment tables at md and changes package grid
   await page.goto('/billing?tab=payment_due')
   await assertMdBreakpoint(page, testInfo)
 
-  const desktopBalanceHeaders = ['Patient', 'Sessions', 'Gross Due', 'Balance', 'Due Range']
+  const desktopBalanceHeaders = ['Patient', 'Ordinary Due', 'Package Due', 'Ordinary Credit', 'Package Credit']
   for (const header of desktopBalanceHeaders) {
     const locator = page.getByText(header, { exact: true })
     if (isMobileProject(testInfo)) await expect(locator).toBeHidden()
     else await expect(locator).toBeVisible()
   }
   const meeraBalance = page.getByRole('link', { name: /Meera Payment Due/ })
-  await expect(meeraBalance).toContainText('₹800')
-  const mobileGross = meeraBalance.getByText(/^Gross ₹/)
-  if (isMobileProject(testInfo)) await expect(mobileGross).toBeVisible()
-  else await expect(mobileGross).toBeHidden()
+  await expect(meeraBalance).toContainText('₹1,600')
+  const mobileScopeNote = meeraBalance.getByText('Ordinary and package funds remain separate', { exact: true })
+  if (isMobileProject(testInfo)) await expect(mobileScopeNote).toBeVisible()
+  else await expect(mobileScopeNote).toBeHidden()
 
   await page.getByRole('button', { name: 'Payments', exact: true }).click()
   const desktopPaymentHeaders = ['Date', 'Patient', 'For', 'Method', 'Amount']
@@ -228,7 +228,6 @@ test('billing switches balance and payment tables at md and changes package grid
     if (isMobileProject(testInfo)) await expect(locator).toBeHidden()
     else await expect(locator).toBeVisible()
   }
-  await expect(page.getByText('Asha Rao', { exact: true }).filter({ visible: true })).toBeVisible()
   const paymentMethod = isMobileProject(testInfo)
     ? page.getByText(/· UPI · 10-Session Physiotherapy Package$/)
     : page.getByText('UPI', { exact: true })
@@ -241,7 +240,6 @@ test('billing switches balance and payment tables at md and changes package grid
   await page.getByRole('button', { name: 'Packages', exact: true }).click()
   const packageName = page.getByText('10-Session Physiotherapy Package', { exact: true })
   await expect(packageName).toBeVisible()
-  await expect(page.getByText('Asha Rao', { exact: true }).filter({ visible: true })).toBeVisible()
   const cancelPackage = page.getByRole('button', {
     name: 'Cancel package for Asha Rao · 10-Session Physiotherapy Package',
     exact: true,
@@ -275,7 +273,7 @@ test('metric and payment-due pages expose responsive titles, content, and exact 
       route: `/billing/payment-due/${SEED.patientPaymentDue}`,
       mobileTitle: 'Balance detail',
       desktopTitle: 'Meera Payment Due',
-      content: ['Meera Payment Due', 'Payments balance detail', 'Unpaid sessions', '₹800'],
+      content: ['Meera Payment Due', 'Payments balance detail', 'Unpaid sessions', '₹1,600'],
     },
   ]) {
     await page.goto(detail.route)

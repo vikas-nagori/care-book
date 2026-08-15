@@ -951,21 +951,39 @@ export class E2EFactory {
       await markAuthUserForCleanup(id, email)
     }
 
-    // Ledger receipts and packages are intentionally immutable, including in the local E2E
-    // database. Retain their owning patient as the audit root instead of turning teardown into a
-    // second, destructive billing path. Test data is uniquely named and the E2E database is
-    // disposable, so retained audit fixtures cannot collide with later tests.
-    const retainedBillingPatientIds = new Set<string>()
-    for (const table of ['payments', 'packages'] as const) {
-      const ids = [...(this.created.get(table) ?? [])]
-      if (ids.length === 0) continue
-      const { data, error } = await this.db.from(table).select('patient_id').in('id', ids)
-      if (error) failures.push(`discover retained ${table}: ${error.message}`)
-      for (const row of data ?? []) retainedBillingPatientIds.add(row.patient_id)
-      this.created.delete(table)
+    // Production billing history is immutable. The local seed installs one service-role-only
+    // cleanup RPC for disposable `E2E ...` patients so each browser test can still start from a
+    // clean baseline without weakening any production migration or exposing a hosted backdoor.
+    const patientIds = [...(this.created.get('patients') ?? [])]
+    let patientCleanupSucceeded = true
+    for (const patientId of patientIds) {
+      const { error } = await this.db.rpc('cleanup_e2e_patient', {
+        target_patient_id: patientId,
+      })
+      if (error) {
+        patientCleanupSucceeded = false
+        failures.push(`cleanup E2E patient ${patientId}: ${error.message}`)
+      }
     }
-    const trackedPatients = this.created.get('patients')
-    for (const patientId of retainedBillingPatientIds) trackedPatients?.delete(patientId)
+    if (patientCleanupSucceeded && patientIds.length > 0) {
+      for (const table of [
+        'appointment_payments',
+        'package_session_allocations',
+        'session_notes',
+        'payments',
+        'packages',
+        'appointments',
+        'treatment_plans',
+        'patients',
+      ] as const) {
+        this.created.delete(table)
+      }
+    } else {
+      // When no disposable patient owns a receipt/package, retain those immutable roots just as
+      // production does. This covers tests that deliberately exercise a fixed seeded patient.
+      this.created.delete('payments')
+      this.created.delete('packages')
+    }
 
     for (const table of cleanupOrder) {
       const ids = [...(this.created.get(table) ?? [])]

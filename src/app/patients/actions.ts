@@ -31,9 +31,8 @@ export async function deletePatient(patientId: string): Promise<DeletePatientRes
     }
 
     const supabase = await createClient()
-    // Every child FK to patients is ON DELETE CASCADE, so this single delete
-    // removes appointments, treatment plans, packages, payments, session notes,
-    // and their billing junction rows for this patient.
+    // Empty patient records may be removed. Billing-ledger foreign keys deliberately
+    // reject deletion once audit history exists so actor and patient references remain intact.
     const { error } = await supabase
       .from('patients')
       .delete()
@@ -42,6 +41,13 @@ export async function deletePatient(patientId: string): Promise<DeletePatientRes
 
     if (error) {
       logger.error('patients/deletePatient', error, { patientId })
+      if (error.code === '23503') {
+        return {
+          success: false,
+          errorCode: 'PATIENT_DELETE_AUDIT_HISTORY',
+          message: 'Patients with billing history cannot be deleted because their audit trail must be retained.',
+        }
+      }
       return {
         success: false,
         errorCode: error.code ?? 'PATIENT_DELETE_FAILED',

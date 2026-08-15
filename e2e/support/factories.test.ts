@@ -7,6 +7,7 @@ import { E2EFactory } from './factories.ts'
 
 type MockRow = Record<string, unknown> & { id: string }
 type DeleteCall = { table: string; ids: string[] }
+type RpcCall = { functionName: string; args: Record<string, unknown> }
 type AuthDeleteCall = { id: string }
 type AuthUpdateCall = { id: string; attributes: Record<string, unknown> }
 
@@ -24,8 +25,13 @@ function queryableDb(
   authUsers: { id: string; email: string }[] = [],
   authDeletes: AuthDeleteCall[] = [],
   authUpdates: AuthUpdateCall[] = [],
+  rpcCalls: RpcCall[] = [],
 ): SupabaseClient {
   return {
+    async rpc(functionName: string, args: Record<string, unknown>) {
+      rpcCalls.push({ functionName, args })
+      return { data: null, error: null }
+    },
     auth: {
       admin: {
         async listUsers() {
@@ -90,20 +96,8 @@ function queryableDb(
 
 test('tracked UI row IDs are cleaned in dependency order without touching baseline rows', async () => {
   const deletes: DeleteCall[] = []
-  const db = {
-    from(table: string) {
-      return {
-        delete() {
-          return {
-            async in(_column: string, ids: string[]) {
-              deletes.push({ table, ids })
-              return { error: null }
-            },
-          }
-        },
-      }
-    },
-  } as unknown as SupabaseClient
+  const rpcCalls: RpcCall[] = []
+  const db = queryableDb({}, deletes, [], [], [], rpcCalls)
   const factory = new E2EFactory(testInfo(), db)
 
   factory.trackPatient('ui-patient-id')
@@ -111,11 +105,11 @@ test('tracked UI row IDs are cleaned in dependency order without touching baseli
   factory.trackSessionNote('ui-note-id')
   await factory.cleanup()
 
-  assert.deepEqual(deletes, [
-    { table: 'session_notes', ids: ['ui-note-id'] },
-    { table: 'appointments', ids: ['ui-appointment-id'] },
-    { table: 'patients', ids: ['ui-patient-id'] },
-  ])
+  assert.deepEqual(rpcCalls, [{
+    functionName: 'cleanup_e2e_patient',
+    args: { target_patient_id: 'ui-patient-id' },
+  }])
+  assert.deepEqual(deletes, [])
 })
 
 test('disposable platform resources clean exact profile, clinic, request, and auth IDs in FK-safe order', async () => {
@@ -187,6 +181,7 @@ test('fixed seed clinics cannot be explicitly enrolled for cleanup', async () =>
 
 test('watched UI values discover partial-failure rows without deleting fixed baseline IDs', async () => {
   const deletes: DeleteCall[] = []
+  const rpcCalls: RpcCall[] = []
   const baselineIds = ['baseline-patient-id', 'baseline-appointment-id', 'baseline-note-id']
   const db = queryableDb({
     patients: [
@@ -211,7 +206,7 @@ test('watched UI values discover partial-failure rows without deleting fixed bas
       { id: 'ui-note-id', appointment_id: 'ui-appointment-id' },
       { id: baselineIds[2], appointment_id: baselineIds[1] },
     ],
-  }, deletes)
+  }, deletes, [], [], [], rpcCalls)
   const factory = new E2EFactory(testInfo(), db)
 
   factory.watchUiPatient('Watched Patient')
@@ -219,11 +214,11 @@ test('watched UI values discover partial-failure rows without deleting fixed bas
   factory.watchUiSessionNote('ui-appointment-id')
   await factory.cleanup()
 
-  assert.deepEqual(deletes, [
-    { table: 'session_notes', ids: ['ui-note-id'] },
-    { table: 'appointments', ids: ['ui-appointment-id'] },
-    { table: 'patients', ids: ['ui-patient-id'] },
-  ])
+  assert.deepEqual(rpcCalls, [{
+    functionName: 'cleanup_e2e_patient',
+    args: { target_patient_id: 'ui-patient-id' },
+  }])
+  assert.deepEqual(deletes, [])
   assert.deepEqual(
     deletes.flatMap(({ ids }) => ids).filter((id) => baselineIds.includes(id)),
     [],

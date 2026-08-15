@@ -488,8 +488,8 @@ export function PatientDetail({
             <AlertDialogHeader>
               <AlertDialogTitle>Delete this patient?</AlertDialogTitle>
               <AlertDialogDescription>
-                This permanently deletes <span className="font-medium">{patient.name}</span> and ALL of their
-                records — appointments, treatment plans, packages, and payment history. This cannot be undone.
+                This permanently deletes <span className="font-medium">{patient.name}</span> only when the patient has
+                no billing history. Patients with billing history are retained to preserve the audit trail. This cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="space-y-2">

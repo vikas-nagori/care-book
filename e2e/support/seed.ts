@@ -101,6 +101,7 @@ async function seedPackage(db: SupabaseClient) {
   // Active prepaid package. created_at defaults to now() — a full timestamptz, which is exactly
   // what crashed the Billing → Packages tab before the formatDateOnly fix. The billing smoke
   // spec opens this tab to guard that regression.
+  const clinicASharedType = await appointmentTypeId(db, CLINIC_A.id, true)
   const { error } = await db.from('packages').upsert(
     {
       id: SEED.packageAsha,
@@ -108,12 +109,15 @@ async function seedPackage(db: SupabaseClient) {
       patient_id: SEED.patientAsha,
       name: '10-Session Physiotherapy Package',
       total_sessions: 10,
-      used_sessions: 3,
+      used_sessions: 0,
       total_amount: 8000,
       per_session_amount: 800,
       paid_amount: 8000,
       payment_timing: 'prepaid',
       status: 'active',
+      appointment_type_id: clinicASharedType,
+      starts_on: clinicDate(-2),
+      billing_version: 2,
     },
     { onConflict: 'id', ignoreDuplicates: true },
   )
