@@ -3,6 +3,11 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
 import { Button } from '@/components/ui/button'
+import {
+  getPackageProgress,
+  PACKAGE_STATUS_BADGE_CLASS,
+  PACKAGE_STATUS_LABEL,
+} from '@/lib/billing/package-progress'
 
 export type PackageSession = {
   id: string
@@ -32,9 +37,6 @@ type PackageDetailProps = {
   sessions: PackageSession[]
 }
 
-const statusCls: Record<string, string> = { active: 'ok', completed: 'info', cancelled: 'bad' }
-const statusLabel: Record<string, string> = { active: 'Active', completed: 'Completed', cancelled: 'Cancelled' }
-
 function Money({ n }: { n: number }) {
   return (
     <span className="ph-money">
@@ -55,9 +57,9 @@ export function PackageDetail({
   patientName, name, status, availedSessions, scheduledSessions, totalSessions,
   quoteAmount, netReceived, dueAmount, refundableCredit, completedAt, sessions,
 }: PackageDetailProps) {
-  const availedPct = totalSessions > 0 ? Math.min(100, (availedSessions / totalSessions) * 100) : 0
-  const scheduledPct = totalSessions > 0 ? Math.min(100 - availedPct, (scheduledSessions / totalSessions) * 100) : 0
-  const displayStatus = status === 'completed' && availedSessions !== totalSessions ? 'active' : status
+  const { availedPct, scheduledPct, displayStatus } = getPackageProgress({
+    status, availedSessions, scheduledSessions, totalSessions,
+  })
 
   return (
     <div className="px-4 pb-4 md:p-6">
@@ -89,7 +91,9 @@ export function PackageDetail({
               </div>
             )}
           </div>
-          <span className={`ph-badge ${statusCls[displayStatus] ?? ''}`}>{statusLabel[displayStatus] ?? displayStatus}</span>
+          <span className={`ph-badge ${PACKAGE_STATUS_BADGE_CLASS[displayStatus] ?? ''}`}>
+            {PACKAGE_STATUS_LABEL[displayStatus] ?? displayStatus}
+          </span>
         </div>
         <div className="ph-bar" style={{ marginBottom: 12, display: 'flex' }} aria-label="Package session progress">
           <span style={{ width: `${availedPct}%` }} />

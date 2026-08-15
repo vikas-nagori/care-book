@@ -64,9 +64,10 @@ test('schedule switches between the mobile rolling rail and desktop calendar lay
     const weekStart = startOfWeek(parseISO(selectedDate), { weekStartsOn: 1 })
     for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
       const day = addDays(weekStart, dayOffset)
+      // The desktop chips carry the same spoken name as the mobile rail: `<full date>, N appointments`.
       await expect(page.getByRole('button', {
-        name: new RegExp(`^${format(day, 'EEE')}\\s+${format(day, 'd').padStart(2, '0')}\\s+`),
-      })).toBeVisible()
+        name: new RegExp(`^${fullDateLabel(format(day, 'yyyy-MM-dd'))}, `),
+      }).filter({ visible: true })).toBeVisible()
     }
     await expect(timelineWeekday).toBeVisible()
     await expect(timelineDate).toBeVisible()

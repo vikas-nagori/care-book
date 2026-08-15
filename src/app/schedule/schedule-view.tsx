@@ -18,6 +18,7 @@ import {
   getScheduleRailCenteringBehavior,
   isScheduleDateToday,
 } from '@/lib/schedule/date-range'
+import { countScheduleAppointmentsOnDate } from '@/lib/schedule/appointment-counts'
 
 // Chip/cell accent colors keyed off the type's visibility: shared types (e.g. clinic
 // visits) read as the accent color, restricted types (e.g. home visits) as the warn color.
@@ -380,12 +381,16 @@ export function ScheduleView({
       <div className="hidden md:block">
         <div className="ph-date-strip mb-4">
           {weekDays.map((day, i) => {
-            const isToday = isScheduleDateToday(format(day, 'yyyy-MM-dd'), todayDate)
+            const date = format(day, 'yyyy-MM-dd')
+            const isToday = isScheduleDateToday(date, todayDate)
             const isSel = isSameDay(day, selectedDate)
-            const count = initialAppointments.filter((a) => isSameDay(parseISO(a.date), day)).length
+            const count = countScheduleAppointmentsOnDate(initialAppointments, date)
+            const accessibility = getScheduleRailDateAccessibility(date, count, isSel)
             return (
               <button
                 key={i}
+                aria-label={accessibility.ariaLabel}
+                aria-current={accessibility.ariaCurrent}
                 onClick={() => { navigateToDate(day); setCalView('day') }}
                 style={{
                   minWidth: 48, padding: '8px 4px', textAlign: 'center',
@@ -428,7 +433,7 @@ export function ScheduleView({
             const day = parseISO(date)
             const isToday = isScheduleDateToday(date, todayDate)
             const isSel = date === initialSelectedDate
-            const count = initialAppointments.filter((appointment) => appointment.date === date).length
+            const count = countScheduleAppointmentsOnDate(initialAppointments, date)
             const accessibility = getScheduleRailDateAccessibility(date, count, isSel)
             return (
               <button

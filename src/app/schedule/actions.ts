@@ -8,6 +8,7 @@ import {
 } from '@/lib/appointments/appointment-creation'
 import { logger } from '@/lib/logger'
 import { createClient } from '@/lib/supabase/server'
+import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
 import type { ReferralSource } from '@/lib/supabase/types'
 
 // --- Types ---
@@ -131,6 +132,9 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
         externalStaffId: input.externalStaffId,
         notes: input.notes,
         recurrence: input.recurrence,
+        // The clinic's own calendar day, not the server's — a booking made from another timezone
+        // must not be back- or forward-dated by the host's clock.
+        today: getZonedDate(new Date(), CLINIC_TIME_ZONE),
       })
     } catch (error) {
       return {

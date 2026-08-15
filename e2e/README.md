@@ -102,13 +102,18 @@ Admin and staff desktop/mobile projects both exercise the role-safe critical wri
 coverage creates a representative record, searches the list, edits persisted profile fields, and
 verifies the deterministic duplicate-phone warning. Schedule coverage creates a shared appointment,
 reports an all-or-nothing recurring conflict without inserting any requested series rows, completes
-an appointment, creates and edits a SOAP note, and confirms scheduled appointment deletion. The
+an appointment, creates and edits a SOAP note, and confirms scheduled appointment deletion. It also
+books a past-dated appointment and asserts both the pre-submit warning and the `completed` status it
+persists, alongside a future booking that stays `scheduled` with no warning. A separate date-strip
+spec proves the chip count tallies scheduled and completed appointments only, so a day of cancelled
+sessions reads as empty on both viewports. The
 staff booking path also proves the fee control stays hidden while the persisted appointment derives
 its protected fee from the selected type. Admin additionally creates an internally assigned private
 appointment. Billing coverage records and allocates a standalone payment, creates a
 prepaid package/payment from a seeded template, deletes factory-owned payments and packages,
-asserts real records behind billing metric drill-downs, and verifies the seeded unpaid-session
-tally. Settings coverage creates/edits/deletes appointment types and package templates, creates
+asserts real records behind billing metric drill-downs, verifies the seeded unpaid-session
+tally, and drills from a balance-detail package progress card through to that package's session
+history (asserting the section disappears for a patient with no packages). Settings coverage creates/edits/deletes appointment types and package templates, creates
 external staff, and exercises unique local user invite → resend → revoke.
 
 Platform desktop management coverage uses only disposable records. It approves and rejects

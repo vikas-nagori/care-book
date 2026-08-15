@@ -37,10 +37,11 @@ test('schedule view pushes date changes into browser history and renders a separ
 test('schedule view compares Today using the server-derived user date throughout', () => {
   const source = readFileSync(scheduleViewPath, 'utf8')
 
-  assert.equal(
-    source.match(/isScheduleDateToday\(format\(day, 'yyyy-MM-dd'\), todayDate\)/g)?.length,
-    2
-  )
+  // Three "is this today?" comparisons — desktop strip, mobile rail, week grid — and every one of
+  // them must read the server-derived date rather than the browser clock.
+  const todayComparisons = source.match(/isScheduleDateToday\((?:[^()]|\([^()]*\))*\)/g) ?? []
+  assert.equal(todayComparisons.length, 3)
+  assert.ok(todayComparisons.every((call) => call.endsWith(', todayDate)')))
   assert.match(source, /todayDate: string/)
   assert.doesNotMatch(source, /resolveScheduleDateRange\(undefined\)/)
   assert.doesNotMatch(source, /isSameDay\(day, new Date\(\)\)/)

@@ -17,6 +17,21 @@ export type AppointmentCreationDetails = {
   externalStaffId?: string | null
   notes: string | null
   recurrence?: AppointmentRecurrence | null
+  /**
+   * The clinic's current calendar date (YYYY-MM-DD). Required, not defaulted: the caller knows the
+   * clinic timezone and this module must not guess it from the server clock.
+   */
+  today: string
+}
+
+/**
+ * Booking a date that has already passed is a record of something that happened, not a plan — the
+ * session was delivered and is being logged after the fact. So a backdated row is created
+ * 'completed' and a today-or-later row 'scheduled'. Recurrences that start in the past are split the
+ * same way, date by date.
+ */
+export function resolveAppointmentStatus(date: string, today: string): 'scheduled' | 'completed' {
+  return date < today ? 'completed' : 'scheduled'
 }
 
 export function buildAppointmentInsertRows(input: AppointmentCreationDetails) {
@@ -38,7 +53,7 @@ export function buildAppointmentInsertRows(input: AppointmentCreationDetails) {
     time: input.time,
     duration_minutes: input.durationMinutes || 45,
     appointment_type_id: input.appointmentTypeId,
-    status: 'scheduled' as const,
+    status: resolveAppointmentStatus(date, input.today),
     fee: input.fee,
     assigned_to: input.assignedTo || null,
     external_staff_id: input.externalStaffId || null,
