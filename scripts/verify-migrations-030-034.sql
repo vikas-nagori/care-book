@@ -79,6 +79,12 @@ expected_columns(schema_name, relation_name, column_name, expected_type, expecte
     ('public', 'package_session_allocations', 'release_reason', 'text', true),
     ('public', 'refunds', 'refund_method', 'text', false),
     ('public', 'refunds', 'refund_date', 'date', false),
+    ('public', 'appointment_charges', 'appointment_reference_id', 'uuid', false),
+    ('public', 'appointment_charges', 'appointment_id', 'uuid', true),
+    ('public', 'appointment_charge_adjustments', 'appointment_reference_id', 'uuid', false),
+    ('public', 'appointment_charge_adjustments', 'appointment_id', 'uuid', true),
+    ('public', 'package_session_allocations', 'appointment_reference_id', 'uuid', false),
+    ('public', 'package_session_allocations', 'appointment_id', 'uuid', true),
     ('public', 'profiles', 'deleted_at', 'timestamptz', true),
     ('public', 'profiles', 'deleted_by', 'uuid', true),
     ('public', 'profiles', 'deletion_reason', 'text', true)
@@ -117,6 +123,17 @@ expected_triggers(schema_name, relation_name, trigger_name) as (
     ('public', 'profiles', 'profiles_guard_soft_delete_lifecycle'),
     ('auth', 'users', 'users_guard_hard_delete')
 ),
+forbidden_triggers(schema_name, relation_name, trigger_name) as (
+  values
+    ('public', 'appointments', 'appointments_sync_patient_billing_allocations'),
+    ('public', 'packages', 'packages_sync_patient_billing_allocations'),
+    ('public', 'payments', 'payments_sync_patient_billing_allocations'),
+    ('public', 'appointments', 'appointments_untally_cancelled_billing'),
+    ('public', 'appointment_payments', 'appointment_payments_reconcile_usage'),
+    ('public', 'appointments', 'appointments_reconcile_usage'),
+    ('public', 'payments', 'payments_reconcile_usage'),
+    ('public', 'appointments', 'appointments_delete_sync_billing')
+),
 expected_policies(schema_name, relation_name, policy_name) as (
   values
     ('public', 'packages', 'packages_tenant_admin_read_v2'),
@@ -129,6 +146,14 @@ expected_policies(schema_name, relation_name, policy_name) as (
     ('public', 'payment_applications', 'payment_applications_tenant_admin_read_v2'),
     ('public', 'package_session_allocations', 'package_session_allocations_tenant_admin_read_v2'),
     ('public', 'billing_events', 'billing_events_tenant_admin_read_v2')
+),
+forbidden_policies(schema_name, relation_name, policy_name) as (
+  values
+    ('public', 'packages', 'packages_tenant_admin_access'),
+    ('public', 'payments', 'payments_tenant_admin_access'),
+    ('public', 'appointment_payments', 'appointment_payments_tenant_admin_access'),
+    ('public', 'package_session_allocations', 'package_session_allocations_tenant_admin_access'),
+    ('public', 'package_session_allocations', 'package_session_allocations_admin_access')
 ),
 expected_functions(schema_name, function_name) as (
   values
@@ -151,6 +176,7 @@ expected_functions(schema_name, function_name) as (
     ('private', 'assign_patient_package_sessions'),
     ('private', 'allocate_patient_payment_credit'),
     ('private', 'reconcile_package_usage'),
+    ('private', 'sync_patient_billing_allocations'),
     ('private', 'is_disposable_e2e_identity'),
     ('private', 'user_has_retained_history'),
     ('private', 'guard_profile_soft_delete_lifecycle'),
@@ -175,6 +201,9 @@ expected_functions(schema_name, function_name) as (
     ('public', 'assign_patient_package_sessions'),
     ('public', 'allocate_patient_payment_credit'),
     ('public', 'reconcile_package_usage')
+),
+expected_schema_acls(schema_name, grantee_name, privilege_type) as (
+  values ('private', 'supabase_auth_admin', 'USAGE')
 ),
 relation_catalog as (
   select
@@ -339,6 +368,19 @@ trigger_manifest as (
     on trigger_row.tgrelid = relation_row.oid and trigger_row.tgname = expected.trigger_name and not trigger_row.tgisinternal
   order by expected.schema_name, expected.relation_name, expected.trigger_name
 ),
+forbidden_trigger_checks as (
+  select jsonb_build_object(
+    'check', 'legacy_trigger_absent_' || expected.schema_name || '_' || expected.relation_name || '_' || expected.trigger_name,
+    'passed', trigger_row.oid is null
+  ) as item
+  from forbidden_triggers expected
+  left join pg_namespace namespace_row on namespace_row.nspname = expected.schema_name
+  left join pg_class relation_row
+    on relation_row.relnamespace = namespace_row.oid and relation_row.relname = expected.relation_name
+  left join pg_trigger trigger_row
+    on trigger_row.tgrelid = relation_row.oid and trigger_row.tgname = expected.trigger_name and not trigger_row.tgisinternal
+  order by expected.schema_name, expected.relation_name, expected.trigger_name
+),
 policy_manifest as (
   select jsonb_build_object(
     'policy', expected.schema_name || '.' || expected.relation_name || '.' || expected.policy_name,
@@ -349,6 +391,18 @@ policy_manifest as (
     'withCheckHash', coalesce(md5(policy_row.with_check), '')
   ) as item
   from expected_policies expected
+  left join pg_policies policy_row
+    on policy_row.schemaname = expected.schema_name
+   and policy_row.tablename = expected.relation_name
+   and policy_row.policyname = expected.policy_name
+  order by expected.schema_name, expected.relation_name, expected.policy_name
+),
+forbidden_policy_checks as (
+  select jsonb_build_object(
+    'check', 'legacy_policy_absent_' || expected.schema_name || '_' || expected.relation_name || '_' || expected.policy_name,
+    'passed', policy_row.policyname is null
+  ) as item
+  from forbidden_policies expected
   left join pg_policies policy_row
     on policy_row.schemaname = expected.schema_name
    and policy_row.tablename = expected.relation_name
@@ -384,7 +438,80 @@ function_acl_manifest as (
   order by namespace_row.nspname, procedure_row.proname, pg_get_function_identity_arguments(procedure_row.oid),
     coalesce(grantee_role.rolname, 'public'), acl_row.privilege_type
 ),
+schema_acl_manifest as (
+  select jsonb_build_object(
+    'schema', namespace_row.nspname,
+    'grantee', coalesce(grantee_role.rolname, 'public'),
+    'privilege', acl_row.privilege_type,
+    'grantable', acl_row.is_grantable
+  ) as item
+  from expected_schema_acls expected
+  join pg_namespace namespace_row on namespace_row.nspname = expected.schema_name
+  cross join lateral aclexplode(coalesce(namespace_row.nspacl, acldefault('n', namespace_row.nspowner))) acl_row
+  left join pg_roles grantee_role on grantee_role.oid = acl_row.grantee
+  order by namespace_row.nspname, coalesce(grantee_role.rolname, 'public'), acl_row.privilege_type
+),
+schema_acl_checks as (
+  select jsonb_build_object(
+    'check', 'schema_acl_' || expected.schema_name || '_' || expected.grantee_name || '_' || lower(expected.privilege_type),
+    'passed', exists (
+      select 1
+      from pg_namespace namespace_row
+      join pg_roles grantee_role on grantee_role.rolname = expected.grantee_name
+      cross join lateral aclexplode(coalesce(namespace_row.nspacl, acldefault('n', namespace_row.nspowner))) acl_row
+      where namespace_row.nspname = expected.schema_name
+        and acl_row.grantee = grantee_role.oid
+        and acl_row.privilege_type = expected.privilege_type
+    )
+  ) as item
+  from expected_schema_acls expected
+),
+function_acl_checks as (
+  select jsonb_build_object(
+    'check', 'private_sync_patient_billing_allocations_client_execute_revoked',
+    'passed', exists (
+      select 1
+      from pg_proc procedure_row
+      join pg_namespace namespace_row on namespace_row.oid = procedure_row.pronamespace
+      where namespace_row.nspname = 'private'
+        and procedure_row.proname = 'sync_patient_billing_allocations'
+    ) and not exists (
+      select 1
+      from pg_proc procedure_row
+      join pg_namespace namespace_row on namespace_row.oid = procedure_row.pronamespace
+      cross join lateral aclexplode(coalesce(procedure_row.proacl, acldefault('f', procedure_row.proowner))) acl_row
+      left join pg_roles grantee_role on grantee_role.oid = acl_row.grantee
+      where namespace_row.nspname = 'private'
+        and procedure_row.proname = 'sync_patient_billing_allocations'
+        and acl_row.privilege_type = 'EXECUTE'
+        and (acl_row.grantee = 0 or grantee_role.rolname in ('anon', 'authenticated'))
+    )
+  ) as item
+),
 data_checks as (
+  select jsonb_build_object('check', 'appointment_type_bootstrap_scoped', 'passed', count(*) = 0, 'violations', count(*)) as item
+  from public.packages package_row
+  where package_row.billing_version >= 2
+    and not exists (
+      select 1
+      from public.appointment_types appointment_type
+      where appointment_type.id = package_row.appointment_type_id
+        and appointment_type.clinic_id = package_row.clinic_id
+    )
+  union all
+  select jsonb_build_object('check', 'appointment_type_bootstrap_available', 'passed', count(*) = 0, 'violations', count(*))
+  from public.packages package_row
+  where not exists (
+    select 1
+    from public.appointment_types appointment_type
+    where appointment_type.clinic_id = package_row.clinic_id
+  )
+  union all
+  select jsonb_build_object('check', 'package_v2_backfill_complete', 'passed', count(*) = 0, 'violations', count(*))
+  from public.packages
+  where billing_version >= 2
+    and (appointment_type_id is null or starts_on is null)
+  union all
   select jsonb_build_object('check', 'packages_v2_fields_populated', 'passed', count(*) = 0, 'violations', count(*)) as item
   from public.packages where billing_version >= 2 and (appointment_type_id is null or starts_on is null)
   union all
@@ -396,6 +523,60 @@ data_checks as (
   union all
   select jsonb_build_object('check', 'refund_effective_fields_populated', 'passed', count(*) = 0, 'violations', count(*))
   from public.refunds where refund_method is null or refund_date is null
+  union all
+  select jsonb_build_object('check', 'charge_application_materialization', 'passed', count(*) = 0, 'violations', count(*))
+  from public.appointments appointment_row
+  where not exists (
+    select 1
+    from public.appointment_charges charge
+    where charge.appointment_id = appointment_row.id
+      or charge.appointment_reference_id = appointment_row.id
+  )
+  union all
+  select jsonb_build_object('check', 'charge_application_reconciliation', 'passed', count(*) = 0, 'violations', count(*))
+  from public.payment_applications application
+  left join public.payments payment on payment.id = application.payment_id
+  left join public.appointment_charges charge on charge.id = application.charge_id
+  where payment.id is null
+     or charge.id is null
+     or application.clinic_id is distinct from payment.clinic_id
+     or application.patient_id is distinct from payment.patient_id
+     or application.clinic_id is distinct from charge.clinic_id
+     or application.patient_id is distinct from charge.patient_id
+  union all
+  select jsonb_build_object('check', 'legacy_ordinary_application_materialization', 'passed', count(*) = 0, 'violations', count(*))
+  from public.appointment_payments legacy_application
+  join public.payments payment on payment.id = legacy_application.payment_id
+  join public.appointment_charges charge on charge.appointment_reference_id = legacy_application.appointment_id
+  where payment.funding_scope = 'ordinary'
+    and payment.status = 'posted'
+    and payment.patient_id = charge.patient_id
+    and payment.clinic_id = charge.clinic_id
+    and legacy_application.amount_applied > 0
+    and payment.amount > 0
+    and charge.amount > 0
+    and not exists (
+      select 1
+      from public.payment_applications application
+      where application.payment_id = legacy_application.payment_id
+        and application.charge_id = charge.id
+        and application.allocation_origin = 'legacy_import'
+    )
+  union all
+  select jsonb_build_object('check', 'appointment_reference_backfill_charges', 'passed', count(*) = 0, 'violations', count(*))
+  from public.appointment_charges
+  where appointment_reference_id is null
+     or (appointment_id is not null and appointment_id is distinct from appointment_reference_id)
+  union all
+  select jsonb_build_object('check', 'appointment_reference_backfill_adjustments', 'passed', count(*) = 0, 'violations', count(*))
+  from public.appointment_charge_adjustments
+  where appointment_reference_id is null
+     or (appointment_id is not null and appointment_id is distinct from appointment_reference_id)
+  union all
+  select jsonb_build_object('check', 'appointment_reference_backfill_allocations', 'passed', count(*) = 0, 'violations', count(*))
+  from public.package_session_allocations
+  where appointment_reference_id is null
+     or (appointment_id is not null and appointment_id is distinct from appointment_reference_id)
   union all
   select jsonb_build_object('check', 'profile_soft_delete_audit_complete', 'passed', count(*) = 0, 'violations', count(*))
   from public.profiles
@@ -413,9 +594,35 @@ data_checks as (
   where creation_origin is null
      or (creation_origin in ('legacy_unknown', 'system') and created_by is not null)
      or (creation_origin in ('rpc', 'historical_correction') and created_by is null)
+  union all
+  select jsonb_build_object('check', 'package_creation_event_append_only', 'passed', count(*) = 0, 'violations', count(*))
+  from public.packages package_row
+  where package_row.creation_origin <> 'legacy_unknown'
+    and 1 <> (
+      select count(*)
+      from public.billing_events event_row
+      where event_row.entity_id = package_row.id
+        and event_row.entity_type = 'package'
+        and event_row.event_type = 'package_created'
+        and event_row.actor_id is not distinct from package_row.created_by
+        and event_row.details ->> 'creationOrigin' = package_row.creation_origin
+    )
+  union all
+  select jsonb_build_object('check', 'payment_creation_event_append_only', 'passed', count(*) = 0, 'violations', count(*))
+  from public.payments payment_row
+  where payment_row.creation_origin <> 'legacy_unknown'
+    and 1 <> (
+      select count(*)
+      from public.billing_events event_row
+      where event_row.entity_id = payment_row.id
+        and event_row.entity_type = 'payment'
+        and event_row.event_type = 'payment_recorded'
+        and event_row.actor_id is not distinct from payment_row.created_by
+        and event_row.details ->> 'creationOrigin' = payment_row.creation_origin
+    )
 )
 select jsonb_build_object(
-  'manifestVersion', 'carebook-migrations-030-034-v1',
+  'manifestVersion', 'carebook-migrations-030-034-v2',
   'readOnly', true,
   'schemaChecks', coalesce((select jsonb_agg(item order by item ->> 'check') from schema_checks), '[]'::jsonb),
   'columns', coalesce((select jsonb_agg(item order by item ->> 'relation', (item ->> 'ordinal')::integer) from column_manifest), '[]'::jsonb),
@@ -426,10 +633,15 @@ select jsonb_build_object(
   'views', coalesce((select jsonb_agg(item order by item ->> 'view') from view_manifest), '[]'::jsonb),
   'functions', coalesce((select jsonb_agg(item order by item ->> 'function') from function_manifest), '[]'::jsonb),
   'functionChecks', coalesce((select jsonb_agg(item order by item ->> 'check') from function_missing_checks), '[]'::jsonb),
+  'functionAclChecks', coalesce((select jsonb_agg(item order by item ->> 'check') from function_acl_checks), '[]'::jsonb),
   'triggers', coalesce((select jsonb_agg(item order by item ->> 'trigger') from trigger_manifest), '[]'::jsonb),
+  'legacyTriggerChecks', coalesce((select jsonb_agg(item order by item ->> 'check') from forbidden_trigger_checks), '[]'::jsonb),
   'policies', coalesce((select jsonb_agg(item order by item ->> 'policy') from policy_manifest), '[]'::jsonb),
+  'legacyPolicyChecks', coalesce((select jsonb_agg(item order by item ->> 'check') from forbidden_policy_checks), '[]'::jsonb),
   'relationAcls', coalesce((select jsonb_agg(item order by item ->> 'relation', item ->> 'grantee', item ->> 'privilege') from relation_acl_manifest), '[]'::jsonb),
   'functionAcls', coalesce((select jsonb_agg(item order by item ->> 'function', item ->> 'grantee', item ->> 'privilege') from function_acl_manifest), '[]'::jsonb),
+  'schemaAcls', coalesce((select jsonb_agg(item order by item ->> 'schema', item ->> 'grantee', item ->> 'privilege') from schema_acl_manifest), '[]'::jsonb),
+  'schemaAclChecks', coalesce((select jsonb_agg(item order by item ->> 'check') from schema_acl_checks), '[]'::jsonb),
   'dataChecks', coalesce((select jsonb_agg(item order by item ->> 'check') from data_checks), '[]'::jsonb)
 ) as migration_proof_manifest;
 
