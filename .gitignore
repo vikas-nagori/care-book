@@ -47,3 +47,8 @@ next-env.d.ts
 
 # claude code local settings (machine-specific permissions)
 .claude/settings.local.json
+
+# security review notes — kept local by policy. This repo is public, and a
+# commit here cannot be retracted: GitHub's public event stream is mirrored by
+# third-party archives within minutes, so a later `git rm` does not recall it.
+docs/security-review-*.md
