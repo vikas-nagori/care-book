@@ -15,7 +15,7 @@ Work proceeds in this order:
 5. Verify the migration dry run reports only migration 035 pending. Apply migration 035, verify the exact replaced `record_billing_entry_v2` definition and the package full-payment invariant, and confirm 035 is recorded as applied.
 6. Only after the database work succeeds, implement and verify the application changes.
 
-Migration repair changes metadata only. It must not execute migrations 030 through 034 again. Migration 035 must be applied exactly from the tracked repository file. Its rollback is the captured pre-035 function definition; no destructive table rollback is needed because 035 replaces one function.
+Migration repair changes metadata only. It must not execute migrations 030 through 034 again. Migration 035 must be applied exactly from the tracked repository file. Rollback is forward-only: migration 035 remains recorded as applied, and the captured pre-035 function definition is used to create and apply a new tracked rollback migration. The prior definition must never be restored by an untracked SQL edit. No destructive table rollback is needed because 035 replaces one function.
 
 ## Session-note lookup
 
