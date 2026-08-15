@@ -505,12 +505,12 @@ data_checks as (
     select 1
     from public.appointment_types appointment_type
     where appointment_type.clinic_id = package_row.clinic_id
+      and (appointment_type.name = 'Clinic' or appointment_type.is_shared)
   )
   union all
-  select jsonb_build_object('check', 'package_v2_backfill_complete', 'passed', count(*) = 0, 'violations', count(*))
+  select jsonb_build_object('check', 'package_billing_version_backfill', 'passed', count(*) = 0, 'violations', count(*))
   from public.packages
-  where billing_version >= 2
-    and (appointment_type_id is null or starts_on is null)
+  where billing_version < 2
   union all
   select jsonb_build_object('check', 'packages_v2_fields_populated', 'passed', count(*) = 0, 'violations', count(*)) as item
   from public.packages where billing_version >= 2 and (appointment_type_id is null or starts_on is null)
@@ -544,24 +544,124 @@ data_checks as (
      or application.clinic_id is distinct from charge.clinic_id
      or application.patient_id is distinct from charge.patient_id
   union all
-  select jsonb_build_object('check', 'legacy_ordinary_application_materialization', 'passed', count(*) = 0, 'violations', count(*))
-  from public.appointment_payments legacy_application
-  join public.payments payment on payment.id = legacy_application.payment_id
-  join public.appointment_charges charge on charge.appointment_reference_id = legacy_application.appointment_id
-  where payment.funding_scope = 'ordinary'
-    and payment.status = 'posted'
-    and payment.patient_id = charge.patient_id
-    and payment.clinic_id = charge.clinic_id
-    and legacy_application.amount_applied > 0
-    and payment.amount > 0
-    and charge.amount > 0
+  select jsonb_build_object('check', 'appointment_charge_parity', 'passed', count(*) = 0, 'violations', count(*))
+  from public.appointments appointment_row
+  left join public.appointment_charges charge on charge.appointment_id = appointment_row.id
+  where charge.id is null
+     or charge.clinic_id is distinct from appointment_row.clinic_id
+     or charge.patient_id is distinct from appointment_row.patient_id
+     or charge.amount is distinct from coalesce(appointment_row.fee, 0)
+     or charge.status is distinct from case appointment_row.status
+       when 'scheduled' then 'pending'
+       when 'completed' then 'posted'
+       else 'voided'
+     end
+  union all
+  select jsonb_build_object('check', 'payment_application_amount_conservation', 'passed', count(*) = 0, 'violations', count(*))
+  from public.payments payment_row
+  cross join lateral (
+    select coalesce(sum(application.amount), 0) as applied_amount
+    from public.payment_applications application
+    where application.payment_id = payment_row.id
+      and application.status = 'active'
+  ) application_total
+  cross join lateral (
+    select coalesce(sum(refund.amount), 0) as refunded_amount
+    from public.refunds refund
+    where refund.payment_id = payment_row.id
+      and not exists (
+        select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id
+      )
+  ) refund_total
+  where application_total.applied_amount > greatest(payment_row.amount - refund_total.refunded_amount, 0)
+     or (payment_row.status <> 'posted' and application_total.applied_amount > 0)
+  union all
+  select jsonb_build_object('check', 'charge_application_amount_conservation', 'passed', count(*) = 0, 'violations', count(*))
+  from public.appointment_charges charge
+  cross join lateral (
+    select coalesce(sum(application.amount), 0) as applied_amount
+    from public.payment_applications application
+    where application.charge_id = charge.id
+      and application.status = 'active'
+  ) application_total
+  where application_total.applied_amount > charge.amount
+     or (charge.status not in ('pending', 'posted') and application_total.applied_amount > 0)
+  union all
+  select jsonb_build_object('check', 'payment_application_funding_scope_consistency', 'passed', count(*) = 0, 'violations', count(*))
+  from public.payment_applications application
+  join public.payments payment_row on payment_row.id = application.payment_id
+  where application.status = 'active'
+    and (
+      application.funding_scope is distinct from payment_row.funding_scope
+      or application.package_id is distinct from payment_row.package_id
+    )
+  union all
+  select jsonb_build_object('check', 'active_allocation_eligibility', 'passed', count(*) = 0, 'violations', count(*))
+  from public.package_session_allocations allocation
+  left join public.packages package_row on package_row.id = allocation.package_id
+  left join public.appointments appointment_row on appointment_row.id = allocation.appointment_id
+  left join public.appointment_charges charge on charge.appointment_id = appointment_row.id
+  where allocation.lifecycle <> 'released'
+    and (
+      package_row.id is null
+      or appointment_row.id is null
+      or charge.id is null
+      or package_row.status not in ('active', 'completed')
+      or package_row.appointment_type_id is null
+      or package_row.starts_on is null
+      or appointment_row.status not in ('scheduled', 'completed')
+      or charge.status not in ('pending', 'posted')
+      or allocation.clinic_id is distinct from package_row.clinic_id
+      or allocation.patient_id is distinct from package_row.patient_id
+      or appointment_row.clinic_id is distinct from package_row.clinic_id
+      or appointment_row.patient_id is distinct from package_row.patient_id
+      or appointment_row.appointment_type_id is distinct from package_row.appointment_type_id
+      or appointment_row.date < package_row.starts_on
+      or (appointment_row.status = 'scheduled' and allocation.lifecycle <> 'scheduled')
+      or (appointment_row.status = 'completed' and allocation.lifecycle <> 'availed')
+    )
+  union all
+  select jsonb_build_object('check', 'active_allocation_capacity', 'passed', count(*) = 0, 'violations', count(*))
+  from public.packages package_row
+  where package_row.total_sessions < (
+    select count(*)
+    from public.package_session_allocations allocation
+    where allocation.package_id = package_row.id and allocation.lifecycle <> 'released'
+  )
+  union all
+  select jsonb_build_object('check', 'package_application_allocation_eligibility', 'passed', count(*) = 0, 'violations', count(*))
+  from public.payment_applications application
+  join public.appointment_charges charge on charge.id = application.charge_id
+  where application.status = 'active'
+    and application.funding_scope = 'package'
     and not exists (
       select 1
-      from public.payment_applications application
-      where application.payment_id = legacy_application.payment_id
-        and application.charge_id = charge.id
-        and application.allocation_origin = 'legacy_import'
+      from public.package_session_allocations allocation
+      where allocation.package_id = application.package_id
+        and allocation.appointment_id = charge.appointment_id
+        and allocation.lifecycle <> 'released'
     )
+  union all
+  select jsonb_build_object('check', 'legacy_application_projection_conservation', 'passed', count(*) = 0, 'violations', count(*))
+  from (
+    select
+      application.payment_id,
+      charge.appointment_id,
+      sum(application.amount) as ledger_amount
+    from public.payment_applications application
+    join public.appointment_charges charge on charge.id = application.charge_id
+    where application.status = 'active'
+      and charge.appointment_id is not null
+    group by application.payment_id, charge.appointment_id
+  ) ledger_projection
+  full join (
+    select payment_id, appointment_id, sum(amount_applied) as compatibility_amount
+    from public.appointment_payments
+    group by payment_id, appointment_id
+  ) compatibility_projection
+    on compatibility_projection.payment_id = ledger_projection.payment_id
+   and compatibility_projection.appointment_id = ledger_projection.appointment_id
+  where compatibility_projection.compatibility_amount is distinct from ledger_projection.ledger_amount
   union all
   select jsonb_build_object('check', 'appointment_reference_backfill_charges', 'passed', count(*) = 0, 'violations', count(*))
   from public.appointment_charges
@@ -577,6 +677,21 @@ data_checks as (
   from public.package_session_allocations
   where appointment_reference_id is null
      or (appointment_id is not null and appointment_id is distinct from appointment_reference_id)
+  union all
+  select jsonb_build_object('check', 'legacy_cancellation_event_coverage', 'passed', count(*) = 0, 'violations', count(*))
+  from public.packages package_row
+  where package_row.status = 'cancelled'
+    and package_row.billing_version = 2
+    and package_row.cancellation_reason = 'Legacy cancelled package migrated to v2'
+    and 1 <> (
+      select count(*)
+      from public.billing_events event_row
+      where event_row.entity_id = package_row.id
+        and event_row.entity_type = 'package'
+        and event_row.event_type = 'legacy_package_cancellation_migrated'
+        and event_row.actor_id is not distinct from package_row.cancelled_by
+        and event_row.details @> '{"source":"migration_031","billingVersion":2}'::jsonb
+    )
   union all
   select jsonb_build_object('check', 'profile_soft_delete_audit_complete', 'passed', count(*) = 0, 'violations', count(*))
   from public.profiles
