@@ -5,6 +5,8 @@
 -- never reads business-row IDs, names, notes, reasons, or other row values.
 
 begin transaction read only;
+set local statement_timeout = '15s';
+set local lock_timeout = '2s';
 
 with
 expected_relations(schema_name, relation_name, relation_kind) as (
@@ -488,6 +490,38 @@ function_acl_checks as (
     )
   ) as item
 ),
+active_payment_application_totals as (
+  select payment_id, sum(amount) as applied_amount
+  from public.payment_applications
+  where status = 'active'
+  group by payment_id
+),
+active_charge_application_totals as (
+  select charge_id, sum(amount) as applied_amount
+  from public.payment_applications
+  where status = 'active'
+  group by charge_id
+),
+unreversed_refund_totals as (
+  select refund.payment_id, sum(refund.amount) as refunded_amount
+  from public.refunds refund
+  where not exists (
+    select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id
+  )
+  group by refund.payment_id
+),
+package_receipt_totals as (
+  select payment.package_id, sum(greatest(payment.amount - coalesce(refund.refunded_amount, 0), 0)) as net_received
+  from public.payments payment
+  left join unreversed_refund_totals refund on refund.payment_id = payment.id
+  where payment.status = 'posted' and payment.package_id is not null
+  group by payment.package_id
+),
+billing_event_counts as (
+  select entity_id, entity_type, event_type, actor_id, details ->> 'creationOrigin' as creation_origin, count(*) as event_count
+  from public.billing_events
+  group by entity_id, entity_type, event_type, actor_id, details ->> 'creationOrigin'
+),
 data_checks as (
   select jsonb_build_object('check', 'appointment_type_bootstrap_scoped', 'passed', count(*) = 0, 'violations', count(*)) as item
   from public.packages package_row
@@ -583,33 +617,16 @@ data_checks as (
   union all
   select jsonb_build_object('check', 'payment_application_amount_conservation', 'passed', count(*) = 0, 'violations', count(*))
   from public.payments payment_row
-  cross join lateral (
-    select coalesce(sum(application.amount), 0) as applied_amount
-    from public.payment_applications application
-    where application.payment_id = payment_row.id
-      and application.status = 'active'
-  ) application_total
-  cross join lateral (
-    select coalesce(sum(refund.amount), 0) as refunded_amount
-    from public.refunds refund
-    where refund.payment_id = payment_row.id
-      and not exists (
-        select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id
-      )
-  ) refund_total
-  where application_total.applied_amount > greatest(payment_row.amount - refund_total.refunded_amount, 0)
-     or (payment_row.status <> 'posted' and application_total.applied_amount > 0)
+  left join active_payment_application_totals application_total on application_total.payment_id = payment_row.id
+  left join unreversed_refund_totals refund_total on refund_total.payment_id = payment_row.id
+  where coalesce(application_total.applied_amount, 0) > greatest(payment_row.amount - coalesce(refund_total.refunded_amount, 0), 0)
+     or (payment_row.status <> 'posted' and coalesce(application_total.applied_amount, 0) > 0)
   union all
   select jsonb_build_object('check', 'charge_application_amount_conservation', 'passed', count(*) = 0, 'violations', count(*))
   from public.appointment_charges charge
-  cross join lateral (
-    select coalesce(sum(application.amount), 0) as applied_amount
-    from public.payment_applications application
-    where application.charge_id = charge.id
-      and application.status = 'active'
-  ) application_total
-  where application_total.applied_amount > charge.amount
-     or (charge.status not in ('pending', 'posted') and application_total.applied_amount > 0)
+  left join active_charge_application_totals application_total on application_total.charge_id = charge.id
+  where coalesce(application_total.applied_amount, 0) > charge.amount
+     or (charge.status not in ('pending', 'posted') and coalesce(application_total.applied_amount, 0) > 0)
   union all
   select jsonb_build_object('check', 'payment_application_funding_scope_consistency', 'passed', count(*) = 0, 'violations', count(*))
   from public.payment_applications application
@@ -661,20 +678,7 @@ data_checks as (
     where allocation.package_id = package_row.id
       and allocation.lifecycle <> 'released'
   ) allocation_total
-  cross join lateral (
-    select coalesce(sum(greatest(payment_row.amount - coalesce(refund_total.refunded_amount, 0), 0)), 0) as net_received
-    from public.payments payment_row
-    left join lateral (
-      select sum(refund.amount) as refunded_amount
-      from public.refunds refund
-      where refund.payment_id = payment_row.id
-        and not exists (
-          select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id
-        )
-    ) refund_total on true
-    where payment_row.package_id = package_row.id
-      and payment_row.status = 'posted'
-  ) receipt_total
+  left join package_receipt_totals receipt_total on receipt_total.package_id = package_row.id
   where package_row.status <> 'cancelled'
     and (
       package_row.used_sessions is distinct from allocation_total.availed_sessions
@@ -684,7 +688,7 @@ data_checks as (
       end
       or (allocation_total.availed_sessions = package_row.total_sessions and package_row.completed_at is null)
       or (allocation_total.availed_sessions <> package_row.total_sessions and package_row.completed_at is not null)
-      or package_row.paid_amount is distinct from least(receipt_total.net_received, package_row.total_amount)
+      or package_row.paid_amount is distinct from least(coalesce(receipt_total.net_received, 0), package_row.total_amount)
     )
   union all
   select jsonb_build_object('check', 'package_application_allocation_eligibility', 'passed', count(*) = 0, 'violations', count(*))
@@ -794,33 +798,48 @@ data_checks as (
   union all
   select jsonb_build_object('check', 'package_creation_event_append_only', 'passed', count(*) = 0, 'violations', count(*))
   from public.packages package_row
+  left join billing_event_counts event_count
+    on event_count.entity_id = package_row.id
+   and event_count.entity_type = 'package'
+   and event_count.event_type = 'package_created'
+   and event_count.actor_id is not distinct from package_row.created_by
+   and event_count.creation_origin = package_row.creation_origin
   where package_row.creation_origin <> 'legacy_unknown'
-    and 1 <> (
-      select count(*)
-      from public.billing_events event_row
-      where event_row.entity_id = package_row.id
-        and event_row.entity_type = 'package'
-        and event_row.event_type = 'package_created'
-        and event_row.actor_id is not distinct from package_row.created_by
-        and event_row.details ->> 'creationOrigin' = package_row.creation_origin
-    )
+    and coalesce(event_count.event_count, 0) <> 1
   union all
   select jsonb_build_object('check', 'payment_creation_event_append_only', 'passed', count(*) = 0, 'violations', count(*))
   from public.payments payment_row
+  left join billing_event_counts event_count
+    on event_count.entity_id = payment_row.id
+   and event_count.entity_type = 'payment'
+   and event_count.event_type = 'payment_recorded'
+   and event_count.actor_id is not distinct from payment_row.created_by
+   and event_count.creation_origin = payment_row.creation_origin
   where payment_row.creation_origin <> 'legacy_unknown'
-    and 1 <> (
-      select count(*)
-      from public.billing_events event_row
-      where event_row.entity_id = payment_row.id
-        and event_row.entity_type = 'payment'
-        and event_row.event_type = 'payment_recorded'
-        and event_row.actor_id is not distinct from payment_row.created_by
-        and event_row.details ->> 'creationOrigin' = payment_row.creation_origin
-    )
+    and coalesce(event_count.event_count, 0) <> 1
+),
+all_checks as (
+  select item from schema_checks
+  union all select item from column_checks
+  union all select item from constraint_checks
+  union all select item || jsonb_build_object('check', 'index_' || (item ->> 'index')) from index_manifest
+  union all select item || jsonb_build_object('check', 'view_' || (item ->> 'view')) from view_manifest
+  union all select item from function_missing_checks
+  union all select item || jsonb_build_object('check', 'definition_' || (item ->> 'function')) from function_manifest
+  union all select item from function_acl_checks
+  union all select item || jsonb_build_object('check', 'trigger_' || (item ->> 'trigger')) from trigger_manifest
+  union all select item from forbidden_trigger_checks
+  union all select item || jsonb_build_object('check', 'policy_' || (item ->> 'policy')) from policy_manifest
+  union all select item from forbidden_policy_checks
+  union all select item from schema_acl_checks
+  union all select item from data_checks
 )
 select jsonb_build_object(
-  'manifestVersion', 'carebook-migrations-030-034-v2',
+  'manifestVersion', 'carebook-migrations-030-034-v3',
   'readOnly', true,
+  'ok', coalesce((select bool_and(coalesce((item ->> 'passed')::boolean, false)) from all_checks), false),
+  'requiredChecks', coalesce((select jsonb_agg(item ->> 'check' order by item ->> 'check') from all_checks), '[]'::jsonb),
+  'checks', coalesce((select jsonb_agg(item order by item ->> 'check') from all_checks), '[]'::jsonb),
   'schemaChecks', coalesce((select jsonb_agg(item order by item ->> 'check') from schema_checks), '[]'::jsonb),
   'columns', coalesce((select jsonb_agg(item order by item ->> 'relation', (item ->> 'ordinal')::integer) from column_manifest), '[]'::jsonb),
   'columnChecks', coalesce((select jsonb_agg(item order by item ->> 'check') from column_checks), '[]'::jsonb),

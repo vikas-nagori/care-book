@@ -15,6 +15,9 @@ test('migration proof manifest exists and emits one sanitized deterministic JSON
   const sql = readFileSync(manifestPath, 'utf8')
 
   assert.match(sql, /jsonb_build_object/i)
+  assert.match(sql, /'ok'/i)
+  assert.match(sql, /'requiredChecks'/i)
+  assert.match(sql, /'checks'/i)
   assert.match(sql, /jsonb_agg\(.+order by/i)
   assert.match(sql, /pg_get_functiondef|digest\(/i)
   assert.match(sql, /information_schema\.columns/i)
@@ -24,6 +27,7 @@ test('migration proof manifest exists and emits one sanitized deterministic JSON
   assert.match(sql, /pg_policies/i)
   assert.match(sql, /aclexplode|relacl|proacl/i)
   assert.match(sql, /count\(\*\)|sum\(/i)
+  assert.doesNotMatch(sql, /\b(?:insert|update|delete|alter|create|drop)\b/i)
   assert.match(sql, /appointments_sync_patient_billing_allocations/i)
   assert.match(sql, /packages_sync_patient_billing_allocations/i)
   assert.match(sql, /payments_sync_patient_billing_allocations/i)
