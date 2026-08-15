@@ -4,8 +4,11 @@ import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 import { PaymentDueDetail, type PaymentDueSession } from './payment-due-detail'
 
-// Drill-down behind a Payments Balance row: the completed unpaid sessions that tally to a patient's
-// gross due, then the credit applied, then the net balance — the calculation made fully visible.
+// Drill-down behind a Payments Balance row: the sessions that tally to a patient's gross due, then
+// the credit applied, then the net balance — the calculation made fully visible. Scheduled sessions
+// are listed alongside completed ones because `patient_billing_balances_v2` sums appointment charges
+// in both 'pending' (scheduled) and 'posted' (completed) states; omitting them made the tiles read
+// higher than the list below could explain.
 // Admin-only, mirroring the Billing page guard.
 export default async function PaymentDueDetailPage({ params }: { params: Promise<{ patientId: string }> }) {
   const { patientId } = await params
@@ -17,9 +20,9 @@ export default async function PaymentDueDetailPage({ params }: { params: Promise
       supabase.from('patients').select('id, name').eq('id', patientId).maybeSingle(),
       supabase
         .from('appointments')
-        .select('id, date, time, type, fee')
+        .select('id, date, time, type, fee, status')
         .eq('patient_id', patientId)
-        .eq('status', 'completed')
+        .in('status', ['scheduled', 'completed'])
         .in('payment_status', ['unpaid', 'partially_paid', 'partially_prepaid'])
         .order('date', { ascending: true })
         .order('time', { ascending: true }),
@@ -32,13 +35,15 @@ export default async function PaymentDueDetailPage({ params }: { params: Promise
   if (packageBalancesError) logger.error('PaymentDueDetail/packageBalances', packageBalancesError, { patientId })
   if (!patient) notFound()
 
-  const dueSessions: PaymentDueSession[] = (sessions ?? []).map((s) => ({
+  const toSession = (s: NonNullable<typeof sessions>[number]): PaymentDueSession => ({
     id: s.id,
     date: s.date,
     time: s.time,
     type: s.type,
     fee: Number(s.fee ?? 0),
-  }))
+  })
+  const completedSessions = (sessions ?? []).filter((s) => s.status === 'completed').map(toSession)
+  const scheduledSessions = (sessions ?? []).filter((s) => s.status === 'scheduled').map(toSession)
 
   const packageDue = (packageBalances ?? []).reduce((sum, balance) => sum + Number(balance.due_amount ?? 0), 0)
   const packageCredit = (packageBalances ?? []).reduce((sum, balance) => sum + Number(balance.refundable_credit ?? 0), 0)
@@ -48,7 +53,8 @@ export default async function PaymentDueDetailPage({ params }: { params: Promise
   return (
     <PaymentDueDetail
       patientName={patient.name}
-      sessions={dueSessions}
+      sessions={completedSessions}
+      scheduledSessions={scheduledSessions}
       ordinaryDue={ordinaryDue}
       ordinaryCredit={ordinaryCredit}
       packageDue={packageDue}
