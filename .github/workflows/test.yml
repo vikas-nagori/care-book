@@ -4,6 +4,12 @@ on:
   push:
   pull_request:
 
+# A newer push to the same ref makes the in-flight run irrelevant. Cancelling frees the
+# runners immediately instead of queueing the new run behind work nobody will read.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -70,9 +76,22 @@ jobs:
 
   # End-to-end suite: boots the real app against an isolated local Supabase stack (Docker) and
   # drives it as admin/staff on desktop/mobile. No secrets — the local stack uses fixed dev keys.
-  e2e:
+  #
+  # Split across runners rather than across workers. playwright.config.ts pins `workers: 1` on
+  # purpose: parallel workers on one machine exhaust the Docker network's source sockets and turn
+  # healthy GoTrue auth requests into 500s. Each shard is a separate runner with its own Docker
+  # network and its own Supabase stack, so it stays serial locally while the suite runs in
+  # parallel overall. Keep SHARD_TOTAL and the matrix list in step.
+  e2e-shard:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      # One shard's failure should not hide the others' results.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      SHARD_TOTAL: '4'
     steps:
       - uses: actions/checkout@v5
 
@@ -83,8 +102,23 @@ jobs:
 
       - run: npm ci
 
+      # Chromium is ~100MB and unchanged between runs; restoring it beats re-downloading it in
+      # every shard. Keyed on the lockfile so a Playwright version bump busts the cache.
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps
+        # The browser binary is cached but its apt dependencies are not part of that cache.
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - name: Start local Supabase
         # Only the services the suite needs (db + auth + kong gateway + rest). Docker is
@@ -93,7 +127,8 @@ jobs:
 
       - name: E2E tests
         # Playwright's webServer builds (build:e2e) and serves (start:e2e) with .env.e2e.
-        run: npm run test:e2e
+        # Setup projects re-run in every shard, which is required — each shard seeds its own stack.
+        run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ env.SHARD_TOTAL }}
 
       - name: Stop local Supabase
         if: always()
@@ -103,9 +138,22 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/
           if-no-files-found: error
           retention-days: 7
+
+  # Single check that gates on every shard. Branch protection requires the `e2e` check by name
+  # (.github/BRANCH_PROTECTION.md); sharding must not change what an administrator has to select.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: e2e-shard
+    if: always()
+    steps:
+      - name: Require every shard to pass
+        run: |
+          result='${{ needs.e2e-shard.result }}'
+          echo "e2e-shard result: $result"
+          [ "$result" = 'success' ] || exit 1

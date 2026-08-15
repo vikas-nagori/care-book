@@ -15,3 +15,11 @@ run at least once:
 
 Do not mark only the overall `Tests` workflow as required. Requiring the two job checks prevents a
 change from merging when either the fast/build suite or the browser suite is skipped or fails.
+
+## Why `e2e` is a separate job from `e2e-shard`
+
+The Playwright suite runs as a `e2e-shard` matrix across four runners, so its own checks report as
+`e2e-shard (1)` … `e2e-shard (4)` — names that change whenever the shard count changes. The `e2e`
+job does no testing; it depends on the matrix and fails unless every shard succeeded. Keep
+requiring `e2e`, never the individual shards: an administrator then never has to revisit this
+setting when the shard count is tuned, and a shard that never starts still fails the gate.
