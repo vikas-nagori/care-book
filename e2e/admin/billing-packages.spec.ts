@@ -219,3 +219,29 @@ test('metric drill-downs list their real records and payment due lists the seede
   await expect(page.getByRole('main')).toContainText('₹800')
   await guards.assertClean()
 })
+
+// The v2 balance view sums appointment charges in both 'pending' (scheduled) and 'posted'
+// (completed) states, so the drill-down has to list scheduled sessions too — otherwise the
+// ₹1,600 Regular due tile is unexplainable from the ₹800 of completed sessions below it.
+test('Balance detail lists scheduled sessions so the per-section subtotals reconcile with the due tile', async ({ page }) => {
+  const guards = attachErrorGuards(page)
+  await page.goto(`/billing/payment-due/${SEED.patientPaymentDue}`)
+
+  await expect(page.getByRole('heading', { name: 'Unpaid sessions' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Scheduled sessions' })).toBeVisible()
+
+  // Seeded: one completed ₹800 session (yesterday) plus one scheduled ₹800 session, tallying
+  // to the ₹1,600 regular due.
+  const completedCard = page.getByTestId('unpaid-sessions-card')
+  await expect(completedCard).toContainText(format(parseISO(clinicDate(-1)), 'dd MMM yyyy'))
+  await expect(completedCard).toContainText('Session fees shown')
+  await expect(completedCard).toContainText('₹800')
+
+  const scheduledCard = page.getByTestId('scheduled-sessions-card')
+  await expect(scheduledCard).toContainText('Scheduled fees shown')
+  await expect(scheduledCard).toContainText('₹800')
+  await expect(scheduledCard).not.toContainText('No scheduled sessions')
+
+  await expect(page.getByText('₹1,600', { exact: true }).first()).toBeVisible()
+  await guards.assertClean()
+})
