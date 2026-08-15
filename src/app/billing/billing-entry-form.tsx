@@ -62,15 +62,15 @@ export function BillingEntryForm({
     setPackageName(values.name)
     setPackageSessions(values.sessions)
     setPackagePerSessionAmount(values.perSessionAmount)
-    // Prepaid packages collect the full total up front; pre-fill the amount too (editable).
-    setAmount(String(calculatePackageTotal(template.min_sessions, template.per_session_amount)))
   }
 
   const selectedPatientName = patients.find((patient) => patient.id === selectedPatient)?.name
-  const paymentAmount = numberFromInput(amount)
   const packageTotalSessions = integerFromInput(packageSessions)
   const packageRate = numberFromInput(packagePerSessionAmount)
   const packageTotal = calculatePackageTotal(packageTotalSessions, packageRate)
+  // Packages are prepaid: the receipt is always the full package total. Allowing a partial
+  // amount here would strand a package due that no other screen can collect.
+  const paymentAmount = mode === 'package_with_payment' ? packageTotal : numberFromInput(amount)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -278,9 +278,16 @@ export function BillingEntryForm({
               min="0.01"
               step="0.01"
               required
-              value={amount}
+              readOnly={mode === 'package_with_payment'}
+              className={mode === 'package_with_payment' ? 'bg-muted' : undefined}
+              value={mode === 'package_with_payment' ? (packageTotal > 0 ? String(packageTotal) : '') : amount}
               onChange={(event) => setAmount(event.target.value)}
             />
+            {mode === 'package_with_payment' && (
+              <p className="text-xs text-muted-foreground">
+                Packages are collected in full — this is sessions × per-session charge.
+              </p>
+            )}
           </div>
           <div className="space-y-2 min-w-0 overflow-hidden">
             <Label htmlFor="payment_date">Payment Date *</Label>
@@ -332,7 +339,8 @@ export function BillingEntryForm({
         </div>
       </div>
 
-      <Button type="submit" className="w-full" disabled={loading || !selectedPatient}>
+      {/* A readOnly amount is barred from HTML constraint validation, so guard the total here. */}
+      <Button type="submit" className="w-full" disabled={loading || !selectedPatient || (mode === 'package_with_payment' && packageTotal <= 0)}>
         {loading ? (
           <><Loader2 className="animate-spin" size={14} /> Saving...</>
         ) : mode === 'payment_only' ? 'Save Payment' : 'Save Package'}

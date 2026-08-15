@@ -192,6 +192,45 @@ test('v2 package creation requires an exact appointment type and independent sta
   assert.equal(query(DB, `select count(*) from packages where patient_id = '${patientId}'`), '0')
 })
 
+test('v2 package creation rejects a receipt that does not cover the package in full', { skip }, () => {
+  const patientId = patient('Prepaid Package Guard')
+
+  const partial = rpc(
+    adminId,
+    `public.record_billing_entry_v2(
+      '${patientId}', 'package_with_payment', 'Partial receipt', 4, 100,
+      '${clinicTypeId}', date '2026-08-01', 250, 'cash', date '2026-08-01', null
+    )`,
+  )
+  const overpaid = rpc(
+    adminId,
+    `public.record_billing_entry_v2(
+      '${patientId}', 'package_with_payment', 'Overpaid receipt', 4, 100,
+      '${clinicTypeId}', date '2026-08-01', 450, 'cash', date '2026-08-01', null
+    )`,
+  )
+  const exact = rpc(
+    adminId,
+    `public.record_billing_entry_v2(
+      '${patientId}', 'package_with_payment', 'Exact receipt', 4, 100,
+      '${clinicTypeId}', date '2026-08-01', 400, 'cash', date '2026-08-01', null
+    )`,
+  )
+
+  assert.equal(partial.success, false)
+  assert.equal(overpaid.success, false)
+  assert.equal(exact.success, true)
+  // Neither rejected attempt may leave a package or a receipt behind.
+  assert.equal(query(DB, `select count(*) from packages where patient_id = '${patientId}'`), '1')
+  assert.equal(query(DB, `select count(*) from payments where patient_id = '${patientId}'`), '1')
+  // No sessions exist yet, so the accepted package holds its whole receipt as package credit
+  // and carries no due — the state a partial receipt could never reach.
+  assert.equal(
+    query(DB, `select due_amount || '/' || refundable_credit from package_billing_balances_v2 where package_id = '${exact.packageId as string}'`),
+    '0.00/400.00',
+  )
+})
+
 test('packages claim only exact-type, on-or-after-start appointments in created-first order', { skip }, () => {
   const patientId = patient('Eligibility and Overlap')
   const beforeStart = appointment(patientId, '2026-07-31')
@@ -366,7 +405,9 @@ test('package receipts distribute FIFO only within their package with exact part
   const patientId = patient('Package FIFO')
   const firstCharge = appointment(patientId, '2026-08-01', clinicTypeId, 'completed', 120)
   const secondCharge = appointment(patientId, '2026-08-02', clinicTypeId, 'completed', 80)
-  const entry = createPackage(patientId, 'Package FIFO', 2, 100, clinicTypeId, '2026-08-01', 100)
+  // Priced 2 x 50 so the creation receipt covers the package in full (packages are prepaid);
+  // the two 100 receipts and the charges under test are unchanged.
+  const entry = createPackage(patientId, 'Package FIFO', 2, 50, clinicTypeId, '2026-08-01')
   const secondReceipt = recordPayment(patientId, 'package', 100, entry.packageId as string)
 
   assert.deepEqual(
