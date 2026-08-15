@@ -66,19 +66,19 @@ export function PaymentDueDetail({
       {/* Summary: how the balance is calculated */}
       <div className="grid grid-cols-2 gap-3 mb-5 md:grid-cols-4">
         <div className="ph-stat">
-          <div className="ph-stat-label"><span>Ordinary due</span></div>
+          <div className="ph-stat-label"><span>Regular due</span></div>
           <div className="ph-stat-value"><Money n={ordinaryDue} /></div>
-          <div className="ph-stat-meta">ordinary FIFO only</div>
+          <div className="ph-stat-meta">regular sessions only</div>
         </div>
         <div className="ph-stat">
-          <div className="ph-stat-label"><span>Ordinary credit</span></div>
+          <div className="ph-stat-label"><span>Regular credit</span></div>
           <div className="ph-stat-value" style={{ color: ordinaryCredit > 0 ? 'var(--ph-ok)' : undefined }}><Money n={ordinaryCredit} /></div>
-          <div className="ph-stat-meta">refundable ordinary</div>
+          <div className="ph-stat-meta">refundable regular</div>
         </div>
         <div className="ph-stat">
           <div className="ph-stat-label"><span>Package due</span></div>
           <div className="ph-stat-value" style={{ color: packageDue > 0 ? 'var(--ph-warn)' : undefined }}><Money n={packageDue} /></div>
-          <div className="ph-stat-meta">not covered by ordinary credit</div>
+          <div className="ph-stat-meta">not covered by regular credit</div>
         </div>
         <div className="ph-stat">
           <div className="ph-stat-label"><span>Package credit</span></div>

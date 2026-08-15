@@ -10,14 +10,13 @@ import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { calculatePackageTotal } from '@/lib/billing/payment-helpers'
-import { getBillingModeLabel, type BillingTimelinePackage } from '@/lib/billing/unified-billing'
+import { getBillingModeLabel } from '@/lib/billing/unified-billing'
 import { applyPackageTemplate } from '@/lib/billing/package-template'
 import type { BillingEntryKind, CreateBillingEntryInput, PackageTemplate } from '@/lib/supabase/types'
 import { createBillingEntry, recordPayment } from './actions'
 
 interface Props {
   patients: { id: string; name: string }[]
-  packages: Pick<BillingTimelinePackage, 'id' | 'patient_id' | 'name' | 'status'>[]
   packageTemplates?: PackageTemplate[]
   appointmentTypes: { id: string; name: string; session_rate: number }[]
   defaultPaymentDate: string
@@ -41,7 +40,6 @@ function Money({ amount }: { amount: number }) {
 
 export function BillingEntryForm({
   patients,
-  packages,
   packageTemplates = [],
   appointmentTypes,
   defaultPaymentDate,
@@ -56,8 +54,6 @@ export function BillingEntryForm({
   const [packageName, setPackageName] = useState('')
   const [packageSessions, setPackageSessions] = useState('')
   const [packagePerSessionAmount, setPackagePerSessionAmount] = useState('')
-  const [fundingScope, setFundingScope] = useState<'ordinary' | 'package'>('ordinary')
-  const [selectedPackageId, setSelectedPackageId] = useState('')
 
   function handleTemplateSelect(templateId: string) {
     const template = packageTemplates.find((t) => t.id === templateId)
@@ -71,7 +67,6 @@ export function BillingEntryForm({
   }
 
   const selectedPatientName = patients.find((patient) => patient.id === selectedPatient)?.name
-  const patientPackages = packages.filter((pkg) => pkg.patient_id === selectedPatient && pkg.status !== 'cancelled')
   const paymentAmount = numberFromInput(amount)
   const packageTotalSessions = integerFromInput(packageSessions)
   const packageRate = numberFromInput(packagePerSessionAmount)
@@ -102,8 +97,10 @@ export function BillingEntryForm({
     const result = mode === 'payment_only'
       ? await recordPayment({
         patientId: selectedPatient,
-        fundingScope,
-        packageId: fundingScope === 'package' ? selectedPackageId : null,
+        // Standalone receipts are always regular-scoped; package money is collected
+        // through the "Package + payment" entry type.
+        fundingScope: 'ordinary',
+        packageId: null,
         amount: paymentAmount,
         paymentMethod: input.paymentMethod ?? '',
         date: input.paymentDate ?? '',
@@ -145,7 +142,7 @@ export function BillingEntryForm({
           id="billing_patient"
           options={patients.map((patient) => ({ value: patient.id, label: patient.name }))}
           value={selectedPatient || null}
-          onChange={(patientId) => { setSelectedPatient(patientId); setSelectedPackageId('') }}
+          onChange={setSelectedPatient}
           placeholder="Select patient"
           searchPlaceholder="Search patient…"
           emptyText="No patients found."
@@ -298,47 +295,19 @@ export function BillingEntryForm({
           </div>
         </div>
 
-        {mode === 'payment_only' && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="funding_scope">Funding Scope *</Label>
-              <Select value={fundingScope} onValueChange={(value) => { setFundingScope(value as 'ordinary' | 'package'); if (value === 'ordinary') setSelectedPackageId('') }}>
-                <SelectTrigger id="funding_scope"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ordinary">Ordinary FIFO</SelectItem>
-                  <SelectItem value="package">Existing package</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {fundingScope === 'package' && (
-              <div className="space-y-2">
-                <Label htmlFor="existing_package_id">Package *</Label>
-                <Select value={selectedPackageId} onValueChange={setSelectedPackageId} required>
-                  <SelectTrigger id="existing_package_id"><SelectValue placeholder="Select package" /></SelectTrigger>
-                  <SelectContent>
-                    {patientPackages.map((pkg) => <SelectItem key={pkg.id} value={pkg.id}>{pkg.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                {selectedPatient && patientPackages.length === 0 && <p className="text-xs text-muted-foreground">This patient has no non-cancelled package.</p>}
-              </div>
-            )}
-          </div>
-        )}
-
         {mode === 'payment_only' && selectedPatient && paymentAmount > 0 && (
           <div className="rounded-md border bg-muted/40 p-3">
-            <p className="text-sm font-medium">{fundingScope === 'ordinary' ? 'Ordinary FIFO allocation' : 'Package-only allocation'}</p>
+            <p className="text-sm font-medium">Regular allocation</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {fundingScope === 'ordinary'
-                ? 'This receipt applies oldest-first to eligible ordinary charges, including partial sessions. Any remainder stays as ordinary refundable credit; package balances are never used.'
-                : 'This receipt applies only within the selected package, including partial sessions. Ordinary due and credit remain untouched.'}
+              This receipt applies oldest-first to eligible regular charges, including partial sessions.
+              Any remainder stays as refundable credit; package balances are never used.
             </p>
           </div>
         )}
 
         {mode === 'package_with_payment' && paymentAmount > 0 && (
           <p className="text-xs text-muted-foreground">
-            This receipt is scoped only to the new package. Ordinary credit remains separate.
+            This receipt is scoped only to the new package. Regular credit remains separate.
           </p>
         )}
 
@@ -363,7 +332,7 @@ export function BillingEntryForm({
         </div>
       </div>
 
-      <Button type="submit" className="w-full" disabled={loading || !selectedPatient || (mode === 'payment_only' && fundingScope === 'package' && !selectedPackageId)}>
+      <Button type="submit" className="w-full" disabled={loading || !selectedPatient}>
         {loading ? (
           <><Loader2 className="animate-spin" size={14} /> Saving...</>
         ) : mode === 'payment_only' ? 'Save Payment' : 'Save Package'}

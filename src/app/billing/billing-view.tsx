@@ -24,6 +24,7 @@ import { useToast } from '@/hooks/use-toast'
 import { createClient } from '@/lib/supabase/client'
 import {
   buildBillingTimelineItems,
+  getFundingScopeLabel,
   type BillingTimelinePackage,
   type BillingTimelinePayment,
 } from '@/lib/billing/unified-billing'
@@ -37,7 +38,6 @@ type TabId = 'overview' | 'payment_due' | 'payments' | 'packages'
 
 interface BillingViewProps {
   packages: BillingTimelinePackage[]
-  fundablePackages: Pick<BillingTimelinePackage, 'id' | 'patient_id' | 'name' | 'status'>[]
   packagesTotalCount: number
   packageTemplates: PackageTemplate[]
   appointmentTypes: { id: string; name: string; session_rate: number }[]
@@ -132,7 +132,6 @@ function PaymentLedgerBadge({ status, refundedAmount, grossAmount }: { status: '
 
 export function BillingView({
   packages: initialPackages,
-  fundablePackages,
   packagesTotalCount,
   packageTemplates,
   appointmentTypes,
@@ -332,7 +331,6 @@ export function BillingView({
             <DialogHeader><DialogTitle>New Billing Entry</DialogTitle></DialogHeader>
             <BillingEntryForm
               patients={patients}
-              packages={fundablePackages}
               packageTemplates={packageTemplates}
               appointmentTypes={appointmentTypes}
               defaultPaymentDate={defaultPaymentDate}
@@ -473,7 +471,6 @@ export function BillingView({
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1" style={{ marginTop: 8, fontSize: 11.5 }}>
                       <span>Quote <Money n={Number(balance?.quote_amount ?? pkg.total_amount)} /></span>
                       <span>Net received <Money n={Number(balance?.net_received ?? 0)} /></span>
-                      <span>Applied <Money n={Number(balance?.applied_amount ?? 0)} /></span>
                       <span>Due <Money n={Number(balance?.due_amount ?? 0)} /></span>
                       <span className="col-span-2">Refundable credit <Money n={Number(balance?.refundable_credit ?? 0)} className="ok" /></span>
                     </div>
@@ -496,17 +493,14 @@ export function BillingView({
         <SectionBar title="Payments Balance" count={paymentDueRows.length} />
         <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
           <div className="hidden md:grid" style={{
-            gridTemplateColumns: '1.6fr 130px 130px 130px 130px 20px',
+            gridTemplateColumns: '1.6fr 140px 20px',
             gap: 14, padding: '10px 16px',
             fontSize: 10.5, color: 'var(--ph-ink-4)',
             textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600,
             borderBottom: '1px solid var(--ph-line)',
           }}>
             <div>Patient</div>
-            <div style={{ textAlign: 'right' }}>Ordinary Due</div>
-            <div style={{ textAlign: 'right' }}>Package Due</div>
-            <div style={{ textAlign: 'right' }}>Ordinary Credit</div>
-            <div style={{ textAlign: 'right' }}>Package Credit</div>
+            <div style={{ textAlign: 'right' }}>Amount</div>
             <div />
           </div>
           {paymentDueRows.length === 0 ? (
@@ -528,38 +522,27 @@ export function BillingView({
                     fontSize: 13, textDecoration: 'none', color: 'inherit',
                   }}
                 >
-                  <div className="hidden md:grid" style={{ gridTemplateColumns: '1.6fr 130px 130px 130px 130px 20px', gap: 14, alignItems: 'center' }}>
+                  {/* Regular vs package split lives on the drill-down; the list stays scannable. */}
+                  <div className="hidden md:grid" style={{ gridTemplateColumns: '1.6fr 140px 20px', gap: 14, alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontWeight: 500 }}>{row.patientName}</span>
                       <span className={`ph-badge ${isCredit ? 'ok' : 'warn'}`} style={{ fontSize: 10 }}>
                         <span className="ph-badge-dot" />{isCredit ? 'Credit' : 'Due'}
                       </span>
                     </div>
-                    <div style={{ textAlign: 'right' }}><Money n={row.ordinaryDue} /></div>
-                    <div style={{ textAlign: 'right' }}><Money n={row.packageDue} /></div>
-                    <div style={{ textAlign: 'right', color: row.ordinaryCredit > 0 ? 'var(--ph-ok)' : undefined }}><Money n={row.ordinaryCredit} /></div>
-                    <div style={{ textAlign: 'right', color: row.packageCredit > 0 ? 'var(--ph-ok)' : undefined }}><Money n={row.packageCredit} /></div>
-                    <ChevronRight size={15} style={{ color: 'var(--ph-ink-4)', justifySelf: 'end' }} />
-                  </div>
-                  <div className="md:hidden space-y-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500 }}>
-                          {row.patientName}
-                          <span className={`ph-badge ${isCredit ? 'ok' : 'warn'}`} style={{ fontSize: 10 }}>
-                            <span className="ph-badge-dot" />{isCredit ? 'Credit' : 'Due'}
-                          </span>
-                        </div>
-                        <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 1 }}>
-                          Ordinary and package funds remain separate
-                        </div>
-                      </div>
+                    <div style={{ textAlign: 'right' }}>
                       <Money n={isCredit ? row.totalCredit : row.totalDue} className={isCredit ? 'ok' : 'warn'} />
                     </div>
-                    <div className="flex justify-between text-xs" style={{ color: 'var(--ph-ink-4)' }}>
-                      <span>Ordinary due <Money n={row.ordinaryDue} /> · credit <Money n={row.ordinaryCredit} /></span>
-                      <span>Package due <Money n={row.packageDue} /> · credit <Money n={row.packageCredit} /></span>
+                    <ChevronRight size={15} style={{ color: 'var(--ph-ink-4)', justifySelf: 'end' }} />
+                  </div>
+                  <div className="md:hidden flex items-center justify-between gap-3">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500 }}>
+                      {row.patientName}
+                      <span className={`ph-badge ${isCredit ? 'ok' : 'warn'}`} style={{ fontSize: 10 }}>
+                        <span className="ph-badge-dot" />{isCredit ? 'Credit' : 'Due'}
+                      </span>
                     </div>
+                    <Money n={isCredit ? row.totalCredit : row.totalDue} className={isCredit ? 'ok' : 'warn'} />
                   </div>
                 </Link>
               )
@@ -613,7 +596,7 @@ export function BillingView({
                         <PaymentLedgerBadge status={item.status} refundedAmount={activeRefundTotals[item.id] ?? 0} grossAmount={item.amount} />
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--ph-ink-3)' }}>
-                        {item.fundingScope === 'package' ? item.packageName ?? 'Package' : 'Ordinary'}
+                        {item.fundingScope === 'package' ? item.packageName ?? 'Package' : getFundingScopeLabel(item.fundingScope)}
                         {item.notes ? ` · ${item.notes}` : ''}
                       </div>
                       <div style={{ fontSize: 12, textTransform: 'capitalize' }}>{item.paymentMethod}</div>
@@ -632,7 +615,7 @@ export function BillingView({
                         </div>
                         <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 1 }}>
                           {format(parseISO(item.sortDate), 'dd MMM')} · {item.paymentMethod}
-                          {item.fundingScope === 'package' ? ` · ${item.packageName ?? 'Package'}` : ' · Ordinary'}
+                          {item.fundingScope === 'package' ? ` · ${item.packageName ?? 'Package'}` : ` · ${getFundingScopeLabel(item.fundingScope)}`}
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -720,10 +703,9 @@ export function BillingView({
                       <span className="font-mono-data">{Math.round(availedPct)}%</span>
                     </div>
                     <div className="ph-bar" style={{ marginBottom: 10, display: 'flex' }}><span style={{ width: `${availedPct}%` }} /><span style={{ width: `${scheduledPct}%`, opacity: 0.35 }} /></div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5" style={{ fontSize: 11.5 }}>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" style={{ fontSize: 11.5 }}>
                       <span>Quote <Money n={Number(balance?.quote_amount ?? item.totalAmount)} /></span>
                       <span>Net received <Money n={Number(balance?.net_received ?? 0)} /></span>
-                      <span>Applied <Money n={Number(balance?.applied_amount ?? 0)} /></span>
                       <span>Due <Money n={Number(balance?.due_amount ?? 0)} /></span>
                       <span>Refundable credit <Money n={Number(balance?.refundable_credit ?? 0)} /></span>
                     </div>

@@ -264,7 +264,7 @@ export function AppointmentDetail({
           <DialogTrigger asChild><Button variant="outline" className="w-full md:w-auto"><IndianRupee className="h-4 w-4 mr-1" />Adjust fee</Button></DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader><DialogTitle>Adjust completed appointment fee</DialogTitle></DialogHeader>
-            <p className="text-sm text-muted-foreground">This creates an immutable adjustment and reconciles ordinary/package balances.</p>
+            <p className="text-sm text-muted-foreground">This creates an immutable adjustment and reconciles regular/package balances.</p>
             <div className="space-y-2"><Label htmlFor="adjusted_fee">Adjusted fee *</Label><Input id="adjusted_fee" type="number" min="0.01" step="0.01" value={adjustedFee} onChange={(event) => setAdjustedFee(event.target.value)} /></div>
             <div className="space-y-2"><Label htmlFor="fee_adjustment_reason">Reason *</Label><Textarea id="fee_adjustment_reason" rows={3} value={feeReason} onChange={(event) => setFeeReason(event.target.value)} /></div>
             <Button onClick={handleFeeAdjustment} disabled={feePending || !feeReason.trim() || !Number.isFinite(Number(adjustedFee)) || Number(adjustedFee) <= 0 || Number(adjustedFee) === Number(appointment.fee)}>

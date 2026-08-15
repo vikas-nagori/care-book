@@ -45,6 +45,11 @@ export function getBillingModeLabel(mode: BillingMode) {
   }
 }
 
+// The ledger stores the scope as 'ordinary'; clinic staff read it as "Regular".
+export function getFundingScopeLabel(scope: 'ordinary' | 'package') {
+  return scope === 'package' ? 'Package' : 'Regular'
+}
+
 export function buildBillingTimelineItems({
   packages,
   payments,

@@ -27,7 +27,6 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
 
   const [
     { data: packages, error: packagesError, count: packagesCount },
-    { data: fundablePackages, error: fundablePackagesError },
     { data: payments, error: paymentsError, count: paymentsCount },
     { data: patients, error: patientsError },
     { data: appointments, error: appointmentsError },
@@ -41,7 +40,6 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     { data: recentRefunds, error: recentRefundsError },
   ] = await Promise.all([
     supabase.from('packages').select('*, patient:patients(id, name)', { count: 'exact' }).order('created_at', { ascending: false }).range(0, PAGE_SIZE - 1),
-    supabase.from('packages').select('id, patient_id, name, status').neq('status', 'cancelled').order('created_at', { ascending: false }),
     supabase
       .from('payments')
       .select('*, patient:patients(id, name), package:packages(id, name)', { count: 'exact' })
@@ -64,7 +62,6 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   ])
 
   if (packagesError) logger.error('BillingPage/packages', packagesError)
-  if (fundablePackagesError) logger.error('BillingPage/fundablePackages', fundablePackagesError)
   if (paymentsError) logger.error('BillingPage/payments', paymentsError)
   if (patientsError) logger.error('BillingPage/patients', patientsError)
   if (appointmentsError) logger.error('BillingPage/appointments', appointmentsError)
@@ -119,7 +116,6 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     <div className="p-4 md:p-6">
       <BillingView
         packages={packages ?? []}
-        fundablePackages={fundablePackages ?? []}
         packagesTotalCount={packagesCount ?? 0}
         packageTemplates={packageTemplates ?? []}
         appointmentTypes={appointmentTypes ?? []}

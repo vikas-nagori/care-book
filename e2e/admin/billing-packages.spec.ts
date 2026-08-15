@@ -44,7 +44,7 @@ test('records a payment, allocates the unpaid session, and shows the timeline en
     method: 'UPI',
     notes,
   })
-  await expect(page.getByText('Ordinary FIFO allocation', { exact: true })).toBeVisible()
+  await expect(page.getByText('Regular allocation', { exact: true })).toBeVisible()
   await expect(page.getByText(/including partial sessions/i)).toBeVisible()
   await form.submit('payment')
 
@@ -124,23 +124,25 @@ test('creates a prepaid package with payment from the seeded template prefill', 
   await guards.assertClean()
 })
 
-test('records a later receipt into exactly one existing package scope', async ({ page, factory }) => {
+// Standalone receipts are regular-scoped by construction — the form has no scope picker, so an
+// open package on the same patient must not capture the money.
+test('keeps a standalone receipt regular-scoped even when the patient holds a package', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient()
-  const pkg = await factory.createPackage({ patientId: patient.id, name: factory.uniqueName('partial-package'), total_amount: 4000, paid_amount: 0 })
-  const notes = factory.uniqueName('package-top-up')
+  await factory.createPackage({ patientId: patient.id, name: factory.uniqueName('partial-package'), total_amount: 4000, paid_amount: 0 })
+  const notes = factory.uniqueName('regular-receipt')
   factory.watchUiPayment({ patientId: patient.id, notes })
 
   await page.goto('/billing')
   const form = new BillingEntryForm(page)
   await form.open()
   await form.fillPaymentOnly({ patientName: patient.name as string, amount: '500', method: 'UPI', notes })
-  await form.targetExistingPackage(pkg.name as string)
+  await expect(page.getByLabel('Funding Scope *', { exact: true })).toHaveCount(0)
   await form.submit('payment')
 
   await expect.poll(() => factory.findPayment({ patientId: patient.id, notes })).not.toBeNull()
   const payment = await factory.findPayment({ patientId: patient.id, notes })
-  expect(payment).toMatchObject({ funding_scope: 'package', package_id: pkg.id, amount: 500 })
+  expect(payment).toMatchObject({ funding_scope: 'ordinary', package_id: null, amount: 500 })
   await guards.assertClean()
 })
 

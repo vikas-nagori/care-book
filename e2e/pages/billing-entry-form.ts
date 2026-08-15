@@ -33,13 +33,6 @@ export class BillingEntryForm {
     await this.fillPayment(data)
   }
 
-  async targetExistingPackage(packageName: string): Promise<void> {
-    await this.page.getByLabel('Funding Scope *', { exact: true }).click()
-    await this.page.getByRole('option', { name: 'Existing package', exact: true }).click()
-    await this.page.getByLabel('Package *', { exact: true }).click()
-    await this.page.getByRole('option', { name: packageName, exact: true }).click()
-  }
-
   async fillPackageFromTemplate(
     data: BillingPaymentData & { templateName: string },
   ): Promise<void> {

@@ -209,17 +209,18 @@ test('billing switches balance and payment tables at md and changes package grid
   await page.goto('/billing?tab=payment_due')
   await assertMdBreakpoint(page, testInfo)
 
-  const desktopBalanceHeaders = ['Patient', 'Ordinary Due', 'Package Due', 'Ordinary Credit', 'Package Credit']
+  const desktopBalanceHeaders = ['Patient', 'Amount']
   for (const header of desktopBalanceHeaders) {
     const locator = page.getByText(header, { exact: true })
     if (isMobileProject(testInfo)) await expect(locator).toBeHidden()
     else await expect(locator).toBeVisible()
   }
+  // Both viewports show name + direction + one amount; the regular/package split moved to the drill-down.
   const meeraBalance = page.getByRole('link', { name: /Meera Payment Due/ })
   await expect(meeraBalance).toContainText('₹1,600')
-  const mobileScopeNote = meeraBalance.getByText('Ordinary and package funds remain separate', { exact: true })
-  if (isMobileProject(testInfo)) await expect(mobileScopeNote).toBeVisible()
-  else await expect(mobileScopeNote).toBeHidden()
+  await expect(meeraBalance).toContainText('Due')
+  await expect(meeraBalance).not.toContainText('Regular due')
+  await expect(meeraBalance).not.toContainText('Package due')
 
   await page.getByRole('button', { name: 'Payments', exact: true }).click()
   const desktopPaymentHeaders = ['Date', 'Patient', 'For', 'Method', 'Amount']

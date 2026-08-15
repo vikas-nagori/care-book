@@ -73,7 +73,6 @@ function makePayment(overrides: Partial<BillingTimelinePayment> = {}): BillingTi
 
 const baseProps = {
   packagesTotalCount: 1,
-  fundablePackages: [],
   packageTemplates: [],
   appointmentTypes: [],
   payments: [],
