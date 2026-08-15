@@ -45,9 +45,10 @@ export type InviteCompletionField = 'password' | 'passwordConfirmation'
 // other strength gate is the Supabase project's `minimum_password_length` (6 in the checked-in
 // local config, with `password_requirements` unset). Enforce the policy here so it holds on
 // both the client and the server regardless of what the project is configured with.
-export const INVITE_PASSWORD_MIN_LENGTH = 12
+export const INVITE_PASSWORD_MIN_LENGTH = 8
+// Derived from the constant so the number users are shown cannot drift from the one enforced.
 export const INVITE_PASSWORD_POLICY_MESSAGE =
-  'Use at least 12 characters with an uppercase letter, a lowercase letter, and a number.'
+  `Use at least ${INVITE_PASSWORD_MIN_LENGTH} characters with an uppercase letter, a lowercase letter, and a number.`
 
 export function meetsInvitePasswordPolicy(password: string): boolean {
   return (

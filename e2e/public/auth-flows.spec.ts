@@ -102,7 +102,7 @@ test('rejects a weak password on the real invite completion form', async ({ page
   await page.goto(pending.actionLink)
   await expect(page).toHaveURL('http://localhost:3000/auth/complete-invite')
   await expect(
-    page.getByText('Use at least 12 characters with an uppercase letter, a lowercase letter, and a number.', { exact: true })
+    page.getByText('Use at least 8 characters with an uppercase letter, a lowercase letter, and a number.', { exact: true })
   ).toBeVisible()
 
   // Long enough, but no uppercase and no digit — the Supabase project minimum would accept it.
@@ -112,7 +112,7 @@ test('rejects a weak password on the real invite completion form', async ({ page
 
   await expect(page).toHaveURL('http://localhost:3000/auth/complete-invite')
   await expect(
-    page.getByText('Use at least 12 characters with an uppercase letter, a lowercase letter, and a number.', { exact: true })
+    page.getByText('Use at least 8 characters with an uppercase letter, a lowercase letter, and a number.', { exact: true })
   ).toBeVisible()
   expect(await factory.findInviteByEmail(pending.email)).toMatchObject({ status: 'pending' })
   await guards.assertClean()

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  INVITE_PASSWORD_MIN_LENGTH,
   INVITE_PASSWORD_POLICY_MESSAGE,
   buildInviteRedirectUrl,
   getInviteCollisionResult,
@@ -97,15 +98,26 @@ test('validateInviteCompletionInput rejects mismatched passwords', () => {
 // and the only other gate is the Supabase project's `minimum_password_length`. Enforce the
 // policy in app code so it holds regardless of project config drift.
 test('validateInviteCompletionInput rejects passwords under the minimum length', () => {
+  // 7 characters: meets every character class, still one short of the minimum.
   const result = validateInviteCompletionInput({
-    password: 'Short-1a',
-    passwordConfirmation: 'Short-1a',
+    password: 'Shor-1a',
+    passwordConfirmation: 'Shor-1a',
   })
 
   assert.deepEqual(result, {
     success: false,
     errorCode: 'INVITE_PASSWORD_TOO_WEAK',
     message: INVITE_PASSWORD_POLICY_MESSAGE,
+  })
+})
+
+test('validateInviteCompletionInput accepts a password at exactly the minimum length', () => {
+  const password = 'Short-1a'
+  assert.equal(password.length, INVITE_PASSWORD_MIN_LENGTH)
+
+  assert.deepEqual(validateInviteCompletionInput({ password, passwordConfirmation: password }), {
+    success: true,
+    values: { password },
   })
 })
 
