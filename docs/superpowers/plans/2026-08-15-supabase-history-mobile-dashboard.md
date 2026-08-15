@@ -152,7 +152,7 @@ Commit: `fix: treat missing session notes as expected`
 
 - [ ] **Step 1: Write failing range tests**
 
-Add tests proving the union covers the complete clinic week, the current day, and the following-day up-next horizon across week boundaries.
+Add tests proving the union covers the complete clinic week, the current day, and the following-day up-next horizon across week boundaries. Add a regression proving an appointment later in the week but outside the up-next horizon is not selected.
 
 - [ ] **Step 2: Verify RED**
 
@@ -174,7 +174,7 @@ Run: `node --test --experimental-strip-types src/lib/dashboard/appointments.test
 
 Expected: PASS, including week-boundary, following-day, and outside-horizon cases.
 
-Add a regression proving an appointment later in the week but outside the up-next horizon is not selected. Commit: `perf: share dashboard appointment query`
+Commit: `perf: share dashboard appointment query`
 
 ### Task 6: Load appointment-form options on demand
 
