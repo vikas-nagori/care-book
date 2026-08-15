@@ -266,10 +266,6 @@ begin
     status = excluded.status, authorized_db_role = excluded.authorized_db_role,
     bypass_token_digest = excluded.bypass_token_digest, paused_at = excluded.paused_at,
     corrections_applied_at = null, resumed_at = null, updated_at = excluded.updated_at;
-  execute format(
-    'alter role %I in database %I set carebook.ops.bypass_token = %L',
-    operator_role, current_database(), token
-  );
   perform set_config('carebook.ops.bypass_token', token, false);
 end
 $activate_gate$;

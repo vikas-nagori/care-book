@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { after, before, test } from 'node:test'
 
-import { applyMigrationsAfter, buildDatabaseThrough, dropDatabase, postgresAvailable, query, run } from './db.ts'
+import { applyMigrationsAfterWithSessionSql, buildDatabaseThrough, dropDatabase, postgresAvailable, query, run } from './db.ts'
 import { buildLiveDatabaseFingerprint } from '../../src/lib/billing/live-db-fingerprint.ts'
 
 const DB = 'carebook_billing_ops_gate_test'
@@ -59,10 +59,7 @@ function prepare(expected: string): void {
 }
 
 function forceResumeFixture(): void {
-  run(DB, `
-    update private.billing_ops_gate set status='resumed', resumed_at=now() where id=true;
-    do $do$ begin execute format('alter role %I in database %I reset carebook.ops.bypass_token', session_user, current_database()); end $do$;
-  `)
+  run(DB, `update private.billing_ops_gate set status='resumed', resumed_at=now() where id=true`)
 }
 
 before(() => {
@@ -118,13 +115,22 @@ test('verified pause blocks normal writes and permits only logged token-authoriz
   forceResumeFixture()
   prepare(fingerprint())
   assert.equal(query(DB, `select status from private.billing_ops_gate where id = true`), 'paused_verified')
+  assert.equal(
+    query(DB, `select coalesce(current_setting('carebook.ops.bypass_token', true), '')`),
+    '',
+    'the bypass token must never persist in a managed database role setting',
+  )
   assert.throws(() => run(DB, `set role authenticated; update public.appointments set fee=999`), /billing writes are paused/i)
   assert.throws(() => run(DB, `set role authenticated; update public.payments set amount=101 where patient_id='20000000-0000-4000-8000-000000000002'`), /billing writes are paused/i)
 
   run(DB, `set carebook.ops.bypass_token = '${TOKEN}'; update public.payments set amount=101 where patient_id='20000000-0000-4000-8000-000000000002'`)
   assert.equal(query(DB, `select count(*) from private.billing_ops_bypass_log where relation_name='payments'`), '1')
 
-  applyMigrationsAfter(DB, '029_patient_appointment_history_index.sql')
+  applyMigrationsAfterWithSessionSql(
+    DB,
+    '029_patient_appointment_history_index.sql',
+    `select set_config('carebook.ops.bypass_token', '${TOKEN}', false)`,
+  )
   assert.equal(query(DB, `select to_regclass('public.billing_events') is not null`), 't')
 })
 

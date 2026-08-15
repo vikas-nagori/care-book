@@ -92,6 +92,21 @@ export function applyMigrationsAfter(dbName: string, migration: string): void {
   applyFiles(dbName, migrations.filter((file) => file.split('/').at(-1)! > migration))
 }
 
+/** Apply later migrations with one session-setting command before each migration file. */
+export function applyMigrationsAfterWithSessionSql(
+  dbName: string,
+  migration: string,
+  sessionSql: string,
+): void {
+  const migrations = migrationFiles()
+  if (!migrations.some((file) => file.split('/').at(-1) === migration)) {
+    throw new Error(`migration anchor not found: ${migration}`)
+  }
+  for (const file of migrations.filter((candidate) => candidate.split('/').at(-1)! > migration)) {
+    psql(dbName, ['-c', sessionSql, '-f', file])
+  }
+}
+
 export function dropDatabase(dbName: string): void {
   psql(maintenanceDb, ['-c', `drop database if exists ${dbName} with (force)`])
 }

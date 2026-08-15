@@ -61,17 +61,17 @@ her account was corrected manually.
 
    The gate installs statement-level guards over clinics, patients, appointment types, fee
    settings, package templates, appointments, packages, receipts, legacy payment applications,
-   and package allocations. It stores only the token digest. The token itself is a database- and
-   role-scoped setting for the exact migration operator, so each new connection opened by normal
-   managed migration tooling receives it; application roles do not. Every bypassed statement is
-   logged in `private.billing_ops_bypass_log`.
+   and package allocations. It stores only the token digest. The token is supplied only inside
+   each reviewed migration transaction; it is never persisted as a managed database role setting.
+   Application roles do not receive it. Every bypassed statement is logged in
+   `private.billing_ops_bypass_log`.
 
 3. Verify `private.billing_ops_gate.status = 'paused_verified'`, then take and verify the mandatory
    second full production backup. Do not continue on a mismatch. Keep writes paused.
 
-4. Using the same authenticated Supabase project that prepared the gate, apply migrations 030-034
-   in order through the Management API query command. Each migration is transactional. Record a
-   migration as applied only after its SQL succeeds.
+4. Using the same production database role that prepared the gate, apply migrations 030-034 in
+   order. Each migration is transactional. Record a migration as applied only after its SQL
+   succeeds.
 
    Production's migrations 001-029 were deployed with timestamped history versions while this
    repository retained short filenames, so `supabase db push` intentionally refuses to reconcile
@@ -82,14 +82,16 @@ her account was corrected manually.
    for version in 030 031 032 033 034; do
      file="$(find supabase/migrations -maxdepth 1 -name "${version}_*.sql" -print -quit)"
      test -n "$file"
-     supabase db query --linked --file "$file"
+     psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
+       -v bypass_token="$BILLING_BYPASS_TOKEN" \
+       -f ops/billing/set-bypass-token.sql -f "$file"
      supabase migration repair --linked --status applied "$version"
    done
    ```
 
-   The pause gate's database/role-scoped token is inherited by each query connection. Afterward,
-   require all five versions to be present in `supabase_migrations.schema_migrations` and require
-   the migration-034 actor/audit columns, triggers, and functions before corrections can start.
+   Each psql invocation sets the token for that connection only. Afterward, require all five
+   versions to be present in `supabase_migrations.schema_migrations` and require the migration-034
+   actor/audit columns, triggers, and functions before corrections can start.
 
 5. Run the correction. It refuses a missing, stale (older than 24 hours), mismatched, resumed, or
    wrongly authorized gate. Failure rolls back corrections and leaves writes paused.
@@ -111,8 +113,7 @@ her account was corrected manually.
    for byte with the migration-029 report.
 
 7. Resume only after every postcondition succeeds. This transaction verifies the exact correction
-   marker against all four fingerprints, changes the gate to `resumed`, and clears the persistent
-   operator-role bypass setting atomically.
+   marker against all four fingerprints and changes the gate to `resumed`.
 
    ```sh
    psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \

@@ -43,10 +43,6 @@ begin
   update private.billing_ops_gate
   set status = 'resumed', resumed_at = clock_timestamp(), updated_at = clock_timestamp()
   where id = true;
-  execute format(
-    'alter role %I in database %I reset carebook.ops.bypass_token',
-    gate.authorized_db_role, current_database()
-  );
 end
 $resume$;
 commit;
