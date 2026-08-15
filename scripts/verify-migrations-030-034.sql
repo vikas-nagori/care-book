@@ -491,7 +491,8 @@ function_acl_checks as (
 data_checks as (
   select jsonb_build_object('check', 'appointment_type_bootstrap_scoped', 'passed', count(*) = 0, 'violations', count(*)) as item
   from public.packages package_row
-  where package_row.billing_version >= 2
+  where package_row.creation_origin = 'legacy_unknown'
+    and package_row.billing_version >= 2
     and not exists (
       select 1
       from public.appointment_types appointment_type
@@ -501,16 +502,18 @@ data_checks as (
   union all
   select jsonb_build_object('check', 'appointment_type_bootstrap_available', 'passed', count(*) = 0, 'violations', count(*))
   from public.packages package_row
-  where not exists (
+  where package_row.creation_origin = 'legacy_unknown'
+    and not exists (
     select 1
     from public.appointment_types appointment_type
     where appointment_type.clinic_id = package_row.clinic_id
       and (appointment_type.name = 'Clinic' or appointment_type.is_shared)
   )
   union all
-  select jsonb_build_object('check', 'package_billing_version_backfill', 'passed', count(*) = 0, 'violations', count(*))
+  select jsonb_build_object('check', 'package_billing_version_backfill_legacy_package_backfill_provenance', 'passed', count(*) = 0, 'violations', count(*))
   from public.packages
-  where billing_version < 2
+  where creation_origin = 'legacy_unknown'
+    and billing_version < 2
   union all
   select jsonb_build_object('check', 'packages_v2_fields_populated', 'passed', count(*) = 0, 'violations', count(*)) as item
   from public.packages where billing_version >= 2 and (appointment_type_id is null or starts_on is null)
@@ -556,6 +559,24 @@ data_checks as (
        when 'completed' then 'posted'
        else 'voided'
      end
+  union all
+  select jsonb_build_object('check', 'appointment_payment_status_parity', 'passed', count(*) = 0, 'violations', count(*))
+  from public.appointments appointment_row
+  join public.appointment_charges charge on charge.appointment_id = appointment_row.id
+  left join public.payment_applications application
+    on application.charge_id = charge.id and application.status = 'active'
+  group by appointment_row.id, charge.id
+  having appointment_row.payment_status is distinct from case
+    when coalesce(sum(application.amount) filter (where application.funding_scope = 'package'), 0) >= charge.amount
+      and charge.amount > 0 then 'prepaid'
+    when coalesce(sum(application.amount) filter (where application.funding_scope = 'package'), 0) > 0
+      then 'partially_prepaid'
+    when coalesce(sum(application.amount) filter (where application.funding_scope = 'ordinary'), 0) >= charge.amount
+      and charge.amount > 0 then 'paid'
+    when coalesce(sum(application.amount) filter (where application.funding_scope = 'ordinary'), 0) > 0
+      then 'partially_paid'
+    else 'unpaid'
+  end
   union all
   select jsonb_build_object('check', 'payment_application_amount_conservation', 'passed', count(*) = 0, 'violations', count(*))
   from public.payments payment_row
@@ -629,6 +650,40 @@ data_checks as (
     where allocation.package_id = package_row.id and allocation.lifecycle <> 'released'
   )
   union all
+  select jsonb_build_object('check', 'package_lifecycle_receipt_parity', 'passed', count(*) = 0, 'violations', count(*))
+  from public.packages package_row
+  cross join lateral (
+    select count(*) filter (where allocation.lifecycle = 'availed')::integer as availed_sessions
+    from public.package_session_allocations allocation
+    where allocation.package_id = package_row.id
+      and allocation.lifecycle <> 'released'
+  ) allocation_total
+  cross join lateral (
+    select coalesce(sum(greatest(payment_row.amount - coalesce(refund_total.refunded_amount, 0), 0)), 0) as net_received
+    from public.payments payment_row
+    left join lateral (
+      select sum(refund.amount) as refunded_amount
+      from public.refunds refund
+      where refund.payment_id = payment_row.id
+        and not exists (
+          select 1 from public.refund_reversals reversal where reversal.refund_id = refund.id
+        )
+    ) refund_total on true
+    where payment_row.package_id = package_row.id
+      and payment_row.status = 'posted'
+  ) receipt_total
+  where package_row.status <> 'cancelled'
+    and (
+      package_row.used_sessions is distinct from allocation_total.availed_sessions
+      or package_row.status is distinct from case
+        when allocation_total.availed_sessions = package_row.total_sessions then 'completed'
+        else 'active'
+      end
+      or (allocation_total.availed_sessions = package_row.total_sessions and package_row.completed_at is null)
+      or (allocation_total.availed_sessions <> package_row.total_sessions and package_row.completed_at is not null)
+      or package_row.paid_amount is distinct from least(receipt_total.net_received, package_row.total_amount)
+    )
+  union all
   select jsonb_build_object('check', 'package_application_allocation_eligibility', 'passed', count(*) = 0, 'violations', count(*))
   from public.payment_applications application
   join public.appointment_charges charge on charge.id = application.charge_id
@@ -641,6 +696,21 @@ data_checks as (
         and allocation.appointment_id = charge.appointment_id
         and allocation.lifecycle <> 'released'
     )
+  union all
+  select jsonb_build_object('check', 'ordinary_package_charge_exclusion', 'passed', count(*) = 0, 'violations', count(*))
+  from public.appointment_charges charge
+  where exists (
+    select 1
+    from public.package_session_allocations allocation
+    where allocation.appointment_id = charge.appointment_id
+      and allocation.lifecycle <> 'released'
+  ) and exists (
+    select 1
+    from public.payment_applications application
+    where application.charge_id = charge.id
+      and application.status = 'active'
+      and application.funding_scope = 'ordinary'
+  )
   union all
   select jsonb_build_object('check', 'legacy_application_projection_conservation', 'passed', count(*) = 0, 'violations', count(*))
   from (
@@ -680,7 +750,8 @@ data_checks as (
   union all
   select jsonb_build_object('check', 'legacy_cancellation_event_coverage', 'passed', count(*) = 0, 'violations', count(*))
   from public.packages package_row
-  where package_row.status = 'cancelled'
+  where package_row.creation_origin = 'legacy_unknown'
+    and package_row.status = 'cancelled'
     and package_row.billing_version = 2
     and package_row.cancellation_reason = 'Legacy cancelled package migrated to v2'
     and 1 <> (
