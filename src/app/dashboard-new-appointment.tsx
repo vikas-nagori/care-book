@@ -154,10 +154,17 @@ function DashboardNewAppointment({
               doctors={options.data.doctors}
               assigneeOptions={options.data.assigneeOptions}
               externalStaffOptions={options.data.externalStaffOptions}
-              initialAppointmentTypes={options.data.appointmentTypes}
               currentProfileId={options.data.currentProfileId}
               canManageExternalStaff={options.data.canManageExternalStaff}
-              canViewPaymentSignals={options.data.canViewPaymentSignals}
+              {...(options.data.canViewPaymentSignals
+                ? {
+                    canViewPaymentSignals: true as const,
+                    initialAppointmentTypes: options.data.appointmentTypes,
+                  }
+                : {
+                    canViewPaymentSignals: false as const,
+                    initialAppointmentTypes: options.data.appointmentTypes,
+                  })}
               defaultDate={defaultDate}
               onSuccess={() => {
                 setOpen(false)

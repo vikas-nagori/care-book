@@ -45,19 +45,35 @@ const WEEKDAYS = [
 type AppointmentFormAppointment = Omit<Appointment, 'fee' | 'payment_status' | 'patient' | 'creator' | 'assignee' | 'external_staff'> &
   Partial<Pick<Appointment, 'fee' | 'payment_status'>>
 
-interface AppointmentFormProps {
+type AppointmentFormBaseProps = {
   patients: AppointmentPatientOption[]
   doctors?: Doctor[]
   assigneeOptions?: AppointmentAssigneeOption[]
   externalStaffOptions?: ExternalStaff[]
   currentProfileId?: string | null
   canManageExternalStaff?: boolean
-  canViewPaymentSignals: boolean
-  initialAppointmentTypes?: DashboardAppointmentTypeOption[]
   defaultDate?: string
   defaultPatientId?: string
   appointment?: AppointmentFormAppointment
   onSuccess?: () => void
+}
+
+type AppointmentFormProps = AppointmentFormBaseProps & (
+  | {
+      canViewPaymentSignals: true
+      initialAppointmentTypes?: AppointmentType[]
+    }
+  | {
+      canViewPaymentSignals: false
+      initialAppointmentTypes?: DashboardAppointmentTypeOption[]
+    }
+)
+
+function getAppointmentTypeSessionRate(type: DashboardAppointmentTypeOption): number | null {
+  if (!('session_rate' in type)) return null
+  return Number.isFinite(type.session_rate) && type.session_rate >= 0
+    ? type.session_rate
+    : null
 }
 
 function getAssigneeLabel(assignee: AppointmentAssigneeOption) {
@@ -141,11 +157,12 @@ export function AppointmentForm({
   useEffect(() => {
     if (initialAppointmentTypes !== undefined) {
       if (!appointment) {
-        const def = defaultAppointmentType(initialAppointmentTypes as AppointmentType[])
+        const def = defaultAppointmentType(initialAppointmentTypes)
         if (def) {
           setAppointmentTypeId(def.id)
           if (canViewPaymentSignals) {
-            setFee((current) => current || String(def.session_rate))
+            const rate = getAppointmentTypeSessionRate(def)
+            setFee((current) => current || (rate === null ? '' : String(rate)))
           }
         }
       }
@@ -160,7 +177,7 @@ export function AppointmentForm({
 
     appointmentTypesQuery.order('sort_order').then(({ data }) => {
       if (!data) return
-      const types = data as AppointmentType[]
+      const types = data as DashboardAppointmentTypeOption[]
       setAppointmentTypes(types)
       // For new appointments, default to a sensible type and auto-fill its rate.
       if (!appointment) {
@@ -168,7 +185,8 @@ export function AppointmentForm({
         if (def) {
           setAppointmentTypeId(def.id)
           if (canViewPaymentSignals) {
-            setFee((current) => current || String(def.session_rate))
+            const rate = getAppointmentTypeSessionRate(def)
+            setFee((current) => current || (rate === null ? '' : String(rate)))
           }
         }
       }
@@ -208,7 +226,8 @@ export function AppointmentForm({
 
     // Auto-fill the rate for new appointments (admins can still override).
     if (!appointment && type && canViewPaymentSignals) {
-      setFee(String('session_rate' in type ? type.session_rate : ''))
+      const rate = getAppointmentTypeSessionRate(type)
+      setFee(rate === null ? '' : String(rate))
     }
   }
 
@@ -279,12 +298,24 @@ export function AppointmentForm({
 
     const formData = new FormData(e.currentTarget)
     const patientId = selectedPatientId
+    const parsedFee = fee.trim() === '' ? null : Number(fee)
+    const normalizedFee = Number.isFinite(parsedFee) ? parsedFee : null
     let newPatient: NewPatientInput | null = null
 
     if (!appointmentTypeId) {
       toast({
         title: 'Appointment type required',
         description: 'Choose an appointment type before saving.',
+        variant: 'destructive',
+      })
+      setLoading(false)
+      return
+    }
+
+    if (!appointment && canViewPaymentSignals && normalizedFee === null) {
+      toast({
+        title: 'Session fee required',
+        description: 'Choose a type with a default rate or enter a session fee before booking.',
         variant: 'destructive',
       })
       setLoading(false)
@@ -351,8 +382,6 @@ export function AppointmentForm({
 
     const time = formData.get('time') as string
     const durationMinutes = parseInt(formData.get('duration_minutes') as string) || 45
-    const parsedFee = fee.trim() === '' ? null : Number(fee)
-    const normalizedFee = Number.isFinite(parsedFee) ? parsedFee : null
     const notes = (formData.get('notes') as string) || null
 
     if (appointment) {
@@ -633,7 +662,7 @@ export function AppointmentForm({
               <SelectValue placeholder="Select type" />
             </SelectTrigger>
             <SelectContent>
-              {sortAppointmentTypes(appointmentTypes as AppointmentType[]).map((type) => (
+              {sortAppointmentTypes(appointmentTypes).map((type) => (
                 <SelectItem key={type.id} value={type.id}>
                   {type.name}
                 </SelectItem>
