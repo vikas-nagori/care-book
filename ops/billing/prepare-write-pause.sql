@@ -218,12 +218,12 @@ begin
 end
 $install_guards$;
 
-select set_config('carebook.ops.expected_live_db_fingerprint', :'expected_live_db_fingerprint', false);
-select set_config('carebook.ops.source_row_counts', :'source_row_counts', false);
-select set_config('carebook.ops.source_fingerprint', :'source_fingerprint', false);
-select set_config('carebook.ops.plan_fingerprint', :'plan_fingerprint', false);
-select set_config('carebook.ops.report_checksum', :'report_checksum', false);
-select set_config('carebook.ops.bypass_token', :'bypass_token', false);
+set local carebook.ops.expected_live_db_fingerprint to :'expected_live_db_fingerprint';
+set local carebook.ops.source_row_counts to :'source_row_counts';
+set local carebook.ops.source_fingerprint to :'source_fingerprint';
+set local carebook.ops.plan_fingerprint to :'plan_fingerprint';
+set local carebook.ops.report_checksum to :'report_checksum';
+set local carebook.ops.bypass_token to :'bypass_token';
 
 do $activate_gate$
 declare

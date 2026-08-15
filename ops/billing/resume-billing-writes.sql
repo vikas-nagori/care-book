@@ -4,7 +4,7 @@
 -- Required psql variable: bypass_token.
 
 begin;
-select set_config('carebook.ops.bypass_token', :'bypass_token', true);
+set local carebook.ops.bypass_token to :'bypass_token';
 
 do $resume$
 declare

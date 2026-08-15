@@ -6,12 +6,12 @@
 -- live_db_fingerprint, bypass_token, actor_id.
 
 begin;
-select set_config('carebook.ops.source_fingerprint', :'source_fingerprint', true);
-select set_config('carebook.ops.plan_fingerprint', :'plan_fingerprint', true);
-select set_config('carebook.ops.report_checksum', :'report_checksum', true);
-select set_config('carebook.ops.live_db_fingerprint', :'live_db_fingerprint', true);
-select set_config('carebook.ops.bypass_token', :'bypass_token', true);
-select set_config('carebook.ops.actor_id', :'actor_id', true);
+set local carebook.ops.source_fingerprint to :'source_fingerprint';
+set local carebook.ops.plan_fingerprint to :'plan_fingerprint';
+set local carebook.ops.report_checksum to :'report_checksum';
+set local carebook.ops.live_db_fingerprint to :'live_db_fingerprint';
+set local carebook.ops.bypass_token to :'bypass_token';
+set local carebook.ops.actor_id to :'actor_id';
 
 do $carebook_ops$
 declare
