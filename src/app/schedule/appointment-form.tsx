@@ -27,6 +27,7 @@ import type { Appointment, AppointmentAssigneeOption, AppointmentType, Doctor, E
 import { defaultAppointmentType, sortAppointmentTypes } from '@/lib/appointments/appointment-type'
 import { normalizeAppointmentAssignment, parseStaffAssignmentValue } from '@/lib/appointments/assignment'
 import { generateRecurringAppointmentDates } from '@/lib/appointments/recurrence'
+import type { DashboardAppointmentTypeOption } from '@/lib/dashboard/appointment-options'
 import { createAppointment } from './actions'
 import type { NewPatientInput } from './actions'
 
@@ -52,6 +53,7 @@ interface AppointmentFormProps {
   currentProfileId?: string | null
   canManageExternalStaff?: boolean
   canViewPaymentSignals: boolean
+  initialAppointmentTypes?: DashboardAppointmentTypeOption[]
   defaultDate?: string
   defaultPatientId?: string
   appointment?: AppointmentFormAppointment
@@ -70,6 +72,7 @@ export function AppointmentForm({
   currentProfileId = null,
   canManageExternalStaff = false,
   canViewPaymentSignals,
+  initialAppointmentTypes,
   defaultDate,
   defaultPatientId,
   appointment,
@@ -79,7 +82,9 @@ export function AppointmentForm({
   const { toast } = useToast()
   const searchContainerRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(false)
-  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([])
+  const [appointmentTypes, setAppointmentTypes] = useState<DashboardAppointmentTypeOption[]>(
+    () => initialAppointmentTypes ?? [],
+  )
   const [appointmentTypeId, setAppointmentTypeId] = useState<string>(appointment?.appointment_type_id ?? '')
   const [assignedTo, setAssignedTo] = useState(appointment?.assigned_to ?? '')
   const initialStaffAssignment = appointment?.external_staff_id
@@ -134,6 +139,19 @@ export function AppointmentForm({
 
   // Load the clinic's appointment types once on mount
   useEffect(() => {
+    if (initialAppointmentTypes !== undefined) {
+      if (!appointment) {
+        const def = defaultAppointmentType(initialAppointmentTypes as AppointmentType[])
+        if (def) {
+          setAppointmentTypeId(def.id)
+          if (canViewPaymentSignals) {
+            setFee((current) => current || String(def.session_rate))
+          }
+        }
+      }
+      return
+    }
+
     const appointmentTypesQuery = canViewPaymentSignals
       ? supabase.from('appointment_types').select('*')
       : supabase
@@ -190,7 +208,7 @@ export function AppointmentForm({
 
     // Auto-fill the rate for new appointments (admins can still override).
     if (!appointment && type && canViewPaymentSignals) {
-      setFee(String(type.session_rate))
+      setFee(String('session_rate' in type ? type.session_rate : ''))
     }
   }
 
@@ -615,7 +633,7 @@ export function AppointmentForm({
               <SelectValue placeholder="Select type" />
             </SelectTrigger>
             <SelectContent>
-              {sortAppointmentTypes(appointmentTypes).map((type) => (
+              {sortAppointmentTypes(appointmentTypes as AppointmentType[]).map((type) => (
                 <SelectItem key={type.id} value={type.id}>
                   {type.name}
                 </SelectItem>

@@ -112,10 +112,6 @@ export default async function DashboardPage() {
     { data: monthRefunds },
     { data: refundReversals },
     { count: totalPatients },
-    { data: patients },
-    { data: doctors },
-    { data: assigneeOptions, error: assigneeOptionsError },
-    { data: externalStaffOptions, error: externalStaffOptionsError },
   ] = await Promise.all([
     apptQuery,
     billingBalancesP,
@@ -123,18 +119,9 @@ export default async function DashboardPage() {
     monthRefundsP,
     refundReversalsP,
     supabase.from('patients').select('*', { count: 'exact', head: true }),
-    supabase.from('patients').select('id, name').order('name'),
-    supabase.from('doctors').select('*').order('name'),
-    supabase.from('profiles').select('id, full_name, email, role').eq('status', 'active').order('full_name'),
-    supabase
-      .from('external_staff')
-      .select('id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at')
-      .order('name'),
   ])
 
   if (apptError) logger.error('Dashboard/appts', apptError)
-  if (assigneeOptionsError) logger.error('Dashboard/assigneeOptions', assigneeOptionsError)
-  if (externalStaffOptionsError) logger.error('Dashboard/externalStaffOptions', externalStaffOptionsError)
 
   type ApptRow = Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status' | 'payment_status' | 'fee'> & {
     patient: { id: string; name: string; phone: string } | null
@@ -182,31 +169,13 @@ export default async function DashboardPage() {
           <DashboardDate />
         </div>
         <div className="hidden md:flex" style={{ gap: 8, alignItems: 'center' }}>
-          <DashboardNewAppointmentButton
-            defaultDate={calendar.date}
-            patients={patients ?? []}
-            doctors={doctors ?? []}
-            assigneeOptions={assigneeOptions ?? []}
-            externalStaffOptions={externalStaffOptions ?? []}
-            currentProfileId={currentProfile?.id ?? null}
-            canManageExternalStaff={currentProfile?.role === 'admin'}
-            canViewPaymentSignals={access.canViewPaymentSignals}
-          />
+          <DashboardNewAppointmentButton defaultDate={calendar.date} />
         </div>
       </div>
 
       {/* Mobile quick-actions */}
       <div className={`md:hidden grid gap-2 ${access.canViewBilling ? 'grid-cols-2' : 'grid-cols-1'}`}>
-        <DashboardNewAppointmentMobile
-          defaultDate={calendar.date}
-          patients={patients ?? []}
-          doctors={doctors ?? []}
-          assigneeOptions={assigneeOptions ?? []}
-          externalStaffOptions={externalStaffOptions ?? []}
-          currentProfileId={currentProfile?.id ?? null}
-          canManageExternalStaff={currentProfile?.role === 'admin'}
-          canViewPaymentSignals={access.canViewPaymentSignals}
-        />
+        <DashboardNewAppointmentMobile defaultDate={calendar.date} />
         {access.canViewBilling && (
           <Link
             href="/billing?new=1"
