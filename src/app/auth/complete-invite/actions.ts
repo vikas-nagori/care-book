@@ -195,7 +195,10 @@ export async function completeInvitedSignup(
       success: true,
     }
   } catch (error) {
-    logger.error('auth/completeInvite/unexpected', error, input)
+    // `input` is `{ password, passwordConfirmation }` — the credential itself. It must never
+    // reach the log drain, so this path logs the error alone. The signed-in user is already
+    // identified on every earlier logger.error in this action.
+    logger.error('auth/completeInvite/unexpected', error)
     return {
       success: false,
       errorCode: 'INVITE_COMPLETION_FAILED',

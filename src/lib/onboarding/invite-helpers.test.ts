@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  INVITE_PASSWORD_POLICY_MESSAGE,
   buildInviteRedirectUrl,
   getInviteCollisionResult,
   getInviteCompletionFieldErrorTarget,
@@ -81,8 +82,8 @@ test('validateInviteInput requires a mobile number after a valid name', () => {
 
 test('validateInviteCompletionInput rejects mismatched passwords', () => {
   const result = validateInviteCompletionInput({
-    password: 'password-123',
-    passwordConfirmation: 'password-456',
+    password: 'Correct-Horse-1',
+    passwordConfirmation: 'Correct-Horse-2',
   })
 
   assert.deepEqual(result, {
@@ -90,6 +91,52 @@ test('validateInviteCompletionInput rejects mismatched passwords', () => {
     errorCode: 'INVITE_PASSWORD_MISMATCH',
     message: 'Passwords do not match.',
   })
+})
+
+// Invite completion is how every staff and admin account in the system gets its password,
+// and the only other gate is the Supabase project's `minimum_password_length`. Enforce the
+// policy in app code so it holds regardless of project config drift.
+test('validateInviteCompletionInput rejects passwords under the minimum length', () => {
+  const result = validateInviteCompletionInput({
+    password: 'Short-1a',
+    passwordConfirmation: 'Short-1a',
+  })
+
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: 'INVITE_PASSWORD_TOO_WEAK',
+    message: INVITE_PASSWORD_POLICY_MESSAGE,
+  })
+})
+
+test('validateInviteCompletionInput rejects passwords missing a character class', () => {
+  for (const password of ['alllowercaseletters', 'ALLUPPERCASELETTERS', 'NoDigitsInHereAtAll', '123456789012345678']) {
+    assert.deepEqual(
+      validateInviteCompletionInput({ password, passwordConfirmation: password }),
+      {
+        success: false,
+        errorCode: 'INVITE_PASSWORD_TOO_WEAK',
+        message: INVITE_PASSWORD_POLICY_MESSAGE,
+      },
+      `expected ${password} to be rejected`
+    )
+  }
+})
+
+test('validateInviteCompletionInput reports the weak password before the mismatch', () => {
+  // The strength error belongs on the password field, so it has to win over the
+  // confirmation mismatch when both are true.
+  const result = validateInviteCompletionInput({
+    password: 'weak',
+    passwordConfirmation: 'different',
+  })
+
+  assert.equal(result.success, false)
+  assert.equal(result.success === false && result.errorCode, 'INVITE_PASSWORD_TOO_WEAK')
+})
+
+test('getInviteCompletionFieldErrorTarget maps the weak password error to its field', () => {
+  assert.equal(getInviteCompletionFieldErrorTarget('INVITE_PASSWORD_TOO_WEAK'), 'password')
 })
 
 test('validateInviteCompletionInput requires a password', () => {
@@ -105,16 +152,16 @@ test('validateInviteCompletionInput requires a password', () => {
   })
 })
 
-test('validateInviteCompletionInput accepts a matching password', () => {
+test('validateInviteCompletionInput accepts a matching password that meets the policy', () => {
   const result = validateInviteCompletionInput({
-    password: 'password-123',
-    passwordConfirmation: 'password-123',
+    password: 'Correct-Horse-1',
+    passwordConfirmation: 'Correct-Horse-1',
   })
 
   assert.deepEqual(result, {
     success: true,
     values: {
-      password: 'password-123',
+      password: 'Correct-Horse-1',
     },
   })
 })

@@ -98,9 +98,8 @@ export function BillingEntryForm({
       ? await recordPayment({
         patientId: selectedPatient,
         // Standalone receipts are always regular-scoped; package money is collected
-        // through the "Package + payment" entry type.
-        fundingScope: 'ordinary',
-        packageId: null,
+        // through the "Package + payment" entry type. The action pins the funding scope
+        // server-side, so there is nothing to pass here.
         amount: paymentAmount,
         paymentMethod: input.paymentMethod ?? '',
         date: input.paymentDate ?? '',

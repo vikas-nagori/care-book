@@ -87,6 +87,14 @@ The day-view calendar in `src/app/schedule/schedule-view.tsx` uses absolute posi
 ### Logging
 `src/lib/logger.ts` — structured JSON logger (`logger.info`, `logger.warn`, `logger.error`) that emits to stderr for Vercel log drain. Use it instead of `console.log` for all server-side output.
 
+`redactLogMeta` scrubs sensitive keys before anything reaches the drain. Keys are normalized to snake_case first, so `mobileNumber`, `x-api-key` and `mobile_number` all match the same pattern — add new sensitive names to `SENSITIVE_KEY_PATTERN` in snake_case only. Redaction is a backstop, not a licence: never pass a raw credential object as log metadata (see the catch block in `src/app/auth/complete-invite/actions.ts`).
+
+### Security Headers / CSP
+`src/lib/security/csp.ts` is the single source of the Content-Security-Policy.
+- **Documents** get their CSP from `src/middleware.ts`, which mints a per-request nonce and sets the policy on *both* the response and the forwarded request headers — Next.js reads it back off the request to stamp the nonce onto its own script tags. `script-src` is `'self' 'nonce-…' 'strict-dynamic'` (plus `'unsafe-eval'` in dev only, for React Refresh). Never add `'unsafe-inline'`.
+- **`next.config.mjs`** carries the non-CSP headers on `/:path*`, plus a nonce-less CSP for exactly the paths the middleware matcher excludes (`_next/static`, `sw.js`, `icons`, …). Those two sets must stay **disjoint** — a path matching both gets two CSP headers and the browser enforces the intersection, which blocks the nonced scripts. `src/lib/security/csp.test.ts` asserts this and that the inlined `next.config.mjs` policy still matches the builder.
+- Any new inline `<script>` needs the nonce from the `x-nonce` request header. Third-party scripts must be DOM-injected (as Vercel Analytics/Speed Insights are) so `'strict-dynamic'` can vouch for them.
+
 ### Date Handling
 Use `date-fns` and `date-fns-tz` for all date operations. The app targets IST (Indian Standard Time).
 
