@@ -339,8 +339,10 @@ export function BillingEntryForm({
         </div>
       </div>
 
-      {/* A readOnly amount is barred from HTML constraint validation, so guard the total here. */}
-      <Button type="submit" className="w-full" disabled={loading || !selectedPatient || (mode === 'package_with_payment' && packageTotal <= 0)}>
+      {/* The readOnly amount is barred from constraint validation, but Sessions (min 1) and
+          Per Session (min 0.01) are not — so the browser prompts on the field actually missing
+          and a valid pair always yields a positive total. */}
+      <Button type="submit" className="w-full" disabled={loading || !selectedPatient}>
         {loading ? (
           <><Loader2 className="animate-spin" size={14} /> Saving...</>
         ) : mode === 'payment_only' ? 'Save Payment' : 'Save Package'}

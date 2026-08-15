@@ -58,11 +58,32 @@ describe('BillingEntryForm package contract', () => {
     // Switching to package mode drops the standalone amount in favour of the derived total.
     expect(amount.readOnly).toBe(true)
     expect(amount.value).toBe('')
-    expect(screen.getByRole('button', { name: 'Save Package' })).toHaveProperty('disabled', true)
 
     fireEvent.change(screen.getByLabelText('Sessions *'), { target: { value: '10' } })
     fireEvent.change(screen.getByLabelText('Per Session *'), { target: { value: '540' } })
     expect(amount.value).toBe('5400')
+  })
+
+  it('leaves Save clickable so the browser prompts on the field that drives the total', () => {
+    render(<BillingEntryForm
+      patients={[{ id: 'p1', name: 'Asha' }]}
+      appointmentTypes={[{ id: 'clinic', name: 'Clinic', session_rate: 800 }]}
+      defaultPaymentDate="2026-08-15"
+      clinicToday="2026-08-15"
+    />)
+    fireEvent.click(screen.getByLabelText('Patient *'))
+    fireEvent.click(screen.getByRole('button', { name: 'Asha' }))
+    fireEvent.click(screen.getByRole('button', { name: /Package \+ payment/i }))
+
+    // A disabled button would explain nothing; native validation names the missing field instead.
     expect(screen.getByRole('button', { name: 'Save Package' })).toHaveProperty('disabled', false)
+    const sessions = screen.getByLabelText('Sessions *') as HTMLInputElement
+    const rate = screen.getByLabelText('Per Session *') as HTMLInputElement
+    expect(sessions.required).toBe(true)
+    expect(rate.required).toBe(true)
+    // Their bounds are what guarantee a positive total once validation passes.
+    expect(sessions.min).toBe('1')
+    expect(rate.min).toBe('0.01')
+    expect(sessions.checkValidity()).toBe(false)
   })
 })
