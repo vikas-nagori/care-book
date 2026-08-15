@@ -28,6 +28,7 @@ import { useToast } from '@/hooks/use-toast'
 import { formatTime12 } from '@/lib/format-time'
 import { formatDateOnly } from '@/lib/timezone'
 import { getPaginationItems } from '@/lib/patients/appointment-pagination'
+import { getFundingScopeLabel } from '@/lib/billing/unified-billing'
 import { TreatmentPlanForm } from './treatment-plan-form'
 import { deletePatient } from '../actions'
 import type { Patient, Appointment, TreatmentPlan, Package, Payment, ReferralSource, PackageBillingBalanceV2, PatientBillingBalanceV2 } from '@/lib/supabase/types'
@@ -129,7 +130,6 @@ export function PatientDetail({
 
   const totalBilled = Number(patientBalance?.quote_amount ?? 0)
   const totalPaid = Number(patientBalance?.net_received ?? 0)
-  const totalApplied = Number(patientBalance?.applied_amount ?? 0)
   const outstanding = Number(patientBalance?.due_amount ?? 0)
   const refundableCredit = Number(patientBalance?.refundable_credit ?? 0)
   const visiblePayments = showAllPayments ? payments : payments.slice(0, PAYMENT_LIST_INITIAL)
@@ -385,7 +385,7 @@ export function PatientDetail({
 
         {canViewBilling && (
           <TabsContent value="billing">
-            <div className="grid grid-cols-2 gap-2 mb-4 md:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 mb-4 md:grid-cols-4">
               <Card>
                 <CardContent className="p-3 text-center">
                   <p className="text-xs text-muted-foreground">Billed</p>
@@ -396,12 +396,6 @@ export function PatientDetail({
                 <CardContent className="p-3 text-center">
                   <p className="text-xs text-muted-foreground">Net received</p>
                   <p className="text-lg font-bold text-green-600">₹{totalPaid.toLocaleString()}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-3 text-center">
-                  <p className="text-xs text-muted-foreground">Applied</p>
-                  <p className="text-lg font-bold">₹{totalApplied.toLocaleString()}</p>
                 </CardContent>
               </Card>
               <Card>
@@ -433,7 +427,7 @@ export function PatientDetail({
                             <Badge className={statusColors[displayStatus] || ''}>{displayStatus}</Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">{availed} availed · {Number(packageBalances[pkg.id]?.scheduled_sessions ?? 0)} scheduled · {pkg.total_sessions} total</p>
-                          <p className="text-sm text-muted-foreground">Quote ₹{Number(packageBalances[pkg.id]?.quote_amount ?? pkg.total_amount).toLocaleString()} · Net received ₹{Number(packageBalances[pkg.id]?.net_received ?? 0).toLocaleString()} · Applied ₹{Number(packageBalances[pkg.id]?.applied_amount ?? 0).toLocaleString()} · Due ₹{Number(packageBalances[pkg.id]?.due_amount ?? 0).toLocaleString()} · Refundable credit ₹{Number(packageBalances[pkg.id]?.refundable_credit ?? 0).toLocaleString()}</p>
+                          <p className="text-sm text-muted-foreground">Quote ₹{Number(packageBalances[pkg.id]?.quote_amount ?? pkg.total_amount).toLocaleString()} · Net received ₹{Number(packageBalances[pkg.id]?.net_received ?? 0).toLocaleString()} · Due ₹{Number(packageBalances[pkg.id]?.due_amount ?? 0).toLocaleString()} · Refundable credit ₹{Number(packageBalances[pkg.id]?.refundable_credit ?? 0).toLocaleString()}</p>
                           {displayStatus === 'completed' && packageBalances[pkg.id]?.completed_at && <p className="text-xs text-green-700">Completed {format(parseISO(packageBalances[pkg.id].completed_at!), 'dd MMM yyyy')}</p>}
                         </CardContent>
                       </Card>
@@ -453,7 +447,7 @@ export function PatientDetail({
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="font-medium">₹{Number(payment.amount).toLocaleString()}</p>
-                            <p className="text-sm text-muted-foreground">{payment.payment_method} · {payment.funding_scope ?? (payment.package_id ? 'package' : 'ordinary')}{payment.status === 'voided' ? ' · voided' : ''}</p>
+                            <p className="text-sm text-muted-foreground">{payment.payment_method} · {getFundingScopeLabel(payment.funding_scope ?? (payment.package_id ? 'package' : 'ordinary'))}{payment.status === 'voided' ? ' · voided' : ''}</p>
                           </div>
                           <p className="text-sm text-muted-foreground">{formatDateOnly(payment.date, 'dd MMM yyyy')}</p>
                         </div>

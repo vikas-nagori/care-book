@@ -76,7 +76,6 @@ export default async function PackageDetailPage({ params }: { params: Promise<{ 
       totalSessions={pkg.total_sessions}
       quoteAmount={Number(balance?.quote_amount ?? pkg.total_amount)}
       netReceived={Number(balance?.net_received ?? 0)}
-      appliedAmount={Number(balance?.applied_amount ?? 0)}
       dueAmount={Number(balance?.due_amount ?? 0)}
       refundableCredit={Number(balance?.refundable_credit ?? 0)}
       completedAt={balance?.completed_at ?? null}

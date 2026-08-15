@@ -26,7 +26,6 @@ type PackageDetailProps = {
   totalSessions: number
   quoteAmount: number
   netReceived: number
-  appliedAmount: number
   dueAmount: number
   refundableCredit: number
   completedAt: string | null
@@ -54,7 +53,7 @@ function formatTime(time: string | null): string {
 // Presentational package detail: summary + the dates on which sessions were taken under the package.
 export function PackageDetail({
   patientName, name, status, availedSessions, scheduledSessions, totalSessions,
-  quoteAmount, netReceived, appliedAmount, dueAmount, refundableCredit, completedAt, sessions,
+  quoteAmount, netReceived, dueAmount, refundableCredit, completedAt, sessions,
 }: PackageDetailProps) {
   const availedPct = totalSessions > 0 ? Math.min(100, (availedSessions / totalSessions) * 100) : 0
   const scheduledPct = totalSessions > 0 ? Math.min(100 - availedPct, (scheduledSessions / totalSessions) * 100) : 0
@@ -96,9 +95,9 @@ export function PackageDetail({
           <span style={{ width: `${availedPct}%` }} />
           <span style={{ width: `${scheduledPct}%`, opacity: 0.35 }} />
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
-            ['Quote', quoteAmount], ['Net received', netReceived], ['Applied', appliedAmount],
+            ['Quote', quoteAmount], ['Net received', netReceived],
             ['Due', dueAmount], ['Refundable credit', refundableCredit],
           ].map(([label, amount]) => (
             <div key={String(label)}>

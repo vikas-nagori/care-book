@@ -23,7 +23,6 @@ function renderDetail(overrides: Partial<React.ComponentProps<typeof PackageDeta
       totalSessions={10}
       quoteAmount={8000}
       netReceived={7800}
-      appliedAmount={2400}
       dueAmount={0}
       refundableCredit={5400}
       completedAt={null}
@@ -46,7 +45,7 @@ describe('PackageDetail', () => {
     expect(screen.getByText('2 availed · 1 scheduled · 10 total')).toBeTruthy()
     expect(screen.getByText('Quote')).toBeTruthy()
     expect(screen.getByText('Net received')).toBeTruthy()
-    expect(screen.getByText('Applied')).toBeTruthy()
+    expect(screen.queryByText('Applied')).toBeNull()
     expect(screen.getByText('Due')).toBeTruthy()
     expect(screen.getByText('Refundable credit')).toBeTruthy()
     expect(screen.getAllByText('Released')).toHaveLength(2)
@@ -80,7 +79,6 @@ describe('PackageDetail', () => {
         totalSessions={10}
         quoteAmount={8000}
         netReceived={8000}
-        appliedAmount={7200}
         dueAmount={0}
         refundableCredit={800}
         completedAt={null}

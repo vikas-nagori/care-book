@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getCurrentProfile } from '@/lib/auth'
+import { calculatePackageTotal } from '@/lib/billing/payment-helpers'
 import { logger } from '@/lib/logger'
 import { createClient } from '@/lib/supabase/server'
 import type { BillingMutationResult, CreateBillingEntryInput, CreateBillingEntryResult, RecordPaymentInput, RecordPaymentResult, RefundInput } from '@/lib/supabase/types'
@@ -56,6 +57,14 @@ export async function createBillingEntry(input: CreateBillingEntryInput): Promis
   }
   const paymentAmount = Number(input.paymentAmount ?? 0)
   if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) return { success: false, errorCode: 'PAYMENT_INVALID_AMOUNT', message: 'Payment amount must be greater than zero.' }
+  // Packages are prepaid in full. A partial receipt would strand a package due that no screen
+  // can collect, so reject it here as well as in the RPC.
+  if (input.mode === 'package_with_payment') {
+    const packageTotal = calculatePackageTotal(Number(input.packageTotalSessions), Number(input.packagePerSessionAmount))
+    if (Math.abs(paymentAmount - packageTotal) > 0.005) {
+      return { success: false, errorCode: 'PACKAGE_PARTIAL_PAYMENT', message: 'A package is collected in full — the amount received must equal the package total.' }
+    }
+  }
   if (!input.paymentMethod) return { success: false, errorCode: 'PAYMENT_METHOD_REQUIRED', message: 'Choose a payment method.' }
   if (!input.paymentDate) return { success: false, errorCode: 'PAYMENT_DATE_REQUIRED', message: 'Choose a payment date.' }
   const result = await callRpc('record_billing_entry_v2', { p_patient_id: input.patientId, p_entry_kind: input.mode, p_package_name: input.packageName ?? null, p_package_total_sessions: input.packageTotalSessions ?? null, p_package_per_session_amount: input.packagePerSessionAmount ?? null, p_appointment_type_id: input.appointmentTypeId ?? null, p_package_starts_on: input.packageStartsOn ?? null, p_amount: paymentAmount, p_payment_method: input.paymentMethod, p_payment_date: input.paymentDate, p_notes: input.paymentNotes ?? null }, { patientId: input.patientId, mode: input.mode })
