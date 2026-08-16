@@ -119,7 +119,8 @@ test('invites a unique user, resends the pending invite, and revokes it', async 
 
   // The invited user's profile must already belong to the inviting admin's clinic with the
   // granted role — the on_auth_user_created trigger only writes a clinic-less placeholder.
-  factory.trackProfile(invite!.auth_user_id!, email)
+  // No trackProfile here: watchUiInvite already reclaims this identity during teardown, and it
+  // marks the auth user as disposable before deleting, which a tracked profile row would not.
   const invitedProfile = await factory.findProfileById(invite!.auth_user_id!)
   expect(invitedProfile).toMatchObject({ role: 'staff', clinic_id: CLINIC_A.id })
 
