@@ -362,10 +362,12 @@ export type UpdateGlobalSettingsResult =
     }
   | ActionErrorResult
 
+// Deliberately carries no funding scope or package id. Package money is only ever collected
+// through `createBillingEntry`, which enforces the package-must-be-paid-in-full invariant;
+// letting a caller pick 'package' here re-opened the stranded-package-due state that guard
+// exists to prevent. `recordPayment` pins the scope to 'ordinary' server-side.
 export type RecordPaymentInput = {
   patientId: string
-  fundingScope: 'ordinary' | 'package'
-  packageId?: string | null
   amount: number
   paymentMethod: string
   date: string

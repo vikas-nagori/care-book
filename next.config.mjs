@@ -13,6 +13,43 @@ const supabaseConnectSrc = (() => {
   }
 })()
 
+// Documents get their Content-Security-Policy from src/middleware.ts instead, because the
+// policy carries a per-request nonce and next.config headers are static. The paths below are
+// the ones the middleware matcher deliberately excludes, so without this they would ship no
+// CSP at all. They execute no page scripts of their own, hence the nonce-less
+// `script-src 'self'`.
+//
+// The two sets must stay disjoint: a path matching both would receive two CSP headers, and
+// browsers enforce the intersection — `'self'` here would then block the nonced scripts there.
+//
+// This mirrors buildContentSecurityPolicy() in src/lib/security/csp.ts, which next.config.mjs
+// cannot import (Node's ESM loader will not resolve a .ts module). src/lib/security/csp.test.ts
+// asserts the two stay identical.
+const middlewareExcludedPaths = [
+  '/_next/static/:path*',
+  '/_next/image',
+  '/favicon.ico',
+  '/manifest.json',
+  '/sw.js',
+  '/icons/:path*',
+  '/api/cron/:path*',
+]
+
+const staticAssetCsp = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "form-action 'self'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self'",
+  "worker-src 'self' blob:",
+  `connect-src 'self' https://*.supabase.co wss://*.supabase.co${supabaseConnectSrc}`,
+  "manifest-src 'self'",
+].join('; ')
+
 const securityHeaders = [
   {
     key: 'Strict-Transport-Security',
@@ -34,23 +71,6 @@ const securityHeaders = [
     key: 'Permissions-Policy',
     value: 'camera=(), microphone=(), geolocation=()',
   },
-  {
-    key: 'Content-Security-Policy',
-    value: [
-      "default-src 'self'",
-      "base-uri 'self'",
-      "frame-ancestors 'none'",
-      "object-src 'none'",
-      "form-action 'self'",
-      "img-src 'self' data: blob:",
-      "font-src 'self' data:",
-      "style-src 'self' 'unsafe-inline'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      "worker-src 'self' blob:",
-      `connect-src 'self' https://*.supabase.co wss://*.supabase.co${supabaseConnectSrc}`,
-      "manifest-src 'self'",
-    ].join('; '),
-  },
 ]
 
 /** @type {import('next').NextConfig} */
@@ -61,6 +81,10 @@ const nextConfig = {
         source: '/:path*',
         headers: securityHeaders,
       },
+      ...middlewareExcludedPaths.map((source) => ({
+        source,
+        headers: [{ key: 'Content-Security-Policy', value: staticAssetCsp }],
+      })),
     ]
   },
 }

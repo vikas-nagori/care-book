@@ -800,7 +800,11 @@ test('concurrent patient billing operations avoid deadlocks and converge after r
      select private.lock_patient_billing_v2('${patientId}');
      select pg_sleep(0.25);
      set local request.jwt.claim.sub = '${adminId}';
-     select public.record_payment_v2('${patientId}', 'package', '${packageEntry.packageId}', 50, 'cash', current_date, 'concurrency fixture');
+     -- Ordinary scope: this fixture exists to hold private.lock_patient_billing_v2, which is
+     -- taken before any funding-scope branching. A 50 package receipt against a 100 package
+     -- would now be rejected by the full-total guard (migration 038), for reasons unrelated to
+     -- what this test is about.
+     select public.record_payment_v2('${patientId}', 'ordinary', null, 50, 'cash', current_date, 'concurrency fixture');
      commit;`,
   )
   await waitForPatientBillingLock(patientId)

@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
+  INVITE_PASSWORD_MIN_LENGTH,
+  INVITE_PASSWORD_POLICY_MESSAGE,
   getInviteCompletionFieldErrorTarget,
   type InviteCompletionField,
   validateInviteCompletionInput,
@@ -113,11 +115,17 @@ export function CompleteInviteForm({ email }: Props) {
                   clearFieldError('password')
                 }}
                 autoComplete="new-password"
+                minLength={INVITE_PASSWORD_MIN_LENGTH}
                 aria-invalid={Boolean(fieldErrors.password)}
+                aria-describedby={fieldErrors.password ? undefined : 'password_policy'}
                 required
               />
-              {fieldErrors.password && (
+              {fieldErrors.password ? (
                 <p className="text-sm text-destructive">{fieldErrors.password}</p>
+              ) : (
+                <p id="password_policy" className="text-xs text-muted-foreground">
+                  {INVITE_PASSWORD_POLICY_MESSAGE}
+                </p>
               )}
             </div>
             <div className="space-y-2">

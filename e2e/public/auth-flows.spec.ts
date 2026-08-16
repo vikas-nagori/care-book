@@ -94,6 +94,30 @@ test('completes a real pending invite and signs in with the new password', async
   await guards.assertClean()
 })
 
+test('rejects a weak password on the real invite completion form', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const clinic = await factory.createClinic()
+  const pending = await factory.createInviteAction({ clinicId: clinic.id })
+
+  await page.goto(pending.actionLink)
+  await expect(page).toHaveURL('http://localhost:3000/auth/complete-invite')
+  await expect(
+    page.getByText('Use at least 8 characters with an uppercase letter, a lowercase letter, and a number.', { exact: true })
+  ).toBeVisible()
+
+  // Long enough, but no uppercase and no digit — the Supabase project minimum would accept it.
+  await page.getByLabel('Password', { exact: true }).fill('onlylowercaseletters')
+  await page.getByLabel('Confirm password', { exact: true }).fill('onlylowercaseletters')
+  await page.getByRole('button', { name: 'Finish Sign-Up', exact: true }).click()
+
+  await expect(page).toHaveURL('http://localhost:3000/auth/complete-invite')
+  await expect(
+    page.getByText('Use at least 8 characters with an uppercase letter, a lowercase letter, and a number.', { exact: true })
+  ).toBeVisible()
+  expect(await factory.findInviteByEmail(pending.email)).toMatchObject({ status: 'pending' })
+  await guards.assertClean()
+})
+
 test('updates a password through a real local recovery action link', async ({ page, context, factory }) => {
   const guards = attachErrorGuards(page)
   const clinic = await factory.createClinic()

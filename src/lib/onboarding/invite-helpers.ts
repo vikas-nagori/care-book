@@ -41,11 +41,30 @@ export type InviteCompletionInput = {
 
 export type InviteCompletionField = 'password' | 'passwordConfirmation'
 
+// Invite completion is the account-creation path for every staff and admin user, and the only
+// other strength gate is the Supabase project's `minimum_password_length` (6 in the checked-in
+// local config, with `password_requirements` unset). Enforce the policy here so it holds on
+// both the client and the server regardless of what the project is configured with.
+export const INVITE_PASSWORD_MIN_LENGTH = 8
+// Derived from the constant so the number users are shown cannot drift from the one enforced.
+export const INVITE_PASSWORD_POLICY_MESSAGE =
+  `Use at least ${INVITE_PASSWORD_MIN_LENGTH} characters with an uppercase letter, a lowercase letter, and a number.`
+
+export function meetsInvitePasswordPolicy(password: string): boolean {
+  return (
+    password.length >= INVITE_PASSWORD_MIN_LENGTH &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /[0-9]/.test(password)
+  )
+}
+
 export function getInviteCompletionFieldErrorTarget(
   errorCode: string
 ): InviteCompletionField | null {
   switch (errorCode) {
     case 'INVITE_MISSING_PASSWORD':
+    case 'INVITE_PASSWORD_TOO_WEAK':
       return 'password'
     case 'INVITE_PASSWORD_MISMATCH':
       return 'passwordConfirmation'
@@ -138,6 +157,14 @@ export function validateInviteCompletionInput(
       success: false,
       errorCode: 'INVITE_MISSING_PASSWORD',
       message: 'Enter a password.',
+    }
+  }
+
+  if (!meetsInvitePasswordPolicy(input.password)) {
+    return {
+      success: false,
+      errorCode: 'INVITE_PASSWORD_TOO_WEAK',
+      message: INVITE_PASSWORD_POLICY_MESSAGE,
     }
   }
 

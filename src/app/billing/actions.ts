@@ -37,8 +37,11 @@ export async function recordPayment(input: RecordPaymentInput): Promise<RecordPa
   if (!(await requireBillingAdmin())) return { success: false, errorCode: 'PAYMENT_UNAUTHORIZED', message: 'You are not allowed to record payments.' }
   if (!input.patientId) return { success: false, errorCode: 'PAYMENT_MISSING_PATIENT', message: 'Choose a patient before recording a payment.' }
   if (!Number.isFinite(input.amount) || input.amount <= 0) return { success: false, errorCode: 'PAYMENT_INVALID_AMOUNT', message: 'Payment amount must be greater than zero.' }
-  if (input.fundingScope === 'package' && !input.packageId) return { success: false, errorCode: 'PACKAGE_REQUIRED', message: 'Choose a package for package funding.' }
-  const result = await callRpc('record_payment_v2', { p_patient_id: input.patientId, p_funding_scope: input.fundingScope, p_package_id: input.fundingScope === 'package' ? input.packageId ?? null : null, p_amount: input.amount, p_payment_method: input.paymentMethod, p_payment_date: input.date, p_notes: input.notes }, { patientId: input.patientId, packageId: input.packageId, fundingScope: input.fundingScope })
+  // Server Actions are a public HTTP endpoint: a caller-supplied funding scope let an admin
+  // POST `package` directly and book a partial receipt against a package, stranding a due no
+  // screen can collect. Standalone receipts are ordinary-scoped, full stop — the RPC mirrors
+  // this by rejecting a package-scoped payment that is not the full package total.
+  const result = await callRpc('record_payment_v2', { p_patient_id: input.patientId, p_funding_scope: 'ordinary', p_package_id: null, p_amount: input.amount, p_payment_method: input.paymentMethod, p_payment_date: input.date, p_notes: input.notes }, { patientId: input.patientId, fundingScope: 'ordinary' })
   if (!result?.success || !result.paymentId) return rpcError(result, 'Unable to record this payment right now.')
   revalidateBillingViews(input.patientId)
   return { success: true, paymentId: result.paymentId, linkedAppointmentIds: result.linkedAppointmentIds ?? [], updatedPackageId: result.updatedPackageId ?? null }
