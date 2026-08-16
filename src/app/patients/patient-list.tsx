@@ -1,10 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Loader2, Plus, Search, ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { buildPatientSearchFilter, normalizePatientSearchTerm } from '@/lib/patients/patient-search-filter'
 import type { Patient } from '@/lib/supabase/types'
+
+/** Most matches we render for one term; beyond this the caller should refine the search. */
+const SEARCH_LIMIT = 50
+const SEARCH_DEBOUNCE_MS = 250
 
 function getInitials(name: string) {
   return name.split(' ').map((s) => s[0]).slice(0, 2).join('').toUpperCase()
@@ -20,13 +25,60 @@ export function PatientList({ initialPatients, totalCount, pageSize }: PatientLi
   const [search, setSearch] = useState('')
   const [patients, setPatients] = useState<Patient[]>(initialPatients)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [matches, setMatches] = useState<Patient[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [searchFailed, setSearchFailed] = useState(false)
 
-  const filtered = patients.filter(
-    (p) =>
-      !search ||
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.phone.includes(search)
-  )
+  const term = normalizePatientSearchTerm(search)
+  const isSearching = term.length > 0
+
+  // Search hits the database rather than the loaded page. The browser holds only the first
+  // `pageSize` patients, so filtering that array could never find anyone further down the
+  // alphabet — and the Load more button is hidden while searching, leaving them unreachable.
+  useEffect(() => {
+    const filter = buildPatientSearchFilter(search)
+    if (!filter) {
+      setMatches(null)
+      setSearching(false)
+      setSearchFailed(false)
+      return
+    }
+
+    setSearching(true)
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('patients')
+        .select('*')
+        .or(filter)
+        .order('name')
+        .limit(SEARCH_LIMIT)
+        .abortSignal(controller.signal)
+
+      // A newer keystroke already aborted this request; its results are stale.
+      if (controller.signal.aborted) return
+      setSearchFailed(Boolean(error))
+      setMatches(error ? [] : data ?? [])
+      setSearching(false)
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [search])
+
+  const filtered = isSearching ? matches ?? [] : patients
+  const awaitingFirstResults = isSearching && matches === null
+
+  const emptyMessage = awaitingFirstResults
+    ? 'Searching…'
+    : searchFailed
+      ? 'Search could not be completed. Check your connection and try again.'
+      : isSearching
+        ? `No patients match “${term}”.`
+        : 'No patients yet. Add your first patient!'
 
   async function loadMore() {
     setLoadingMore(true)
@@ -50,8 +102,12 @@ export function PatientList({ initialPatients, totalCount, pageSize }: PatientLi
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: '-0.015em', color: 'var(--ph-ink)' }}>
             Patients
           </h1>
-          <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 2 }}>
-            {totalCount} total · showing {patients.length}
+          <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 2 }} data-testid="patient-list-count">
+            {isSearching
+              ? awaitingFirstResults
+                ? 'Searching all patients…'
+                : `${filtered.length}${filtered.length === SEARCH_LIMIT ? '+' : ''} of ${totalCount} match “${term}”`
+              : `${totalCount} total · showing ${patients.length}`}
           </div>
         </div>
         <Link
@@ -76,6 +132,7 @@ export function PatientList({ initialPatients, totalCount, pageSize }: PatientLi
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          {searching && <Loader2 size={14} className="animate-spin" style={{ color: 'var(--ph-ink-4)', flexShrink: 0 }} aria-label="Searching" />}
         </div>
       </div>
 
@@ -101,9 +158,7 @@ export function PatientList({ initialPatients, totalCount, pageSize }: PatientLi
 
         {filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ph-ink-4)', fontSize: 13 }}>
-            {patients.length === 0
-              ? 'No patients yet. Add your first patient!'
-              : 'No patients match your search.'}
+            {emptyMessage}
           </div>
         ) : (
           filtered.map((patient, i) => (
@@ -151,7 +206,7 @@ export function PatientList({ initialPatients, totalCount, pageSize }: PatientLi
       >
         {filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ph-ink-4)', fontSize: 13 }}>
-            {patients.length === 0 ? 'No patients yet.' : 'No match.'}
+            {emptyMessage}
           </div>
         ) : (
           filtered.map((patient) => (
@@ -176,8 +231,15 @@ export function PatientList({ initialPatients, totalCount, pageSize }: PatientLi
         )}
       </div>
 
+      {/* Search results are capped; refining the term is the way past the cap, not paging. */}
+      {isSearching && filtered.length === SEARCH_LIMIT && (
+        <p style={{ textAlign: 'center', marginTop: 12, fontSize: 11.5, color: 'var(--ph-ink-4)' }}>
+          Showing the first {SEARCH_LIMIT} matches — type more to narrow the search.
+        </p>
+      )}
+
       {/* Load more */}
-      {hasMore && !search && (
+      {hasMore && !isSearching && (
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
           <button
             onClick={loadMore}

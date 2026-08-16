@@ -71,10 +71,10 @@ export class BillingEntryForm {
   async voidPayment(patientName: string, amount: number): Promise<void> {
     await this.page.getByRole('button', { name: 'Payments', exact: true }).click()
     await this.page.getByRole('button', {
-      name: `Void payment for ${patientName} · ₹${amount.toLocaleString('en-IN')}`,
+      name: `Cancel payment for ${patientName} · ₹${amount.toLocaleString('en-IN')}`,
       exact: true,
     }).click()
-    const dialog = this.page.getByRole('alertdialog', { name: 'Void payment' })
+    const dialog = this.page.getByRole('alertdialog', { name: 'Cancel payment' })
     await dialog.getByLabel('Reason *', { exact: true }).fill('E2E correction')
     await dialog.getByRole('button', { name: 'Save audited change', exact: true }).click()
     await expect(this.page.getByText('Audited change saved', { exact: true })).toBeVisible()

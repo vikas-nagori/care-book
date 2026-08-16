@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
+import { PaymentBadge } from '@/components/ui/status-badges'
 import { formatTime12 } from '@/lib/format-time'
 import { AppointmentForm } from '../appointment-form'
 import { SessionNoteForm } from './session-note-form'
@@ -162,7 +163,9 @@ export function AppointmentDetail({
             <div className="flex items-center gap-2 text-sm">
               <IndianRupee className="h-4 w-4 text-muted-foreground shrink-0" />
               <span className="font-medium">₹{Number(appointment.fee).toLocaleString('en-IN')}</span>
-              <span className="text-muted-foreground capitalize">· {appointment.payment_status?.replaceAll('_', ' ')}</span>
+              {/* Same badge the dashboard and schedule use, so 'unpaid' reads as "Due" here too
+                  rather than leaking the raw DB value. */}
+              <PaymentBadge status={appointment.payment_status} />
             </div>
           )}
           {!appointment.type_is_shared && assignedName && (

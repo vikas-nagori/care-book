@@ -44,15 +44,20 @@ test('records a payment, allocates the unpaid session, and shows the timeline en
     method: 'UPI',
     notes,
   })
-  await expect(page.getByText('Regular allocation', { exact: true })).toBeVisible()
-  await expect(page.getByText(/including partial sessions/i)).toBeVisible()
+  // The preview must name the actual session the receipt lands on, not just describe the rule:
+  // ₹1,000 against one ₹800 session settles it in full and leaves ₹200 as credit.
+  const preview = page.getByTestId('allocation-preview')
+  await expect(preview.getByText('What this payment settles', { exact: true })).toBeVisible()
+  await expect(preview.getByText(format(parseISO(appointment.date as string), 'dd MMM yyyy'))).toBeVisible()
+  await expect(preview.getByText(/across 1 session, oldest first/)).toBeVisible()
+  await expect(preview.getByText(/₹200 left as credit/)).toBeVisible()
   await form.submit('payment')
 
   // BillingView owns a local timeline array; a fresh document load consumes the revalidated data.
   await page.reload()
   await page.getByRole('button', { name: 'Payments', exact: true }).click()
   await expect(page.getByRole('button', {
-    name: `Void payment for ${patient.name as string} · ₹1,000`,
+    name: `Cancel payment for ${patient.name as string} · ₹1,000`,
     exact: true,
   })).toBeVisible({ timeout: 10_000 })
 
@@ -154,7 +159,7 @@ test('voids a created payment through the audited correction UI', async ({ page,
   await page.goto('/billing?tab=payments')
   const form = new BillingEntryForm(page)
   const voidButton = page.getByRole('button', {
-    name: `Void payment for ${patient.name as string} · ₹625`,
+    name: `Cancel payment for ${patient.name as string} · ₹625`,
     exact: true,
   })
   await expect(voidButton).toBeVisible()
@@ -230,7 +235,7 @@ test('Balance detail lists scheduled sessions so the per-section subtotals recon
   const guards = attachErrorGuards(page)
   await page.goto(`/billing/payment-due/${SEED.patientPaymentDue}`)
 
-  await expect(page.getByRole('heading', { name: 'Unpaid sessions' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sessions due' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Scheduled sessions' })).toBeVisible()
 
   // Seeded: one completed ₹800 session (yesterday) plus one scheduled ₹800 session, tallying
@@ -303,7 +308,7 @@ test('Balance detail omits the packages section for a patient with no packages',
 
   await page.goto(`/billing/payment-due/${patient.id}`)
 
-  await expect(page.getByRole('heading', { name: 'Unpaid sessions' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sessions due' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Packages' })).toHaveCount(0)
   await expect(page.getByTestId('package-progress-list')).toHaveCount(0)
   await guards.assertClean()

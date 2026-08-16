@@ -45,7 +45,9 @@ test('books a shared appointment through the real appointment form', async ({ pa
     type_is_shared: true,
     status: 'scheduled',
     fee: Number(sharedType.session_rate),
-    payment_status: 'unpaid',
+    // The seeded appointment types carry session_rate 0, so this booking is a zero-value
+    // session — settled on creation since there is nothing to collect (migration 039).
+    payment_status: 'paid',
     assigned_to: null,
   })
   await guards.assertClean()
@@ -86,7 +88,9 @@ test('books a restricted appointment assigned to role-appropriate internal staff
     type_is_shared: false,
     assigned_to: assignee.id,
     fee: Number(privateType.session_rate),
-    payment_status: 'unpaid',
+    // The seeded appointment types carry session_rate 0, so this booking is a zero-value
+    // session — settled on creation since there is nothing to collect (migration 039).
+    payment_status: 'paid',
   })
 
   await page.goto(`/schedule/${rows[0].id}`)
