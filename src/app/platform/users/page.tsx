@@ -12,10 +12,21 @@ export default async function PlatformUsersPage() {
   await requirePlatformAdminUser()
   const adminSupabase = createAdminClient()
 
-  const { data } = await adminSupabase
-    .from('profiles')
-    .select('*, clinic:clinics(name, status)')
-    .order('created_at', { ascending: false })
+  const [{ data }, { data: pendingInvites }] = await Promise.all([
+    adminSupabase
+      .from('profiles')
+      .select('*, clinic:clinics(name, status)')
+      .order('created_at', { ascending: false }),
+    adminSupabase.from('user_invites').select('email, auth_user_id').eq('status', 'pending'),
+  ])
+
+  // An invited user gets a profile row the moment their auth identity is created, well before
+  // they accept. Match on auth_user_id where the invite recorded one, falling back to email for
+  // legacy invite rows that predate that column being populated.
+  const pendingInviteUserIds = new Set(
+    (pendingInvites ?? []).map((invite) => invite.auth_user_id).filter(Boolean)
+  )
+  const pendingInviteEmails = new Set((pendingInvites ?? []).map((invite) => invite.email))
 
   const users: PlatformUserSummary[] = ((data ?? []) as ProfileRow[]).map((row) => {
     const clinic = Array.isArray(row.clinic) ? row.clinic[0] : row.clinic
@@ -23,6 +34,8 @@ export default async function PlatformUsersPage() {
       ...row,
       clinic_name: clinic?.name ?? null,
       clinic_status: clinic?.status ?? null,
+      has_pending_invite:
+        pendingInviteUserIds.has(row.id) || pendingInviteEmails.has(row.email),
     }
   })
 

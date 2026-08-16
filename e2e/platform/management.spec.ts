@@ -27,6 +27,18 @@ test('approves a disposable onboarding request and persists its clinic and owner
   factory.trackAuthUser(invite!.auth_user_id!, email)
   factory.trackProfile(invite!.auth_user_id!, email)
   expect((await factory.getAuthUser(invite!.auth_user_id!)).email).toBe(email)
+
+  // The on_auth_user_created trigger writes an unprivileged placeholder (role 'staff', no
+  // clinic). Approval must leave the owner as an admin of the clinic it just created, without
+  // waiting for the invite to be accepted.
+  const ownerProfile = await factory.findProfileById(invite!.auth_user_id!)
+  expect(ownerProfile).toMatchObject({ role: 'admin', clinic_id: approved!.clinic_id })
+
+  await page.goto('/platform/users')
+  const ownerRow = page.getByTestId(`user-row-${invite!.auth_user_id!}`)
+  await expect(ownerRow).toContainText('admin')
+  await expect(ownerRow).toContainText(String(clinic!.name))
+  await expect(ownerRow).toContainText('invite pending')
   await guards.assertClean()
 })
 

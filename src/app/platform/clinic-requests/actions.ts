@@ -1,7 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { buildInviteRedirectTo, getInviteErrorMessage } from '@/lib/onboarding/invite-server'
+import {
+  buildInviteRedirectTo,
+  getInviteErrorMessage,
+  syncInvitedProfile,
+} from '@/lib/onboarding/invite-server'
 import { normalizeEmail } from '@/lib/onboarding/invite-helpers'
 import { requirePlatformAdminUser } from '@/lib/platform/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -97,6 +101,32 @@ export async function approveClinicOnboardingRequest(
         success: false,
         errorCode: inviteUserError.code ?? 'CLINIC_OWNER_INVITE_FAILED',
         message: getInviteErrorMessage(inviteUserError),
+      }
+    }
+
+    // The auth user now exists, so the on_auth_user_created trigger has already written an
+    // unprivileged placeholder profile (role 'staff', no clinic). Promote it to the owner the
+    // approval actually granted, so the platform console and any pre-acceptance sign-in see
+    // the real role and clinic rather than the placeholder.
+    const ownerAuthUserId = inviteUserData.user?.id
+    if (ownerAuthUserId) {
+      const { error: profileSyncError } = await syncInvitedProfile(adminSupabase, {
+        authUserId: ownerAuthUserId,
+        clinicId: clinic.id,
+        email: normalizedOwnerEmail,
+        role: 'admin',
+      })
+
+      if (profileSyncError) {
+        logger.error('platform/approveClinicOnboardingRequest/syncOwnerProfile', profileSyncError, {
+          requestId: request.id,
+          clinicId: clinic.id,
+        })
+        return {
+          success: false,
+          errorCode: profileSyncError.code ?? 'CLINIC_OWNER_PROFILE_SYNC_FAILED',
+          message: 'The owner was invited, but saving their admin profile failed.',
+        }
       }
     }
 

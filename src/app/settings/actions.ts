@@ -10,6 +10,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import {
   buildInviteRedirectTo,
   getInviteErrorMessage,
+  syncInvitedProfile,
 } from '@/lib/onboarding/invite-server'
 import { getInviteCollisionResult, validateInviteInput } from '@/lib/onboarding/invite-helpers'
 import { validateAppointmentTypeInput } from '@/lib/appointments/appointment-type'
@@ -681,6 +682,30 @@ export async function createUserInvite(
           .insert(invitePayload)
           .select('*')
           .single()
+
+    // Same reason as the clinic-owner path: the auth user already exists, so the
+    // on_auth_user_created trigger has written a placeholder profile with no clinic. Attach it
+    // to this clinic now instead of waiting for the invite to be accepted.
+    if (invitePayload.auth_user_id) {
+      const { error: profileSyncError } = await syncInvitedProfile(adminSupabase, {
+        authUserId: invitePayload.auth_user_id,
+        clinicId,
+        email,
+        role: validation.values.role,
+      })
+
+      if (profileSyncError) {
+        logger.error('settings/createUserInvite/syncProfile', profileSyncError, {
+          email,
+          role: validation.values.role,
+        })
+        return {
+          success: false,
+          errorCode: profileSyncError.code ?? 'INVITE_PROFILE_SYNC_FAILED',
+          message: 'Invite email was sent, but saving the user profile failed.',
+        }
+      }
+    }
 
     const { data: invite, error: inviteSaveError } = await inviteMutation
 

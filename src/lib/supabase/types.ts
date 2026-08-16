@@ -549,4 +549,6 @@ export type PlatformClinicSummary = Clinic & {
 export type PlatformUserSummary = Profile & {
   clinic_name: string | null
   clinic_status: ClinicStatus | null
+  /** True while an invite for this user is still pending — they have never signed in. */
+  has_pending_invite: boolean
 }
