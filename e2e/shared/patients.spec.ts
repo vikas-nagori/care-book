@@ -118,3 +118,47 @@ test('warns deterministically before adding a patient with an existing phone', a
   expect(await factory.findPatientByName(duplicate.name)).toBeNull()
   await guards.assertClean()
 })
+
+// The patients list renders one page of 50. Search used to filter only that loaded array, so a
+// patient sorting past the boundary could not be found at all — and the Load more button is
+// hidden while searching, leaving no way to reach them. Search now queries the database.
+test('finds a patient that sorts past the first page of the list', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const PAGE_SIZE = 50
+
+  // Enough leading-alphabet patients to fill page one on their own.
+  const fillers = Array.from({ length: PAGE_SIZE + 2 }, (_, index) => index)
+  await Promise.all(fillers.map((index) => factory.createPatient({
+    name: `E2E ${factory.token} AAA filler ${String(index).padStart(3, '0')}`,
+    phone: `90${String(index).padStart(7, '0')}`,
+  })))
+
+  const target = await factory.createPatient({
+    name: `E2E ${factory.token} ZZZ beyond page one`,
+    phone: '9990000001',
+  })
+
+  await page.goto('/patients')
+  const targetRow = page.getByRole('link', { name: new RegExp(target.name as string) })
+  await expect(page.getByTestId('patient-list-count')).toContainText(`showing ${PAGE_SIZE}`)
+  await expect(targetRow).toHaveCount(0)
+
+  // By name — the case that was broken.
+  const search = page.getByPlaceholder('Search by name or phone…')
+  await search.fill(target.name as string)
+  await expect(targetRow).toBeVisible()
+  await expect(page.getByTestId('patient-list-count')).toContainText('match')
+
+  // By phone, also served from the database rather than the loaded page.
+  await search.fill('9990000001')
+  await expect(targetRow).toBeVisible()
+
+  await search.fill(`${factory.token}-definitely-no-such-patient`)
+  // Both viewport lists render the empty state; assert the one this viewport shows.
+  await expect(page.getByText(/No patients match/).filter({ visible: true })).toBeVisible()
+
+  // Clearing restores the paginated list rather than leaving the match set on screen.
+  await search.fill('')
+  await expect(page.getByTestId('patient-list-count')).toContainText(`showing ${PAGE_SIZE}`)
+  await guards.assertClean()
+})

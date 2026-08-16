@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getCurrentProfile } from '@/lib/auth'
+import type { OutstandingCharge } from '@/lib/billing/allocation-preview'
 import { calculatePackageTotal } from '@/lib/billing/payment-helpers'
 import { logger } from '@/lib/logger'
 import { createClient } from '@/lib/supabase/server'
@@ -102,6 +103,62 @@ export async function reconcilePatientBilling(patientId: string) {
   if (!result?.success || !result.patientId) return rpcError(result, 'Unable to reconcile billing.')
   revalidateBillingViews(patientId)
   return { success: true as const, patientId }
+}
+
+/**
+ * The regular-funded charges a new receipt could still draw on, in the order the v2 reconciler
+ * walks them. Feeds the allocation preview in the billing entry form.
+ *
+ * Eligibility mirrors the ordinary branch of `private.reconcile_patient_billing_v2`: pending or
+ * posted charges with a positive amount, minus what payments already cover, minus anything a
+ * package has claimed (package sessions are funded by package money, never by a regular receipt).
+ */
+export async function getOutstandingCharges(patientId: string): Promise<{ success: true; charges: OutstandingCharge[] } | { success: false; message: string }> {
+  if (!(await requireBillingAdmin())) return { success: false, message: 'You are not allowed to preview billing.' }
+  if (!patientId) return { success: true, charges: [] }
+
+  const supabase = await createClient()
+  const [{ data: chargeRows, error: chargesError }, { data: applicationRows, error: applicationsError }, { data: packageRows, error: packagesError }] = await Promise.all([
+    supabase
+      .from('appointment_charges')
+      .select('id, amount, appointment_id, appointment:appointments(date, time, type)')
+      .eq('patient_id', patientId)
+      .in('status', ['pending', 'posted'])
+      .gt('amount', 0),
+    supabase.from('payment_applications').select('charge_id, amount').eq('patient_id', patientId).eq('status', 'active'),
+    supabase.from('package_session_allocations').select('appointment_id').eq('patient_id', patientId).neq('lifecycle', 'released'),
+  ])
+
+  if (chargesError || applicationsError || packagesError) {
+    logger.error('billing/getOutstandingCharges', chargesError ?? applicationsError ?? packagesError, { patientId })
+    return { success: false, message: 'Could not work out which sessions this payment would settle.' }
+  }
+
+  const appliedByCharge = new Map<string, number>()
+  for (const row of applicationRows ?? []) {
+    appliedByCharge.set(row.charge_id, (appliedByCharge.get(row.charge_id) ?? 0) + Number(row.amount ?? 0))
+  }
+  const packageClaimed = new Set((packageRows ?? []).map((row) => row.appointment_id))
+
+  const charges = (chargeRows ?? []).flatMap((row) => {
+    const appointment = Array.isArray(row.appointment) ? row.appointment[0] : row.appointment
+    if (!row.appointment_id || !appointment || packageClaimed.has(row.appointment_id)) return []
+
+    const chargeAmount = Number(row.amount ?? 0)
+    const remainingAmount = Math.max(0, chargeAmount - (appliedByCharge.get(row.id) ?? 0))
+    if (remainingAmount <= 0) return []
+
+    return [{
+      appointmentId: row.appointment_id,
+      date: appointment.date,
+      time: appointment.time ?? '00:00:00',
+      type: appointment.type ?? 'Session',
+      chargeAmount,
+      remainingAmount,
+    }]
+  })
+
+  return { success: true, charges }
 }
 
 export async function previewBillingAllocation(patientId: string) {

@@ -2,9 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
-vi.mock('./actions', () => ({ createBillingEntry: vi.fn(), recordPayment: vi.fn() }))
+vi.mock('./actions', () => ({
+  createBillingEntry: vi.fn(),
+  recordPayment: vi.fn(),
+  // The form fetches the patient's outstanding charges to preview what a receipt settles.
+  getOutstandingCharges: vi.fn(async () => ({ success: true, charges: [] })),
+}))
 
 import { BillingEntryForm } from './billing-entry-form'
+import { getOutstandingCharges } from './actions'
 
 afterEach(cleanup)
 
@@ -39,7 +45,49 @@ describe('BillingEntryForm package contract', () => {
     fireEvent.change(screen.getByLabelText('Amount Received *'), { target: { value: '500' } })
     expect(screen.queryByLabelText('Funding Scope *')).toBeNull()
     expect(screen.queryByLabelText('Package *')).toBeNull()
-    expect(screen.getByText('Regular allocation')).toBeTruthy()
+    expect(screen.getByText('What this payment settles')).toBeTruthy()
+  })
+
+  it('previews the sessions a receipt settles, partial coverage included', async () => {
+    vi.mocked(getOutstandingCharges).mockResolvedValueOnce({
+      success: true,
+      charges: [
+        { appointmentId: 'a1', date: '2026-07-22', time: '10:00:00', type: 'Clinic', chargeAmount: 650, remainingAmount: 650 },
+        { appointmentId: 'a2', date: '2026-08-05', time: '10:00:00', type: 'Clinic', chargeAmount: 650, remainingAmount: 650 },
+      ],
+    })
+
+    render(<BillingEntryForm
+      patients={[{ id: 'p1', name: 'Asha' }]}
+      appointmentTypes={[]}
+      defaultPaymentDate="2026-08-15"
+      clinicToday="2026-08-15"
+    />)
+    fireEvent.click(screen.getByLabelText('Patient *'))
+    fireEvent.click(screen.getByRole('button', { name: 'Asha' }))
+    fireEvent.change(screen.getByLabelText('Amount Received *'), { target: { value: '850' } })
+
+    // Oldest session in full, then the remainder against the next one — what the ledger does.
+    expect(await screen.findByText('22 Jul 2026')).toBeTruthy()
+    expect(screen.getByText('05 Aug 2026')).toBeTruthy()
+    expect(screen.getByText(/of/)).toBeTruthy()
+    expect(screen.getByText(/across 2 sessions, oldest first/)).toBeTruthy()
+  })
+
+  it('says so plainly when a receipt has no sessions to settle', async () => {
+    vi.mocked(getOutstandingCharges).mockResolvedValueOnce({ success: true, charges: [] })
+
+    render(<BillingEntryForm
+      patients={[{ id: 'p1', name: 'Asha' }]}
+      appointmentTypes={[]}
+      defaultPaymentDate="2026-08-15"
+      clinicToday="2026-08-15"
+    />)
+    fireEvent.click(screen.getByLabelText('Patient *'))
+    fireEvent.click(screen.getByRole('button', { name: 'Asha' }))
+    fireEvent.change(screen.getByLabelText('Amount Received *'), { target: { value: '500' } })
+
+    expect(await screen.findByText(/stays as\s+refundable credit/)).toBeTruthy()
   })
 
   it('locks the package receipt to the full package total', () => {

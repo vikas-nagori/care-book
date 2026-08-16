@@ -33,7 +33,9 @@ test('shows seeded schedule, appointment, and patient payment signals to admins'
   await sharedAppointment.click()
   await expect(page).toHaveURL(`/schedule/${SEED.appointmentShared}`)
   await expect(page.getByText('₹800', { exact: true })).toBeVisible()
-  await expect(page.getByText('· prepaid', { exact: true })).toBeVisible()
+  // Appointment detail now renders the shared PaymentBadge instead of the raw DB value, so
+  // this reads "Prepaid" here exactly as it does on the dashboard and schedule.
+  await expect(page.getByText('Prepaid', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(page.getByLabel('Session Fee (₹)', { exact: true })).toHaveValue('800')

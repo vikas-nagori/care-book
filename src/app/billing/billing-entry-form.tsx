@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { format, parseISO } from 'date-fns'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,11 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
+import { buildAllocationPreview, type OutstandingCharge } from '@/lib/billing/allocation-preview'
 import { calculatePackageTotal } from '@/lib/billing/payment-helpers'
 import { getBillingModeLabel } from '@/lib/billing/unified-billing'
 import { applyPackageTemplate } from '@/lib/billing/package-template'
 import type { BillingEntryKind, CreateBillingEntryInput, PackageTemplate } from '@/lib/supabase/types'
-import { createBillingEntry, recordPayment } from './actions'
+import { createBillingEntry, getOutstandingCharges, recordPayment } from './actions'
 
 interface Props {
   patients: { id: string; name: string }[]
@@ -54,6 +56,36 @@ export function BillingEntryForm({
   const [packageName, setPackageName] = useState('')
   const [packageSessions, setPackageSessions] = useState('')
   const [packagePerSessionAmount, setPackagePerSessionAmount] = useState('')
+  const [charges, setCharges] = useState<OutstandingCharge[] | null>(null)
+  const [chargesLoading, setChargesLoading] = useState(false)
+  const [chargesError, setChargesError] = useState<string | null>(null)
+
+  // Which sessions a receipt lands on is the question the form is really answering, so fetch
+  // the patient's outstanding charges as soon as they are picked — not on submit.
+  useEffect(() => {
+    if (!selectedPatient) {
+      setCharges(null)
+      setChargesError(null)
+      setChargesLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setChargesLoading(true)
+    setChargesError(null)
+    getOutstandingCharges(selectedPatient).then((result) => {
+      if (cancelled) return
+      if (result.success) {
+        setCharges(result.charges)
+      } else {
+        setCharges(null)
+        setChargesError(result.message)
+      }
+      setChargesLoading(false)
+    })
+
+    return () => { cancelled = true }
+  }, [selectedPatient])
 
   function handleTemplateSelect(templateId: string) {
     const template = packageTemplates.find((t) => t.id === templateId)
@@ -71,6 +103,11 @@ export function BillingEntryForm({
   // Packages are prepaid: the receipt is always the full package total. Allowing a partial
   // amount here would strand a package due that no other screen can collect.
   const paymentAmount = mode === 'package_with_payment' ? packageTotal : numberFromInput(amount)
+
+  const allocation = useMemo(
+    () => buildAllocationPreview({ charges: charges ?? [], amount: paymentAmount }),
+    [charges, paymentAmount],
+  )
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -302,11 +339,50 @@ export function BillingEntryForm({
         </div>
 
         {mode === 'payment_only' && selectedPatient && paymentAmount > 0 && (
-          <div className="rounded-md border bg-muted/40 p-3">
-            <p className="text-sm font-medium">Regular allocation</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              This receipt applies oldest-first to eligible regular charges, including partial sessions.
-              Any remainder stays as refundable credit; package balances are never used.
+          <div className="rounded-md border bg-muted/40 p-3" data-testid="allocation-preview">
+            <p className="text-sm font-medium">What this payment settles</p>
+
+            {chargesLoading && (
+              <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="animate-spin" size={12} /> Working out which sessions this covers…
+              </p>
+            )}
+
+            {chargesError && <p className="mt-2 text-xs text-destructive">{chargesError}</p>}
+
+            {!chargesLoading && !chargesError && allocation.lines.length === 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                No sessions are awaiting regular payment. The full <Money amount={paymentAmount} /> stays as
+                refundable credit and settles future sessions automatically.
+              </p>
+            )}
+
+            {!chargesLoading && !chargesError && allocation.lines.length > 0 && (
+              <>
+                <ul className="mt-2 space-y-1">
+                  {allocation.lines.map((line) => (
+                    <li key={line.appointmentId} className="flex items-baseline gap-2 text-xs">
+                      <span className="text-muted-foreground">{format(parseISO(line.date), 'dd MMM yyyy')}</span>
+                      <span className="text-muted-foreground">· {line.type}</span>
+                      <span className="ml-auto tabular-nums">
+                        <Money amount={line.appliedAmount} />
+                        {line.isPartial && (
+                          <span className="text-muted-foreground"> of <Money amount={line.remainingAmount} /></span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 border-t pt-2 text-xs text-muted-foreground">
+                  Settles <Money amount={allocation.appliedTotal} /> across {allocation.lines.length}{' '}
+                  session{allocation.lines.length === 1 ? '' : 's'}, oldest first
+                  {allocation.creditLeft > 0 && <> · <Money amount={allocation.creditLeft} /> left as credit</>}.
+                </p>
+              </>
+            )}
+
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Package sessions are excluded — they are funded by their own package payment.
             </p>
           </div>
         )}

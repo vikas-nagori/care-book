@@ -234,7 +234,7 @@ test('billing switches balance and payment tables at md and changes package grid
     : page.getByText('UPI', { exact: true })
   await expect(paymentMethod).toBeVisible()
   await expect(page.getByRole('button', {
-    name: 'Void payment for Asha Rao · ₹8,000',
+    name: 'Cancel payment for Asha Rao · ₹8,000',
     exact: true,
   })).toBeVisible()
 
@@ -274,7 +274,7 @@ test('metric and payment-due pages expose responsive titles, content, and exact 
       route: `/billing/payment-due/${SEED.patientPaymentDue}`,
       mobileTitle: 'Balance detail',
       desktopTitle: 'Meera Payment Due',
-      content: ['Meera Payment Due', 'Payments balance detail', 'Unpaid sessions', '₹1,600'],
+      content: ['Meera Payment Due', 'Payments balance detail', 'Sessions due', '₹1,600'],
     },
   ]) {
     await page.goto(detail.route)

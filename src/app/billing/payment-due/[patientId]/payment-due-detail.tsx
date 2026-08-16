@@ -174,8 +174,8 @@ export function PaymentDueDetail({
   // A patient can owe nothing for past sessions yet still carry a due from upcoming ones, so
   // "settled" is only honest when neither list has anything left in it.
   const unpaidEmptyMessage = scheduledSessions.length > 0
-    ? 'No unpaid or partially paid completed sessions — the balance above comes from the scheduled sessions below.'
-    : `No unpaid or partially paid sessions — this balance is ${isCredit ? 'refundable credit.' : 'settled.'}`
+    ? 'No completed sessions are due — the balance above comes from the scheduled sessions below.'
+    : `No sessions are due — this balance is ${isCredit ? 'refundable credit.' : 'settled.'}`
 
   return (
     <div className="px-4 pb-4 md:p-6">
@@ -237,7 +237,7 @@ export function PaymentDueDetail({
 
       {/* Per-session tally — completed sessions already delivered but not yet settled */}
       <div className="ph-section-h">
-        <h2>Unpaid sessions</h2>
+        <h2>Sessions due</h2>
         <span style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>completed, awaiting payment</span>
       </div>
       <SessionCard testId="unpaid-sessions-card" sessions={sessions} emptyMessage={unpaidEmptyMessage} totalLabel="Session fees shown" />

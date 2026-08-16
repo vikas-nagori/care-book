@@ -130,6 +130,14 @@ describe('BillingView packages tab', () => {
       initialTab="payments"
     />)
     expect(screen.getAllByText('Partially refunded').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Voided').length).toBeGreaterThan(0)
+    // 'voided' in the DB reads as 'Cancelled' to the clinic.
+    expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Voided')).toBeNull()
+  })
+
+  it('labels an unrefunded receipt Received rather than Posted', () => {
+    render(<BillingView {...baseProps} packages={[]} payments={[makePayment()]} initialTab="payments" />)
+    expect(screen.getAllByText('Received').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Posted')).toBeNull()
   })
 })

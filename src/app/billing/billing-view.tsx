@@ -120,14 +120,17 @@ function AuditActionButton({ label, onClick, reverse = false }: { label: string;
   )
 }
 
+// Clinic language, not ledger language: the DB values stay 'posted'/'voided' — only what the
+// receipt row reads changes. 'Received' rather than 'Paid' on purpose, because 'Paid' already
+// means "this session is settled" on the dashboard's appointment badges.
 function PaymentLedgerBadge({ status, refundedAmount, grossAmount }: { status: 'posted' | 'voided'; refundedAmount: number; grossAmount: number }) {
   const state = status === 'voided'
-    ? { label: 'Voided', cls: 'bad' }
+    ? { label: 'Cancelled', cls: 'bad' }
     : refundedAmount >= grossAmount
       ? { label: 'Refunded', cls: 'warn' }
       : refundedAmount > 0
         ? { label: 'Partially refunded', cls: 'warn' }
-        : { label: 'Posted', cls: 'ok' }
+        : { label: 'Received', cls: 'ok' }
   return <span className={`ph-badge ${state.cls}`}>{state.label}</span>
 }
 
@@ -608,7 +611,7 @@ export function BillingView({
                       <div style={{ textAlign: 'right' }}><Money n={item.amount} /></div>
                       <div style={{ justifySelf: 'end', display: 'flex' }}>
                         {item.status === 'posted' && item.amount > (activeRefundTotals[item.id] ?? 0) && <AuditActionButton label={`Refund payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`} reverse onClick={() => { const refundable = item.amount - (activeRefundTotals[item.id] ?? 0); setRefundAmount(String(refundable)); setPendingAction({ kind: 'refund_payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`, maxAmount: refundable }) }} />}
-                        {item.status === 'posted' && (activeRefundTotals[item.id] ?? 0) === 0 && <AuditActionButton label={`Void payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`} onClick={() => setPendingAction({ kind: 'void_payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })} />}
+                        {item.status === 'posted' && (activeRefundTotals[item.id] ?? 0) === 0 && <AuditActionButton label={`Cancel payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`} onClick={() => setPendingAction({ kind: 'void_payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })} />}
                       </div>
                     </div>
                     {/* Mobile row */}
@@ -626,7 +629,7 @@ export function BillingView({
                       <div className="flex items-center gap-1">
                         <Money n={item.amount} />
                         {item.status === 'posted' && item.amount > (activeRefundTotals[item.id] ?? 0) && <AuditActionButton label={`Refund payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`} reverse onClick={() => { const refundable = item.amount - (activeRefundTotals[item.id] ?? 0); setRefundAmount(String(refundable)); setPendingAction({ kind: 'refund_payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`, maxAmount: refundable }) }} />}
-                        {item.status === 'posted' && (activeRefundTotals[item.id] ?? 0) === 0 && <AuditActionButton label={`Void payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`} onClick={() => setPendingAction({ kind: 'void_payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })} />}
+                        {item.status === 'posted' && (activeRefundTotals[item.id] ?? 0) === 0 && <AuditActionButton label={`Cancel payment for ${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}`} onClick={() => setPendingAction({ kind: 'void_payment', id: item.id, label: `${item.patientName} · ₹${item.amount.toLocaleString('en-IN')}` })} />}
                       </div>
                     </div>
                   </div>
@@ -743,7 +746,7 @@ export function BillingView({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pendingAction?.kind === 'cancel_package' ? 'Cancel package' : pendingAction?.kind === 'refund_payment' ? 'Record refund' : pendingAction?.kind === 'void_refund' ? 'Reverse refund' : 'Void payment'}
+              {pendingAction?.kind === 'cancel_package' ? 'Cancel package' : pendingAction?.kind === 'refund_payment' ? 'Record refund' : pendingAction?.kind === 'void_refund' ? 'Reverse refund' : 'Cancel payment'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingAction?.label ? <><span className="font-medium">{pendingAction.label}</span><br /></> : null}
