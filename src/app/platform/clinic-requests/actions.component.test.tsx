@@ -104,6 +104,14 @@ describe('approveClinicOnboardingRequest', () => {
     expect(payload).not.toHaveProperty('mobile_number')
   })
 
+  it('carries the owner name and mobile from the request onto the invite', async () => {
+    await approveClinicOnboardingRequest({ requestId: 'request-1' })
+
+    expect(mocks.inviteInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ full_name: 'Owner Name', mobile_number: '9999999999' })
+    )
+  })
+
   it('writes the profile only after the auth identity exists', async () => {
     await approveClinicOnboardingRequest({ requestId: 'request-1' })
 

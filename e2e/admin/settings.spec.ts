@@ -114,6 +114,10 @@ test('invites a unique user, resends the pending invite, and revokes it', async 
     email,
     role: 'staff',
     status: 'pending',
+    // completeInvitedSignup reads the profile's name and mobile from here, so the setup screen
+    // never has to re-ask for them.
+    full_name: name,
+    mobile_number: phone,
   })
   expect(invite!.auth_user_id).not.toBeNull()
 
@@ -134,5 +138,10 @@ test('invites a unique user, resends the pending invite, and revokes it', async 
   await settings.revokeInvite(email)
   await expect(page.getByText('revoked', { exact: true }).filter({ visible: true })).toBeVisible()
   await expect.poll(async () => (await factory.findInviteByEmail(email))?.status).toBe('revoked')
+
+  // The invitee already has a profile row from the auth trigger, so re-inviting them must take
+  // the reuse-revoked-invite path instead of being refused as an already-active user.
+  await settings.inviteUser({ name, phone, email })
+  await expect.poll(async () => (await factory.findInviteByEmail(email))?.status).toBe('pending')
   await guards.assertClean()
 })

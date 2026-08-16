@@ -138,6 +138,10 @@ export async function approveClinicOnboardingRequest(
         email: normalizedOwnerEmail,
         role: 'admin',
         status: 'pending',
+        // The onboarding request already collected these, and completeInvitedSignup reads the
+        // profile's name and mobile from the invite — without them the owner accepts as unnamed.
+        full_name: request.owner_full_name?.trim() || null,
+        mobile_number: request.owner_mobile_number?.trim() || null,
         auth_user_id: inviteUserData.user?.id ?? null,
         invited_by: platformUser.id,
         accepted_at: null,

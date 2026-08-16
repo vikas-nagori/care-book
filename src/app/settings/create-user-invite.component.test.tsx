@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   inviteUserByEmail: vi.fn(),
   profileUpsert: vi.fn(),
   inviteInsert: vi.fn(),
+  inviteInsertPayload: vi.fn(),
   existingInvite: vi.fn(),
   existingProfile: vi.fn(),
 }))
@@ -33,7 +34,17 @@ function adminClient() {
           order: () => ({ limit: () => ({ maybeSingle: mocks.existingInvite }) }),
         }),
       }),
-      insert: () => ({ select: () => ({ single: mocks.inviteInsert }) }),
+      insert: (payload: unknown) => {
+        mocks.inviteInsertPayload(payload)
+        return { select: () => ({ single: mocks.inviteInsert }) }
+      },
+      // Reusing a revoked invite updates the existing row instead of inserting a new one.
+      update: (payload: unknown) => {
+        mocks.inviteInsertPayload(payload)
+        return {
+          eq: () => ({ eq: () => ({ eq: () => ({ select: () => ({ single: mocks.inviteInsert }) }) }) }),
+        }
+      },
     },
     profiles: {
       select: () => ({ eq: () => ({ maybeSingle: mocks.existingProfile }) }),
@@ -94,6 +105,47 @@ describe('createUserInvite', () => {
       expect.objectContaining({ clinic_id: CLINIC_ID, role: 'admin' }),
       { onConflict: 'id' }
     )
+  })
+
+  it('records the captured name and mobile on the invite so acceptance can use them', async () => {
+    await invite('staff')
+
+    expect(mocks.inviteInsertPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ full_name: 'New User', mobile_number: '9999999999' })
+    )
+  })
+
+  it('re-invites an email whose earlier invite was revoked, despite its placeholder profile', async () => {
+    mocks.existingInvite.mockResolvedValue({
+      data: { id: 'old-invite', clinic_id: CLINIC_ID, status: 'revoked', auth_user_id: NEW_AUTH_ID },
+      error: null,
+    })
+    mocks.existingProfile.mockResolvedValue({
+      data: { id: NEW_AUTH_ID, email: 'new.user@example.com', status: 'active' },
+      error: null,
+    })
+
+    const result = await invite('staff')
+
+    expect(result.success).toBe(true)
+  })
+
+  it('still refuses an email that already belongs to an accepted user', async () => {
+    mocks.existingInvite.mockResolvedValue({
+      data: { id: 'old-invite', clinic_id: CLINIC_ID, status: 'accepted', auth_user_id: NEW_AUTH_ID },
+      error: null,
+    })
+    mocks.existingProfile.mockResolvedValue({
+      data: { id: NEW_AUTH_ID, email: 'new.user@example.com', status: 'active' },
+      error: null,
+    })
+
+    const result = await invite('staff')
+
+    expect(result).toEqual(
+      expect.objectContaining({ success: false, errorCode: 'INVITE_USER_ALREADY_ACTIVE' })
+    )
+    expect(mocks.inviteUserByEmail).not.toHaveBeenCalled()
   })
 
   it('fails closed when the profile cannot be written', async () => {
