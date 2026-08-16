@@ -71,13 +71,14 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
         const clinicInactive = user.clinic_status === 'inactive'
 
         return (
-          <Card key={user.id}>
+          <Card key={user.id} data-testid={`user-row-${user.id}`}>
             <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{user.full_name || user.email}</span>
                   <Badge variant="outline">{user.role}</Badge>
                   {isSuperadmin ? <Badge variant="secondary">superadmin</Badge> : null}
+                  {user.has_pending_invite ? <Badge variant="secondary">invite pending</Badge> : null}
                   {isBlocked ? <Badge variant="destructive">blocked</Badge> : null}
                   {isDeleted ? <Badge variant="destructive">deleted</Badge> : null}
                   {clinicInactive ? <Badge variant="destructive">clinic blocked</Badge> : null}

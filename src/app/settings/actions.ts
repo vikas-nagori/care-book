@@ -10,6 +10,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import {
   buildInviteRedirectTo,
   getInviteErrorMessage,
+  syncInvitedProfile,
 } from '@/lib/onboarding/invite-server'
 import { getInviteCollisionResult, validateInviteInput } from '@/lib/onboarding/invite-helpers'
 import { validateAppointmentTypeInput } from '@/lib/appointments/appointment-type'
@@ -584,7 +585,7 @@ export async function createUserInvite(
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle(),
-        adminSupabase.from('profiles').select('id, email').eq('email', email).maybeSingle(),
+        adminSupabase.from('profiles').select('id, email, status').eq('email', email).maybeSingle(),
       ])
 
     if (inviteLookupError) {
@@ -659,6 +660,10 @@ export async function createUserInvite(
       email,
       role: validation.values.role,
       status: 'pending' as const,
+      // Captured here so the password-setup screen never re-asks for them: completeInvitedSignup
+      // sources the profile's name and mobile from this record.
+      full_name: validation.values.fullName,
+      mobile_number: validation.values.mobileNumber,
       auth_user_id: inviteUserData.user?.id ?? existingInvite?.auth_user_id ?? null,
       external_staff_id: externalStaffId,
       invited_by: profile.id,
@@ -681,6 +686,30 @@ export async function createUserInvite(
           .insert(invitePayload)
           .select('*')
           .single()
+
+    // Same reason as the clinic-owner path: the auth user already exists, so the
+    // on_auth_user_created trigger has written a placeholder profile with no clinic. Attach it
+    // to this clinic now instead of waiting for the invite to be accepted.
+    if (invitePayload.auth_user_id) {
+      const { error: profileSyncError } = await syncInvitedProfile(adminSupabase, {
+        authUserId: invitePayload.auth_user_id,
+        clinicId,
+        email,
+        role: validation.values.role,
+      })
+
+      if (profileSyncError) {
+        logger.error('settings/createUserInvite/syncProfile', profileSyncError, {
+          email,
+          role: validation.values.role,
+        })
+        return {
+          success: false,
+          errorCode: profileSyncError.code ?? 'INVITE_PROFILE_SYNC_FAILED',
+          message: 'Invite email was sent, but saving the user profile failed.',
+        }
+      }
+    }
 
     const { data: invite, error: inviteSaveError } = await inviteMutation
 

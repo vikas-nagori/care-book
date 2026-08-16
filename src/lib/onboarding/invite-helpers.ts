@@ -24,7 +24,7 @@ export type InviteInput = {
 export type InviteCollisionInput = {
   currentClinicId: string
   existingInvite: { clinic_id: string; status: 'pending' | 'accepted' | 'revoked' } | null
-  existingProfile: { id: string; email: string } | null
+  existingProfile: { id: string; email: string; status: 'active' | 'blocked' | 'deleted' } | null
 }
 
 export type InviteCollisionResult =
@@ -99,8 +99,13 @@ export function getInviteCollisionResult({
   existingInvite,
   existingProfile,
 }: InviteCollisionInput): InviteCollisionResult {
-  if (existingProfile) return 'already_active'
-  if (!existingInvite) return 'none'
+  // A soft-deleted identity is immutable by design, so it can never be re-invited.
+  if (existingProfile?.status === 'deleted') return 'conflict'
+  // A profile row on its own proves nothing: `on_auth_user_created` writes one the moment an
+  // invited user's auth identity is created, long before they accept. The invite is what says
+  // whether they ever completed sign-up, so it decides — and only an email with no invite at
+  // all can be judged active from the profile alone.
+  if (!existingInvite) return existingProfile ? 'already_active' : 'none'
   if (existingInvite.clinic_id !== currentClinicId) return 'conflict'
   if (existingInvite.status === 'pending') return 'already_pending'
   if (existingInvite.status === 'accepted') return 'already_active'

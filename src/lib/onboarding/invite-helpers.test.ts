@@ -220,6 +220,53 @@ test('getInviteCollisionResult permits same-clinic revoked invites to be reused'
   )
 })
 
+// Every invited user has a profile row before they accept — `on_auth_user_created` writes one
+// when the auth identity is created. The cases above pass `existingProfile: null`, which never
+// happens for an invited email, so they could not catch a profile short-circuit.
+test('getInviteCollisionResult reuses a revoked invite despite the placeholder profile', () => {
+  assert.equal(
+    getInviteCollisionResult({
+      currentClinicId: 'clinic-a',
+      existingInvite: { clinic_id: 'clinic-a', status: 'revoked' },
+      existingProfile: { id: 'user-1', email: 'invited@example.com', status: 'active' },
+    }),
+    'reuse_revoked_invite'
+  )
+})
+
+test('getInviteCollisionResult still reports an accepted invite as an active user', () => {
+  assert.equal(
+    getInviteCollisionResult({
+      currentClinicId: 'clinic-a',
+      existingInvite: { clinic_id: 'clinic-a', status: 'accepted' },
+      existingProfile: { id: 'user-1', email: 'invited@example.com', status: 'active' },
+    }),
+    'already_active'
+  )
+})
+
+test('getInviteCollisionResult treats a profile with no invite at all as an active user', () => {
+  assert.equal(
+    getInviteCollisionResult({
+      currentClinicId: 'clinic-a',
+      existingInvite: null,
+      existingProfile: { id: 'user-1', email: 'seeded@example.com', status: 'active' },
+    }),
+    'already_active'
+  )
+})
+
+test('getInviteCollisionResult refuses to re-invite a soft-deleted identity', () => {
+  assert.equal(
+    getInviteCollisionResult({
+      currentClinicId: 'clinic-a',
+      existingInvite: { clinic_id: 'clinic-a', status: 'revoked' },
+      existingProfile: { id: 'user-1', email: 'gone@example.com', status: 'deleted' },
+    }),
+    'conflict'
+  )
+})
+
 test('getInviteCollisionResult blocks cross-clinic invites without mutating them', () => {
   assert.equal(
     getInviteCollisionResult({

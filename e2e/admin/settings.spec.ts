@@ -1,4 +1,5 @@
 import { SettingsView } from '../pages/settings-view'
+import { CLINIC_A } from '../support/accounts'
 import { attachErrorGuards } from '../support/assertions'
 import { test, expect } from '../support/factories'
 
@@ -113,8 +114,20 @@ test('invites a unique user, resends the pending invite, and revokes it', async 
     email,
     role: 'staff',
     status: 'pending',
+    // completeInvitedSignup reads the profile's name and mobile from here, so the setup screen
+    // never has to re-ask for them.
+    full_name: name,
+    mobile_number: phone,
   })
   expect(invite!.auth_user_id).not.toBeNull()
+
+  // The invited user's profile must already belong to the inviting admin's clinic with the
+  // granted role — the on_auth_user_created trigger only writes a clinic-less placeholder.
+  // No trackProfile here: watchUiInvite already reclaims this identity during teardown, and it
+  // marks the auth user as disposable before deleting, which a tracked profile row would not.
+  const invitedProfile = await factory.findProfileById(invite!.auth_user_id!)
+  expect(invitedProfile).toMatchObject({ role: 'staff', clinic_id: CLINIC_A.id })
+
   const beforeResend = invite!.updated_at
 
   await settings.resendInvite(email)
@@ -125,5 +138,10 @@ test('invites a unique user, resends the pending invite, and revokes it', async 
   await settings.revokeInvite(email)
   await expect(page.getByText('revoked', { exact: true }).filter({ visible: true })).toBeVisible()
   await expect.poll(async () => (await factory.findInviteByEmail(email))?.status).toBe('revoked')
+
+  // The invitee already has a profile row from the auth trigger, so re-inviting them must take
+  // the reuse-revoked-invite path instead of being refused as an already-active user.
+  await settings.inviteUser({ name, phone, email })
+  await expect.poll(async () => (await factory.findInviteByEmail(email))?.status).toBe('pending')
   await guards.assertClean()
 })
