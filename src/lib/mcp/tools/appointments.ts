@@ -5,6 +5,7 @@ import type { McpToolDefinition, ToolContext } from '../registry.ts'
 import { boolProp, enumProp, numberProp, objectSchema, stringProp } from '../schema.ts'
 import { ToolError } from '../errors.ts'
 import { describeFeeSource, resolveAppointmentFee } from '../appointment-fee.ts'
+import { resolveAppointmentAssignee } from '../appointment-assignee.ts'
 import { consumeResolutionToken, patientChoiceResult, resolvePatient, issueResolutionToken } from '../resolution.ts'
 import { appointmentPublicView, normalizeAppointmentSelector, type AppointmentPublicSource } from '../appointment-output.ts'
 import { resolveResolutionToken } from '../resolution.ts'
@@ -314,7 +315,7 @@ async function appointmentSummary(ctx: ToolContext, row: AppointmentViewRow) {
 export const appointmentWriteTools: McpToolDefinition[] = [
   {
     name: 'carebook_create_appointment',
-    description: 'Create one appointment or a recurrence using patient and appointment type names. Ambiguous patients and inline new-patient creation always require confirmation.',
+    description: 'Create one appointment or a recurrence using patient and appointment type names. Ambiguous patients and inline new-patient creation always require confirmation. Non-shared appointment types are assigned to the connected user unless assigned_to_name or external_staff_name says otherwise.',
     scope: 'write:clinical',
     inputSchema: objectSchema({
       patient_name: stringProp('Patient name; never a patient ID'),
@@ -324,7 +325,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
       duration_minutes: numberProp('Optional duration, defaults to 45'),
       fee: numberProp('Session fee in rupees. Defaults to the appointment type session rate; required when that rate is 0 or unset'),
       notes: stringProp('Optional clinical appointment note'),
-      assigned_to_name: stringProp('Optional internal staff name'),
+      assigned_to_name: stringProp('Optional internal staff name. Defaults to the connected user for non-shared appointment types'),
       external_staff_name: stringProp('Optional external staff name'),
       recurrence_weekdays: { type: 'array', items: { type: 'integer', minimum: 0, maximum: 6 } },
       recurrence_total_sessions: numberProp('Optional number of recurring sessions'),
@@ -382,6 +383,16 @@ export const appointmentWriteTools: McpToolDefinition[] = [
         if (normalized(inlineName) !== normalized(patientName)) throw new ToolError('new_patient.name must match patient_name.')
       }
 
+      // Whoever is booking is the treating clinician unless they say otherwise. A shared type is
+      // visible to the whole clinic and carries no assignee by design, so it stays unassigned.
+      const assignment = resolveAppointmentAssignee({
+        typeIsShared: appointmentType.is_shared,
+        explicitAssigneeId: assignee?.id ?? null,
+        explicitExternalStaffId: externalAssignee?.id ?? null,
+        bookingUserId: ctx.profile.id,
+      })
+      const defaultedToCaller = assignment.defaultedToBookingUser
+
       const recurrenceSessions = typeof args.recurrence_total_sessions === 'number' ? args.recurrence_total_sessions : undefined
       const weekdays = Array.isArray(args.recurrence_weekdays) ? args.recurrence_weekdays.filter((day): day is number => typeof day === 'number') : []
       const recurrence = recurrenceSessions ? { weekdays, totalSessions: recurrenceSessions } : null
@@ -394,8 +405,8 @@ export const appointmentWriteTools: McpToolDefinition[] = [
           durationMinutes: typeof args.duration_minutes === 'number' ? args.duration_minutes : 45,
           appointmentTypeId: appointmentType.id,
           fee: feeResolution.fee,
-          assignedTo: appointmentType.is_shared ? null : assignee?.id ?? null,
-          externalStaffId: appointmentType.is_shared ? null : externalAssignee?.id ?? null,
+          assignedTo: assignment.assignedTo,
+          externalStaffId: assignment.externalStaffId,
           notes: typeof args.notes === 'string' && args.notes.trim() ? args.notes.trim() : null,
           recurrence,
           today: getZonedDate(new Date(), CLINIC_TIME_ZONE),
@@ -422,7 +433,10 @@ export const appointmentWriteTools: McpToolDefinition[] = [
             ? externalAssignee.name
             : assignee && !('ambiguous' in assignee)
               ? assignee.full_name || assignee.email
-              : null,
+              : defaultedToCaller
+                ? ctx.profile.full_name || ctx.profile.email
+                : null,
+        assigned_to_booking_user: defaultedToCaller,
         notes: typeof args.notes === 'string' && args.notes.trim() ? args.notes.trim() : null,
         statuses: [...new Set(rows.map((row) => row.status))],
       }
