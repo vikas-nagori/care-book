@@ -2,10 +2,17 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { registerClient, validateRedirectUris } from '@/lib/mcp/clients'
 import { isMcpEnabled, MCP_SCOPES } from '@/lib/mcp/config'
 import { OAuthError } from '@/lib/mcp/errors'
+import { allowOAuthRequest, clientIpFrom } from '@/lib/mcp/rate-limit'
 import { logger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
   if (!isMcpEnabled()) return new NextResponse(null, { status: 404 })
+  if (!allowOAuthRequest('register', clientIpFrom(request.headers))) {
+    return NextResponse.json(
+      { error: 'temporarily_unavailable', error_description: 'Too many client registrations. Try again later.' },
+      { status: 429, headers: { 'Cache-Control': 'no-store' } }
+    )
+  }
   try {
     const body = (await request.json()) as Record<string, unknown>
     const redirectUris = validateRedirectUris(body.redirect_uris)

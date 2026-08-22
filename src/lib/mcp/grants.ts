@@ -1,4 +1,5 @@
 import { createAdminClient } from '../supabase/admin.ts'
+import { mcpResourceUrl } from './config.ts'
 import type { McpScope } from '../supabase/types.ts'
 import { verifyCodeChallenge } from './pkce.ts'
 import { decryptSecret, encryptSecret } from './session-crypto.ts'
@@ -174,6 +175,11 @@ export async function resolveBearer(token: string): Promise<ResolvedGrant | null
     .gt('access_expires_at', new Date().toISOString())
     .maybeSingle()
   if (!grant) return null
+
+  // RFC 8707 audience binding: a token is only valid for the resource it was issued against. There
+  // is one resource today, so this holds the invariant rather than fixing a live hole — but it is
+  // what stops a token minted for some other Care-Book deployment from being replayed here.
+  if (grant.resource !== mcpResourceUrl()) return null
 
   const { data: user } = await supabase.auth.admin.getUserById(grant.user_id)
   if (!user?.user?.email || !(await grantOwnerIsActive(supabase, grant.user_id, grant.clinic_id))) {

@@ -12,10 +12,23 @@ contract implemented by the branch.
 - MCP reads are limited to account identity, patient details, appointments,
   SOAP session notes, appointment types, staff, and doctors. There are no
   billing-read tools.
-- Clinical writes are limited to `carebook_create_patient` and
-  `carebook_create_appointment`. Patient matching is name-based; UUIDs are not
-  public inputs. Ambiguous or partial matches return masked candidates and
-  opaque, grant-bound selection tokens.
+- Clinical writes are `carebook_create_patient`, `carebook_create_appointment`,
+  `carebook_update_appointment`, `carebook_set_appointment_status` and
+  `carebook_delete_appointment` (admin-only, and only while the appointment is
+  still scheduled). Edits and deletions preview first and write only on
+  `confirm: true`. Session fees are not editable through the clinical tools —
+  that stays with the audited billing tools.
+- Patient matching is name-based; UUIDs are not public inputs. Matching runs on
+  trigram similarity (`public.search_patients_fuzzy`, migration 041) so
+  shortened names and typos still find the record. A patient is auto-selected
+  only when the search returns exactly one record and the name matches exactly —
+  an exact match never suppresses the other candidates it was found alongside.
+  Everything else returns masked candidates and opaque, grant-bound selection
+  tokens.
+- A new appointment always carries a fee. It defaults to the appointment type's
+  `session_rate`; when that rate is absent or zero the tool returns
+  `requires_fee_confirmation` instead of writing, because the ledger coalesces a
+  null fee to a zero-value charge and stamps it 'paid'.
 - Billing is write-only through six audited RPC-backed tools. They are
   admin-only, unchecked by default at consent, dry-run by default, require
   `confirm: true` and an idempotency key, and never return billing history,

@@ -53,14 +53,18 @@ export async function consumeResolutionToken(ctx: ToolContext, token: string, en
 export async function findPatients(ctx: ToolContext, patientName: string): Promise<PatientCandidate[]> {
   const term = patientName.trim()
   if (!term) throw new ToolError('patient_name is required.')
-  const { data, error } = await ctx.supabase
-    .from('patients')
-    .select('id, name, phone, dob')
-    .ilike('name', `%${term.replace(/[%_]/g, '')}%`)
-    .order('name')
-    .limit(20)
+
+  // Trigram ranking catches shortened names and typos that a containment match misses entirely.
+  // The RPC runs SECURITY INVOKER, so the caller's RLS still decides which patients are visible.
+  const { data, error } = await ctx.supabase.rpc('search_patients_fuzzy', {
+    search_term: term,
+    match_limit: 20,
+  })
   if (error) throw error
-  return (data ?? []) as PatientCandidate[]
+
+  return ((data ?? []) as Array<{ id: string; name: string; phone: string | null; dob: string | null; match_score: number | null }>).map(
+    (row) => ({ id: row.id, name: row.name, phone: row.phone, dob: row.dob, matchScore: row.match_score })
+  )
 }
 
 export async function resolvePatient(ctx: ToolContext, args: Record<string, unknown>) {
@@ -87,7 +91,8 @@ export async function patientChoiceResult(ctx: ToolContext, match: { kind: 'ambi
   }
   return {
     requires_patient_confirmation: true,
-    message: 'More than one patient matches. Ask the user which candidate to use, then call again with the matching patient_selection_token.',
+    message:
+      'More than one patient could match that name. Ask the user which candidate to use — do not guess, even if one name looks like an exact match — then call again with the matching patient_selection_token.',
     candidates,
   }
 }

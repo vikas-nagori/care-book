@@ -19,6 +19,15 @@ export function ConsentForm({ request, clientName, profile, clinicName }: {
   clinicName: string
 }) {
   const scopeLabels = request.scopes
+  // Any application may register itself and pick its own display name, so the name alone proves
+  // nothing. Showing the destination host lets the person approving see where their data is going.
+  let redirectHost = request.redirectUri
+  try {
+    redirectHost = new URL(request.redirectUri).host
+  } catch {
+    // Fall back to the raw value; it was already checked against the client's registered list.
+  }
+
   return (
     <Card className="w-full max-w-xl">
       <CardHeader>
@@ -29,6 +38,14 @@ export function ConsentForm({ request, clientName, profile, clinicName }: {
         <div className="rounded-md border p-4 text-sm">
           <p className="font-medium">{profile.full_name || profile.email}</p>
           <p className="text-muted-foreground">{profile.email} · {profile.role} · {clinicName}</p>
+        </div>
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-900/60 dark:bg-amber-950/30">
+          <p className="font-medium">Check this is an app you trust</p>
+          <p className="mt-1 text-muted-foreground">
+            &ldquo;{clientName}&rdquo; is a name the application chose for itself. Approving sends
+            patient data to <span className="font-medium text-foreground">{redirectHost}</span>. If
+            you did not just start this connection yourself, choose Deny.
+          </p>
         </div>
         <form action={approveConsent} className="space-y-5">
           <input type="hidden" name="client_id" value={request.clientId} />
