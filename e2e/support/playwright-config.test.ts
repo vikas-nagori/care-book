@@ -60,3 +60,13 @@ test('platform sign-out runs only after the platform desktop project completes',
   assert.match(signoutSpec, /signIn\(page,\s*PLATFORM_SIGNOUT\)/)
   assert.doesNotMatch(signoutSpec, /signIn\(page,\s*PLATFORM\)/)
 })
+
+test('the browser runs on the clinic calendar so seeded dates and the dashboard agree', () => {
+  // Without this, the browser inherits the runner's UTC clock while the seed dates fixtures in IST.
+  // Between 18:30 and 24:00 UTC those are different calendar days and today's appointments
+  // disappear from the dashboard, failing the suite for five and a half hours every day.
+  const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
+  const timezoneSetting = config.match(/timezoneId:\s*([^,\n]+)/)?.[1]?.trim()
+
+  assert.equal(timezoneSetting, 'CLINIC_TIME_ZONE')
+})

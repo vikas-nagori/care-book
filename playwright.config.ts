@@ -6,6 +6,7 @@ import dotenv from 'dotenv'
 dotenv.config({ path: '.env.e2e', override: true })
 
 import { ADMIN, STAFF, PLATFORM } from './e2e/support/accounts'
+import { CLINIC_TIME_ZONE } from './src/lib/timezone'
 
 const CI = !!process.env.CI
 
@@ -22,6 +23,12 @@ export default defineConfig({
 
   use: {
     baseURL: 'http://localhost:3000',
+    // The seed dates its fixtures with the clinic calendar (Asia/Kolkata) while the dashboard reads
+    // the *browser's* zone. Left unpinned, the browser inherits the runner's UTC clock, so between
+    // 18:30 and 24:00 UTC the seeded "today" is already tomorrow in IST and today's appointments
+    // vanish from the dashboard — a red suite for five and a half hours every day. Pinning the
+    // browser to the clinic zone also makes the run match the timezone the app actually targets.
+    timezoneId: CLINIC_TIME_ZONE,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'off',
