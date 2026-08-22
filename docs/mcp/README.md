@@ -25,6 +25,11 @@ contract implemented by the branch.
   returns exactly one record and the name matches exactly — an exact match never
   suppresses the other candidates it was found alongside. Everything else
   returns masked candidates and opaque, grant-bound selection tokens.
+- A new appointment on a non-shared type is assigned to the connected user
+  unless `assigned_to_name` or `external_staff_name` names someone else. Staff
+  appointment visibility keys off `assigned_to`, so an unassigned booking is
+  invisible to the person meant to deliver it. Shared types stay unassigned by
+  design.
 - A new appointment always carries a fee, resolved in this order: the fee passed
   with the request, then **this patient's most recent fee for the same
   appointment type**, then the type's `session_rate`. Rates are negotiated per
