@@ -60,3 +60,22 @@ test('platform sign-out runs only after the platform desktop project completes',
   assert.match(signoutSpec, /signIn\(page,\s*PLATFORM_SIGNOUT\)/)
   assert.doesNotMatch(signoutSpec, /signIn\(page,\s*PLATFORM\)/)
 })
+
+test('the browser runs on the clinic calendar so seeded dates and the dashboard agree', () => {
+  // Without this, the browser inherits the runner's UTC clock while the seed dates fixtures in IST.
+  // Between 18:30 and 24:00 UTC those are different calendar days and today's appointments
+  // disappear from the dashboard, failing the suite for five and a half hours every day.
+  const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
+  const timezoneSetting = config.match(/timezoneId:\s*([^,\n]+)/)?.[1]?.trim()
+
+  assert.equal(timezoneSetting, "'Asia/Kolkata'")
+})
+
+test('the app server shares the browser clinic calendar so nothing hydrates mismatched', () => {
+  // Browser-only pinning renders dates in the runner's zone on the server and the clinic zone on
+  // the client. React reports that as hydration error #418 and the page-error guards fail the test.
+  const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
+  const webServerBlock = config.match(/webServer:\s*\{[\s\S]*?\n\s{2}\},/)?.[0] ?? ''
+
+  assert.match(webServerBlock, /env:\s*\{\s*TZ:\s*'Asia\/Kolkata'\s*\}/)
+})

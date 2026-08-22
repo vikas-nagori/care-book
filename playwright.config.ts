@@ -22,6 +22,14 @@ export default defineConfig({
 
   use: {
     baseURL: 'http://localhost:3000',
+    // The seed dates its fixtures with the clinic calendar (Asia/Kolkata) while the dashboard reads
+    // the *browser's* zone. Left unpinned, the browser inherits the runner's UTC clock, so between
+    // 18:30 and 24:00 UTC the seeded "today" is already tomorrow in IST and today's appointments
+    // vanish from the dashboard — a red suite for five and a half hours every day. Pinning the
+    // browser to the clinic zone also makes the run match the timezone the app actually targets.
+    // Literal rather than an import: ES imports hoist above the dotenv.config() call above,
+    // so pulling app modules in here can change what env the config sees.
+    timezoneId: 'Asia/Kolkata',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'off',
@@ -33,6 +41,11 @@ export default defineConfig({
   webServer: {
     command: 'npm run build:e2e && npm run start:e2e',
     url: 'http://localhost:3000',
+    // The server must share the browser's clock. Pinning only the browser leaves the app rendering
+    // dates in the runner's zone on the server and the clinic zone on the client, which React
+    // reports as a hydration mismatch (#418) and the error guards turn into a failure. process.env
+    // is inherited, so this only overrides the zone.
+    env: { TZ: 'Asia/Kolkata' },
     reuseExistingServer: false,
     timeout: 300_000,
     stdout: 'pipe',
