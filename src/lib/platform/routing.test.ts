@@ -49,3 +49,20 @@ test('non-superadmin on a clinic route is not redirected', () => {
     null
   )
 })
+
+test('superadmin reaching the MCP consent screen is not bounced to the platform console', () => {
+  // /oauth/authorize is a session-gated authorization screen, not part of the clinic
+  // app. Bouncing a superadmin to /platform strands the OAuth flow: the MCP client
+  // never receives its authorization code.
+  assert.equal(
+    resolveSuperadminRedirect({ isSuperadmin: true, path: '/oauth/authorize', isPublicRoute: false }),
+    null
+  )
+})
+
+test('superadmin is still bounced off non-consent oauth paths', () => {
+  assert.equal(
+    resolveSuperadminRedirect({ isSuperadmin: true, path: '/oauth/authorized-apps', isPublicRoute: false }),
+    '/platform'
+  )
+})

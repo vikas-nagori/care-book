@@ -12,6 +12,14 @@ export function isPlatformPath(path: string): boolean {
   return path === '/platform' || path.startsWith('/platform/')
 }
 
+// The MCP consent screen is an authorization surface, not part of the clinic app.
+// It is still session-gated by the middleware's `!user` branch, so it never needs the
+// superadmin bounce — and applying one strands the OAuth flow, because the redirect
+// drops the browser on /platform and the MCP client never receives its code.
+export function isOAuthConsentPath(path: string): boolean {
+  return path === '/oauth/authorize'
+}
+
 export function resolveSuperadminRedirect({
   isSuperadmin,
   path,
@@ -20,7 +28,7 @@ export function resolveSuperadminRedirect({
   if (isSuperadmin) {
     // Superadmins live entirely inside the /platform console. Keep them out of
     // the clinic app, but don't interfere with public/auth routes.
-    if (!isPlatformPath(path) && !isPublicRoute) return '/platform'
+    if (!isPlatformPath(path) && !isPublicRoute && !isOAuthConsentPath(path)) return '/platform'
     return null
   }
 
