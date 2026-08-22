@@ -1,6 +1,7 @@
 import { callBillingRpc, validateBillingEntry, validateReasonedMutation, validateRecordPayment } from '@/lib/billing/mutations'
 import type { McpToolDefinition, ToolContext } from '../registry.ts'
-import { boolProp, numberProp, objectSchema, stringProp } from '../schema.ts'
+import { boolProp, enumProp, numberProp, objectSchema, stringProp } from '../schema.ts'
+import { PAYMENT_METHODS, normalizePaymentMethod, paymentMethodError } from '../payment-method.ts'
 import { ToolError } from '../errors.ts'
 import { dryRun, isConfirmed, requireIdempotencyKey } from '../confirm.ts'
 import { consumeResolutionToken, issueResolutionToken, resolveResolutionToken, resolvePatient } from '../resolution.ts'
@@ -132,8 +133,22 @@ async function consumeTargetSelection(ctx: ToolContext, target: BillingTarget) {
 
 async function runRpc(ctx: ToolContext, rpc: string, params: Record<string, unknown>, message: string) {
   const result = await callBillingRpc(ctx.supabase, rpc, params, { grantId: ctx.grant.grantId, mcp: true })
-  if (!result?.success) throw new ToolError(message)
+  if (!result?.success) {
+    // The RPCs reject on business rules with messages written for the end user, and migration 037
+    // already strips anything schema-revealing via private.billing_error_response. Replacing that
+    // with a generic line leaves the caller unable to fix the input — which is exactly what
+    // happened when "UPI" was refused for not being "upi".
+    const detail = typeof result?.message === 'string' ? result.message.trim() : ''
+    throw new ToolError(detail ? `${message} ${detail}` : message)
+  }
   return result
+}
+
+/** Map a caller-supplied method onto the set the RPCs accept, failing loudly rather than guessing. */
+function requirePaymentMethod(args: Record<string, unknown>, key: string) {
+  const normalized = normalizePaymentMethod(args[key])
+  if (!normalized) throw new ToolError(paymentMethodError(key))
+  return normalized
 }
 
 export const billingWriteTools: McpToolDefinition[] = [
@@ -142,12 +157,12 @@ export const billingWriteTools: McpToolDefinition[] = [
     description: 'Record a standalone ordinary payment for a patient selected by name. Requires a dry-run review, confirmation, and idempotency key; no billing history is returned.',
     scope: 'write:billing',
     adminOnly: true,
-    inputSchema: billingInputSchema({ patient_name: stringProp('Patient name'), amount: numberProp('Payment amount'), payment_method: stringProp('Payment method'), date: stringProp('Payment date, yyyy-MM-dd'), notes: stringProp('Optional note'), patient_selection_token: stringProp('Opaque patient token') }, ['patient_name', 'amount', 'payment_method', 'date']),
+    inputSchema: billingInputSchema({ patient_name: stringProp('Patient name'), amount: numberProp('Payment amount'), payment_method: enumProp('Payment method', [...PAYMENT_METHODS]), date: stringProp('Payment date, yyyy-MM-dd'), notes: stringProp('Optional note'), patient_selection_token: stringProp('Opaque patient token') }, ['patient_name', 'amount', 'payment_method', 'date']),
     handler: async (args, ctx) => {
       ensureKey(args)
       const patient = await resolvePatientForBilling(ctx, args)
       if ('choice' in patient) return patient.choice
-      const validated = validateRecordPayment({ patientId: patient.patient.id, amount: Number(args.amount), paymentMethod: text(args, 'payment_method'), date: text(args, 'date'), notes: text(args, 'notes') || null })
+      const validated = validateRecordPayment({ patientId: patient.patient.id, amount: Number(args.amount), paymentMethod: requirePaymentMethod(args, 'payment_method'), date: text(args, 'date'), notes: text(args, 'notes') || null })
       if (!validated.ok) failValidation(validated)
       const preview = { patient_name: patient.patient.name, ...validated.summary }
       if (!isConfirmed(args)) return dryRun('record_payment', preview)
@@ -162,14 +177,14 @@ export const billingWriteTools: McpToolDefinition[] = [
     description: 'Record a payment-only or fully paid package entry. Requires confirmation and an idempotency key; it never returns package lists, balances, or billing history.',
     scope: 'write:billing',
     adminOnly: true,
-    inputSchema: billingInputSchema({ patient_name: stringProp('Patient name'), mode: { type: 'string', enum: ['payment_only', 'package_with_payment'] }, package_name: stringProp('Package name when mode is package_with_payment'), total_sessions: numberProp('Package session count'), per_session_amount: numberProp('Package per-session amount'), appointment_type_name: stringProp('Appointment type name for a package'), package_start_date: stringProp('Package start date'), amount: numberProp('Payment amount'), payment_method: stringProp('Payment method'), payment_date: stringProp('Payment date'), notes: stringProp('Payment/package notes'), patient_selection_token: stringProp('Opaque patient token') }, ['patient_name', 'mode', 'amount', 'payment_method', 'payment_date']),
+    inputSchema: billingInputSchema({ patient_name: stringProp('Patient name'), mode: { type: 'string', enum: ['payment_only', 'package_with_payment'] }, package_name: stringProp('Package name when mode is package_with_payment'), total_sessions: numberProp('Package session count'), per_session_amount: numberProp('Package per-session amount'), appointment_type_name: stringProp('Appointment type name for a package'), package_start_date: stringProp('Package start date'), amount: numberProp('Payment amount'), payment_method: enumProp('Payment method', [...PAYMENT_METHODS]), payment_date: stringProp('Payment date'), notes: stringProp('Payment/package notes'), patient_selection_token: stringProp('Opaque patient token') }, ['patient_name', 'mode', 'amount', 'payment_method', 'payment_date']),
     handler: async (args, ctx) => {
       ensureKey(args)
       const patient = await resolvePatientForBilling(ctx, args)
       if ('choice' in patient) return patient.choice
       const mode = text(args, 'mode') as 'payment_only' | 'package_with_payment'
       const appointmentTypeId = mode === 'package_with_payment' ? await resolveAppointmentTypeId(ctx, text(args, 'appointment_type_name')) : undefined
-      const validated = validateBillingEntry({ patientId: patient.patient.id, mode, packageName: text(args, 'package_name') || undefined, packageTotalSessions: typeof args.total_sessions === 'number' ? args.total_sessions : undefined, packagePerSessionAmount: typeof args.per_session_amount === 'number' ? args.per_session_amount : undefined, appointmentTypeId, packageStartsOn: text(args, 'package_start_date') || undefined, paymentAmount: Number(args.amount), paymentMethod: text(args, 'payment_method'), paymentDate: text(args, 'payment_date'), paymentNotes: text(args, 'notes') || null })
+      const validated = validateBillingEntry({ patientId: patient.patient.id, mode, packageName: text(args, 'package_name') || undefined, packageTotalSessions: typeof args.total_sessions === 'number' ? args.total_sessions : undefined, packagePerSessionAmount: typeof args.per_session_amount === 'number' ? args.per_session_amount : undefined, appointmentTypeId, packageStartsOn: text(args, 'package_start_date') || undefined, paymentAmount: Number(args.amount), paymentMethod: requirePaymentMethod(args, 'payment_method'), paymentDate: text(args, 'payment_date'), paymentNotes: text(args, 'notes') || null })
       if (!validated.ok) failValidation(validated)
       if (!isConfirmed(args)) return dryRun('record_billing_entry', { patient_name: patient.patient.name, ...validated.summary })
       await consumePatientSelection(ctx, args, patient.patient.id)
@@ -188,12 +203,12 @@ export const billingWriteTools: McpToolDefinition[] = [
     description: 'Record a refund against one selected payment. Target matching is internal and returns no billing history.',
     scope: 'write:billing',
     adminOnly: true,
-    inputSchema: billingInputSchema({ patient_name: stringProp('Patient name unless a payment token is supplied'), patient_selection_token: stringProp('Opaque patient token'), payment_selection_token: stringProp('Opaque payment token'), payment_date: stringProp('Optional payment date selector'), amount: numberProp('Refund amount'), refund_method: stringProp('Refund method'), refund_date: stringProp('Refund date'), reason: stringProp('Audited reason') }, ['amount', 'refund_method', 'refund_date', 'reason']),
+    inputSchema: billingInputSchema({ patient_name: stringProp('Patient name unless a payment token is supplied'), patient_selection_token: stringProp('Opaque patient token'), payment_selection_token: stringProp('Opaque payment token'), payment_date: stringProp('Optional payment date selector'), amount: numberProp('Refund amount'), refund_method: enumProp('Refund method', [...PAYMENT_METHODS]), refund_date: stringProp('Refund date'), reason: stringProp('Audited reason') }, ['amount', 'refund_method', 'refund_date', 'reason']),
     handler: async (args, ctx) => {
       ensureKey(args)
       const target = await resolvePayment(ctx, args)
       if ('choice' in target) return target.choice
-      const validated = validateReasonedMutation('record_refund', { entityId: target.id, amount: Number(args.amount), refundMethod: text(args, 'refund_method'), refundDate: text(args, 'refund_date'), reason: text(args, 'reason') })
+      const validated = validateReasonedMutation('record_refund', { entityId: target.id, amount: Number(args.amount), refundMethod: requirePaymentMethod(args, 'refund_method'), refundDate: text(args, 'refund_date'), reason: text(args, 'reason') })
       if (!validated.ok) failValidation(validated)
       if (!isConfirmed(args)) return dryRun('record_refund', { patient_name: text(args, 'patient_name'), amount: validated.summary.amount, refund_method: text(args, 'refund_method'), refund_date: text(args, 'refund_date') })
       await consumeTargetSelection(ctx, target)

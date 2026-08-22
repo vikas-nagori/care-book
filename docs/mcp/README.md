@@ -38,6 +38,12 @@ contract implemented by the branch.
   writing, because the ledger coalesces a null fee to a zero-value charge and
   stamps it 'paid'. The resolved fee and where it came from are reported in both
   the preview and the created-appointment result.
+- Payment and refund methods are constrained to `cash`, `upi`, `card`,
+  `bank_transfer` — the exact set the RPCs check — and normalized before they
+  are sent, so "UPI" or "Google Pay" resolve rather than being refused. When a
+  billing RPC rejects a write, its own message is surfaced to the caller;
+  migration 037 already sanitizes those through
+  `private.billing_error_response`.
 - Billing is write-only through six audited RPC-backed tools. They are
   admin-only, unchecked by default at consent, dry-run by default, require
   `confirm: true` and an idempotency key, and never return billing history,

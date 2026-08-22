@@ -556,7 +556,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
   {
     name: 'carebook_set_appointment_status',
     description:
-      'Mark one appointment completed or cancelled, or restore it to scheduled. Identified by an opaque selection token; previews the change unless confirm is true.',
+      'Mark one appointment completed or cancelled, or restore a cancelled one to scheduled. Cancelling keeps the appointment on the record with its charge voided. This tool never removes an appointment — use carebook_delete_appointment when the user asks to delete or remove one. Identified by an opaque selection token; previews the change unless confirm is true.',
     scope: 'write:clinical',
     inputSchema: objectSchema({
       appointment_selection_token: stringProp('Opaque token from a previous appointment list or lookup'),
@@ -596,7 +596,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
   {
     name: 'carebook_delete_appointment',
     description:
-      'Permanently delete one scheduled appointment identified by an opaque selection token. Admin only, and only while the appointment is still scheduled — cancel it instead to keep the record.',
+      'Delete one appointment outright, removing it from the record. This is the tool to use whenever the user asks to delete or remove an appointment; do not substitute cancelling, which keeps the row. Admin only, and only while the appointment is still scheduled. Identified by an opaque selection token; previews the deletion unless confirm is true.',
     scope: 'write:clinical',
     adminOnly: true,
     inputSchema: objectSchema({
@@ -615,7 +615,9 @@ export const appointmentWriteTools: McpToolDefinition[] = [
           dry_run: true,
           action: 'delete_appointment',
           current: await appointmentSummary(ctx, row),
-          message: 'This permanently removes the appointment. Cancelling instead keeps it on the record.',
+          message:
+            'This permanently removes the appointment and cannot be undone. Proceed if the user asked to delete it; ' +
+            'carebook_set_appointment_status with cancelled is the alternative when they want it kept on the record.',
         }
       }
       const { error } = await ctx.supabase.from('appointments').delete().eq('id', row.id)
