@@ -4,7 +4,7 @@ import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
 import type { McpToolDefinition, ToolContext } from '../registry.ts'
 import { boolProp, enumProp, numberProp, objectSchema, stringProp } from '../schema.ts'
 import { ToolError } from '../errors.ts'
-import { resolveAppointmentFee } from '../appointment-fee.ts'
+import { describeFeeSource, resolveAppointmentFee } from '../appointment-fee.ts'
 import { consumeResolutionToken, patientChoiceResult, resolvePatient, issueResolutionToken } from '../resolution.ts'
 import { appointmentPublicView, normalizeAppointmentSelector, type AppointmentPublicSource } from '../appointment-output.ts'
 import { resolveResolutionToken } from '../resolution.ts'
@@ -102,6 +102,31 @@ async function resolveExternalAssignee(ctx: ToolContext, name: string | undefine
   const candidates = (exact.length ? exact : staff.filter((person) => normalized(person.name).includes(normalized(name)))).slice(0, 10)
   if (!candidates.length) throw new ToolError('No active external staff member matched that name.')
   return { ambiguous: true as const, candidates: candidates.map((person) => ({ staff_name: person.name })) }
+}
+
+/**
+ * What this patient was last charged for this appointment type.
+ *
+ * Rates are negotiated per patient rather than read off the type, so the patient's own history is
+ * the best available answer. Cancelled sessions are excluded — a cancelled booking is not evidence
+ * of an agreed rate — and only positive fees count, so an earlier unpriced row cannot poison it.
+ */
+async function lastFeeForPatientType(ctx: ToolContext, patientId: string, appointmentTypeId: string): Promise<number | null> {
+  if (!patientId) return null
+  const { data, error } = await ctx.supabase
+    .from('appointments')
+    .select('fee, date, time')
+    .eq('patient_id', patientId)
+    .eq('appointment_type_id', appointmentTypeId)
+    .neq('status', 'cancelled')
+    .gt('fee', 0)
+    .order('date', { ascending: false })
+    .order('time', { ascending: false })
+    .limit(1)
+  // A staff caller may not be able to read fees at all; that is a fallback, not a failure.
+  if (error) return null
+  const fee = data?.[0]?.fee
+  return typeof fee === 'number' && Number.isFinite(fee) ? fee : fee ? Number(fee) : null
 }
 
 function appointmentSelect() {
@@ -320,16 +345,24 @@ export const appointmentWriteTools: McpToolDefinition[] = [
       const appointmentType = await resolveAppointmentType(ctx, typeof args.appointment_type_name === 'string' ? args.appointment_type_name : '')
       if ('ambiguous' in appointmentType) return { requires_appointment_type_confirmation: true, candidates: appointmentType.candidates }
 
-      const feeResolution = resolveAppointmentFee(args.fee, appointmentType.session_rate)
+      const lastPatientFee = patient.kind === 'selected'
+        ? await lastFeeForPatientType(ctx, patient.patient.id, appointmentType.id)
+        : null
+      const feeResolution = resolveAppointmentFee({
+        explicitFee: args.fee,
+        lastPatientFee,
+        sessionRate: appointmentType.session_rate,
+      })
       if (feeResolution.kind === 'needs_fee') {
         return {
           requires_fee_confirmation: true,
           appointment_type: appointmentType.name,
           default_session_rate: feeResolution.defaultRate,
           message:
-            feeResolution.defaultRate === null
-              ? `The "${appointmentType.name}" type has no default session rate. Ask the user which appointment type and session fee to use, then call again with fee set.`
-              : `The "${appointmentType.name}" type has a default session rate of 0. Confirm the appointment type and session fee with the user, then call again with fee set — passing fee: 0 explicitly books a free session.`,
+            `Nothing establishes a session fee for this booking: "${appointmentType.name}" has ` +
+            `${feeResolution.defaultRate === null ? 'no default session rate' : 'a default session rate of 0'}` +
+            ' and this patient has no earlier session of that type. Ask the user which appointment type and' +
+            ' session fee to use, then call again with fee set — passing fee: 0 books a free session.',
         }
       }
 
@@ -371,13 +404,27 @@ export const appointmentWriteTools: McpToolDefinition[] = [
         throw new ToolError(error instanceof Error ? error.message : 'The repeat schedule is invalid.')
       }
 
+      // Everything the booking was configured with, so the caller can read the whole thing back to
+      // the user before and after the write — the fee especially, since it is chosen server-side.
+      const durationMinutes = typeof args.duration_minutes === 'number' ? args.duration_minutes : 45
       const preview = {
         patient_name: patient.kind === 'selected' ? patient.patient.name : patientName,
         appointment_type: appointmentType.name,
         dates: rows.map((row) => row.date),
         time,
-        duration_minutes: typeof args.duration_minutes === 'number' ? args.duration_minutes : 45,
+        duration_minutes: durationMinutes,
         fee: feeResolution.fee,
+        fee_source: describeFeeSource(feeResolution.source),
+        session_count: rows.length,
+        assigned_staff_name: appointmentType.is_shared
+          ? null
+          : externalAssignee && !('ambiguous' in externalAssignee)
+            ? externalAssignee.name
+            : assignee && !('ambiguous' in assignee)
+              ? assignee.full_name || assignee.email
+              : null,
+        notes: typeof args.notes === 'string' && args.notes.trim() ? args.notes.trim() : null,
+        statuses: [...new Set(rows.map((row) => row.status))],
       }
       if (inlinePatient && args.confirm !== true) return { dry_run: true, action: 'create_patient_and_appointment', preview: { ...preview, new_patient: inlinePatient } }
 
@@ -410,7 +457,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
       if (error || !createdAppointments || createdAppointments.length !== appointmentRows.length) throw new ToolError('Unable to create the appointment.')
       const appointments = []
       for (const created of createdAppointments) appointments.push({ date: created.date, time: created.time, appointment_selection_token: await issueResolutionToken(ctx, 'appointment', created.id) })
-      return { created: true, fee: feeResolution.fee, appointments }
+      return { created: true, appointment: preview, appointments }
     },
   },
   {

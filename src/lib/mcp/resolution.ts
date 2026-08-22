@@ -3,12 +3,20 @@ import { ToolError } from './errors.ts'
 import type { ToolContext } from './registry.ts'
 import { generateToken, hashToken } from './tokens.ts'
 import { classifyPatientMatches, normalizePatientName, publicPatientCandidate, type PatientCandidate } from './patient-resolution.ts'
+import { rankByName } from './fuzzy-match.ts'
 
 export type ResolutionEntity = 'patient' | 'payment' | 'package' | 'appointment'
 
 export async function issueResolutionToken(ctx: ToolContext, entityType: ResolutionEntity, entityId: string) {
   const token = generateToken('selection')
-  const { error } = await createAdminClient().from('mcp_resolution_tokens').insert({
+  const admin = createAdminClient()
+  // Same self-limiting sweep as authorization codes: these expire in ten minutes and are never
+  // read again afterwards, so anything a day old is dead weight.
+  await admin
+    .from('mcp_resolution_tokens')
+    .delete()
+    .lt('expires_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+  const { error } = await admin.from('mcp_resolution_tokens').insert({
     grant_id: ctx.grant.grantId,
     user_id: ctx.grant.userId,
     clinic_id: ctx.grant.clinicId,
@@ -50,21 +58,26 @@ export async function consumeResolutionToken(ctx: ToolContext, token: string, en
   return resolveResolutionToken(ctx, token, entityType, true)
 }
 
+/** Ceiling on the rows pulled in for scoring. Clinics hold tens of patients; this is a guard rail. */
+const PATIENT_SCAN_LIMIT = 2000
+
 export async function findPatients(ctx: ToolContext, patientName: string): Promise<PatientCandidate[]> {
   const term = patientName.trim()
   if (!term) throw new ToolError('patient_name is required.')
 
-  // Trigram ranking catches shortened names and typos that a containment match misses entirely.
-  // The RPC runs SECURITY INVOKER, so the caller's RLS still decides which patients are visible.
-  const { data, error } = await ctx.supabase.rpc('search_patients_fuzzy', {
-    search_term: term,
-    match_limit: 20,
-  })
+  // A typo cannot be expressed as a SQL containment match, so the shortlist has to be scored rather
+  // than filtered. RLS has already narrowed this to the caller's own clinic before it reaches here.
+  const { data, error } = await ctx.supabase
+    .from('patients')
+    .select('id, name, phone, dob')
+    .order('name')
+    .limit(PATIENT_SCAN_LIMIT)
   if (error) throw error
 
-  return ((data ?? []) as Array<{ id: string; name: string; phone: string | null; dob: string | null; match_score: number | null }>).map(
-    (row) => ({ id: row.id, name: row.name, phone: row.phone, dob: row.dob, matchScore: row.match_score })
-  )
+  const patients = (data ?? []) as Array<{ id: string; name: string; phone: string | null; dob: string | null }>
+  return rankByName(term, patients, (patient) => patient.name)
+    .slice(0, 20)
+    .map(({ item, score }) => ({ id: item.id, name: item.name, phone: item.phone, dob: item.dob, matchScore: score }))
 }
 
 export async function resolvePatient(ctx: ToolContext, args: Record<string, unknown>) {

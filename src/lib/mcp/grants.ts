@@ -45,6 +45,11 @@ export async function issueAuthorizationCode(input: {
   const code = generateToken('code')
   const encrypted = input.supabaseRefreshToken ? encryptSecret(input.supabaseRefreshToken) : null
 
+  // An abandoned consent leaves a code row holding an encrypted Supabase refresh token, and codes
+  // are otherwise only removed on redemption. Sweeping on issue keeps the table self-limiting
+  // without a scheduled job. Failure here must never block the consent itself.
+  await supabase.from('mcp_authorization_codes').delete().lt('expires_at', new Date().toISOString())
+
   const { error } = await supabase.from('mcp_authorization_codes').insert({
     code_hash: hashToken(code),
     client_id: input.clientId,
