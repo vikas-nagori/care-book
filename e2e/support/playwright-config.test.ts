@@ -70,3 +70,12 @@ test('the browser runs on the clinic calendar so seeded dates and the dashboard 
 
   assert.equal(timezoneSetting, "'Asia/Kolkata'")
 })
+
+test('the app server shares the browser clinic calendar so nothing hydrates mismatched', () => {
+  // Browser-only pinning renders dates in the runner's zone on the server and the clinic zone on
+  // the client. React reports that as hydration error #418 and the page-error guards fail the test.
+  const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
+  const webServerBlock = config.match(/webServer:\s*\{[\s\S]*?\n\s{2}\},/)?.[0] ?? ''
+
+  assert.match(webServerBlock, /env:\s*\{\s*TZ:\s*'Asia\/Kolkata'\s*\}/)
+})

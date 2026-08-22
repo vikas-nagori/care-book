@@ -41,6 +41,11 @@ export default defineConfig({
   webServer: {
     command: 'npm run build:e2e && npm run start:e2e',
     url: 'http://localhost:3000',
+    // The server must share the browser's clock. Pinning only the browser leaves the app rendering
+    // dates in the runner's zone on the server and the clinic zone on the client, which React
+    // reports as a hydration mismatch (#418) and the error guards turn into a failure. process.env
+    // is inherited, so this only overrides the zone.
+    env: { TZ: 'Asia/Kolkata' },
     reuseExistingServer: false,
     timeout: 300_000,
     stdout: 'pipe',
