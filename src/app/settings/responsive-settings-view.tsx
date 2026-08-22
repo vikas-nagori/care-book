@@ -12,9 +12,11 @@ import type {
   PackageTemplate,
   Profile,
   UserInvite,
+  ConnectedMcpApp,
 } from '@/lib/supabase/types'
 import { GuidedTourLauncher } from '@/components/tour/guided-tour-launcher'
 import { AccountSummary } from './account-summary'
+import { ConnectedApps } from './connected-apps'
 import { AppointmentTypesList } from './appointment-types-list'
 import { ExternalStaffList } from './external-staff-list'
 import { InviteForm } from './invite-form'
@@ -35,6 +37,8 @@ type ResponsiveSettingsViewProps = {
   invites?: UserInvite[]
   profiles?: Profile[]
   isExternalStaffSchemaMissing?: boolean
+  connectedApps?: ConnectedMcpApp[]
+  revokeConnectedAppAction: (formData: FormData) => Promise<void>
 }
 
 function subscribeToDesktopLayout(onStoreChange: () => void) {
@@ -66,6 +70,8 @@ export function SettingsResponsiveView({
   invites = [],
   profiles = [],
   isExternalStaffSchemaMissing = false,
+  connectedApps = [],
+  revokeConnectedAppAction,
 }: ResponsiveSettingsViewProps) {
   const isDesktop = useSettingsDesktopLayout()
 
@@ -74,6 +80,7 @@ export function SettingsResponsiveView({
       <div className="hidden space-y-6 md:block">
         <GuidedTourLauncher />
         <AccountSummary profile={profile} logoutAction={logoutAction} />
+        <ConnectedApps apps={connectedApps} revokeAction={revokeConnectedAppAction} />
         {accessLevel === 'admin' && (
           <div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
             <div className="space-y-6">
@@ -110,6 +117,8 @@ export function SettingsResponsiveView({
         invites={invites}
         profiles={profiles}
         isExternalStaffSchemaMissing={isExternalStaffSchemaMissing}
+        connectedApps={connectedApps}
+        revokeConnectedAppAction={revokeConnectedAppAction}
       />
     </div>
   )

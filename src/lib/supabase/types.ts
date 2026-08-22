@@ -232,6 +232,65 @@ export type PackageSessionAllocation = {
 
 export type UserRole = 'admin' | 'staff'
 
+export type McpScope = 'read' | 'write:clinical' | 'write:billing'
+
+export type McpOAuthClient = {
+  id: string
+  client_id: string
+  client_name: string | null
+  redirect_uris: string[]
+  token_endpoint_auth_method: 'none' | 'client_secret_post'
+  client_secret_hash: string | null
+  created_at: string
+}
+
+export type McpAccessGrant = {
+  id: string
+  user_id: string
+  clinic_id: string
+  client_id: string
+  scopes: McpScope[]
+  resource: string
+  access_token_hash: string
+  refresh_token_hash: string | null
+  access_expires_at: string
+  refresh_expires_at: string | null
+  supabase_refresh_token_ciphertext: string | null
+  supabase_refresh_token_nonce: string | null
+  supabase_refresh_token_version: number
+  last_used_at: string | null
+  revoked_at: string | null
+  created_at: string
+}
+
+export type ConnectedMcpApp = {
+  id: string
+  client_id: string
+  client_name: string
+  scopes: McpScope[]
+  created_at: string
+  last_used_at: string | null
+}
+
+export type McpToolInvocationStatus = 'ok' | 'error' | 'denied' | 'dry_run'
+
+export type McpToolInvocation = {
+  id: string
+  grant_id: string
+  user_id: string
+  clinic_id: string
+  tool_name: string
+  idempotency_key: string | null
+  request_digest: string
+  status: McpToolInvocationStatus
+  error_code: string | null
+  result_json: Record<string, unknown> | null
+  entity_type: string | null
+  entity_id: string | null
+  duration_ms: number | null
+  created_at: string
+}
+
 export type ProfileStatus = 'active' | 'blocked' | 'deleted'
 
 export type Profile = {

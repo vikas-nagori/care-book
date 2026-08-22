@@ -11,7 +11,11 @@ for (const route of PROTECTED_ROUTES) {
   test(`redirects unauthenticated GET ${route.requestPath} to /login`, async ({ page }) => {
     await gotoDeniedRoute(page, {
       requestPath: route.requestPath,
-      expected: { kind: 'redirect', pathname: '/login' },
+      expected: {
+        kind: 'redirect',
+        pathname: '/login',
+        query: { next: route.requestPath },
+      },
       landmark: { kind: 'button', name: 'Sign In' },
     })
   })

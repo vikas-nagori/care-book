@@ -12,7 +12,7 @@ test('signs out through the platform UI and revokes access to the console', asyn
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await expect(page).toHaveURL('http://localhost:3000/login')
   await page.goto('/platform')
-  await expect(page).toHaveURL('http://localhost:3000/login')
+  await expect(page).toHaveURL('http://localhost:3000/login?next=%2Fplatform')
   await expect(page.getByRole('button', { name: 'Sign In', exact: true })).toBeVisible()
   await guards.assertClean()
 })

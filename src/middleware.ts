@@ -68,6 +68,8 @@ export async function middleware(request: NextRequest) {
   if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
+    url.search = ''
+    url.searchParams.set('next', `${path}${request.nextUrl.search}`)
     return redirectWithCsp(url)
   }
 
@@ -94,5 +96,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icons|api/cron).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icons|api/cron|api/mcp|oauth/token|oauth/register|oauth/revoke|\\.well-known).*)'],
 }
