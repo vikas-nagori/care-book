@@ -56,6 +56,18 @@ export async function logoutFromSettings(): Promise<void> {
   redirect('/login')
 }
 
+export async function revokeConnectedMcpApp(formData: FormData): Promise<void> {
+  const profile = await getCurrentProfile()
+  const grantId = String(formData.get('grant_id') ?? '')
+  if (!profile || !grantId) return
+  const { error } = await (await createClient())
+    .from('mcp_access_grants')
+    .update({ revoked_at: new Date().toISOString() })
+    .eq('id', grantId)
+  if (error) logger.error('settings/revokeConnectedMcpApp', error, { grantId })
+  revalidatePath('/settings')
+}
+
 function createServerAuthClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY

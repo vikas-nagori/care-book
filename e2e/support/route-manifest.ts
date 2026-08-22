@@ -158,6 +158,12 @@ export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
     cases: [{ requestPath: '/login', expected: { kind: 'render', pathname: '/login' }, landmark: { kind: 'button', name: 'Sign In' } }],
   },
   {
+    pattern: '/oauth/authorize',
+    access: 'public',
+    owner: 'e2e/public/routes.spec.ts',
+    cases: [{ requestPath: '/oauth/authorize', expected: { kind: 'redirect', pathname: '/login', query: { next: '/oauth/authorize' } }, landmark: { kind: 'button', name: 'Sign In' } }],
+  },
+  {
     pattern: '/clinic-onboarding',
     access: 'public',
     owner: 'e2e/public/routes.spec.ts',

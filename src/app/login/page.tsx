@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { BrandLockup } from '@/components/brand/brand'
+import { safeReturnPath } from '@/lib/mcp/return-url'
 
 function LoginPageContent() {
   const searchParams = useSearchParams()
@@ -23,6 +24,7 @@ function LoginPageContent() {
   const inviteCompleted = searchParams.get('invite') === 'complete'
   const resetCompleted = searchParams.get('reset') === 'complete'
   const authError = searchParams.get('error')
+  const nextPath = safeReturnPath(searchParams.get('next'))
 
   const authErrorMessage =
     authError === 'invite-link-invalid'
@@ -49,7 +51,7 @@ function LoginPageContent() {
       setError(error.message)
       setLoading(false)
     } else {
-      router.push('/')
+      router.replace(nextPath ?? '/')
       router.refresh()
     }
   }

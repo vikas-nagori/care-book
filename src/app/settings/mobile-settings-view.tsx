@@ -10,6 +10,7 @@ import {
   UserPlus,
   UserRound,
   UsersRound,
+  Link2,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -31,10 +32,12 @@ import type {
   PackageTemplate,
   Profile,
   UserInvite,
+  ConnectedMcpApp,
 } from '@/lib/supabase/types'
 import { cn } from '@/lib/utils'
 import { GuidedTourLauncher } from '@/components/tour/guided-tour-launcher'
 import { AccountSummary } from './account-summary'
+import { ConnectedApps } from './connected-apps'
 import { AppointmentTypesList } from './appointment-types-list'
 import { ExternalStaffList } from './external-staff-list'
 import { InviteForm } from './invite-form'
@@ -52,6 +55,7 @@ const sectionIcons: Record<MobileSettingsSectionKey, LucideIcon> = {
   staff: UsersRound,
   invites: Mail,
   users: UsersRound,
+  connected_apps: Link2,
 }
 
 type MobileSettingsViewProps = {
@@ -65,6 +69,8 @@ type MobileSettingsViewProps = {
   invites?: UserInvite[]
   profiles?: Profile[]
   isExternalStaffSchemaMissing?: boolean
+  connectedApps?: ConnectedMcpApp[]
+  revokeConnectedAppAction: (formData: FormData) => Promise<void>
 }
 
 export function MobileSettingsView({
@@ -78,6 +84,8 @@ export function MobileSettingsView({
   invites = [],
   profiles = [],
   isExternalStaffSchemaMissing = false,
+  connectedApps = [],
+  revokeConnectedAppAction,
 }: MobileSettingsViewProps) {
   const [selectedSection, setSelectedSection] = useState<MobileSettingsSectionKey | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -88,6 +96,7 @@ export function MobileSettingsView({
     externalStaff: externalStaff.length,
     invites: invites.length,
     activeUsers: profiles.length,
+    connectedApps: connectedApps.length,
   })
   const activeSection = sections.find((section) => section.key === selectedSection)
 
@@ -95,6 +104,8 @@ export function MobileSettingsView({
     switch (selectedSection) {
       case 'account':
         return <AccountSummary profile={profile} logoutAction={logoutAction} variant="sheet" />
+      case 'connected_apps':
+        return <ConnectedApps apps={connectedApps} variant="sheet" revokeAction={revokeConnectedAppAction} />
       case 'types':
         return <AppointmentTypesList appointmentTypes={appointmentTypes} variant="sheet" />
       case 'fees':

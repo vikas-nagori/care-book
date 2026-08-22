@@ -3,8 +3,26 @@ import { normalizeEmail } from '@/lib/onboarding/invite-helpers'
 import { redirect } from 'next/navigation'
 import { getSettingsAccessLevel } from '@/lib/settings/access'
 import { createClient } from '@/lib/supabase/server'
-import { logoutFromSettings } from './actions'
+import type { ConnectedMcpApp } from '@/lib/supabase/types'
+import { logoutFromSettings, revokeConnectedMcpApp } from './actions'
 import { SettingsResponsiveView } from './responsive-settings-view'
+
+async function loadConnectedApps(): Promise<ConnectedMcpApp[]> {
+  const supabase = await createClient()
+  const { data: grants, error } = await supabase
+    .from('mcp_access_grants')
+    .select('id, client_id, scopes, created_at, last_used_at')
+    .is('revoked_at', null)
+    .order('created_at', { ascending: false })
+  if (error || !grants?.length) return []
+  const clientIds = [...new Set(grants.map((grant) => grant.client_id))]
+  const { data: clients } = await supabase
+    .from('mcp_oauth_clients')
+    .select('client_id, client_name')
+    .in('client_id', clientIds)
+  const names = new Map((clients ?? []).map((client) => [client.client_id, client.client_name || client.client_id]))
+  return grants.map((grant) => ({ ...grant, client_name: names.get(grant.client_id) ?? grant.client_id })) as ConnectedMcpApp[]
+}
 
 export default async function SettingsPage() {
   const currentProfile = await getCurrentProfile()
@@ -15,6 +33,7 @@ export default async function SettingsPage() {
   }
 
   if (accessLevel === 'profile_only') {
+    const connectedApps = await loadConnectedApps()
     return (
       <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
         <h1 className="text-2xl font-bold">Settings</h1>
@@ -22,12 +41,15 @@ export default async function SettingsPage() {
           accessLevel="profile_only"
           profile={currentProfile}
           logoutAction={logoutFromSettings}
+          connectedApps={connectedApps}
+          revokeConnectedAppAction={revokeConnectedMcpApp}
         />
       </div>
     )
   }
 
   const supabase = await createClient()
+  const connectedApps = await loadConnectedApps()
   const [
     { data: appointmentTypes },
     { data: profiles },
@@ -63,6 +85,8 @@ export default async function SettingsPage() {
         accessLevel="admin"
         profile={currentProfile}
         logoutAction={logoutFromSettings}
+        connectedApps={connectedApps}
+        revokeConnectedAppAction={revokeConnectedMcpApp}
         appointmentTypes={appointmentTypes ?? []}
         settings={globalSettings ?? null}
         packageTemplates={packageTemplates ?? []}

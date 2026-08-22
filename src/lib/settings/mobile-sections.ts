@@ -1,5 +1,6 @@
 export type MobileSettingsSectionKey =
   | 'account'
+  | 'connected_apps'
   | 'fees'
   | 'types'
   | 'packages'
@@ -20,6 +21,7 @@ export type MobileSettingsCounts = {
   externalStaff: number
   invites: number
   activeUsers: number
+  connectedApps?: number
 }
 
 function countLabel(count: number, singular: string, plural = `${singular}s`) {
@@ -36,10 +38,17 @@ export function getMobileSettingsSections(
     subtitle: 'Profile & logout',
   }
 
-  if (accessLevel === 'profile_only') return [account]
+  const connectedApps: MobileSettingsSection = {
+    key: 'connected_apps',
+    title: 'Connected Apps',
+    subtitle: countLabel(counts.connectedApps ?? 0, 'app'),
+  }
+
+  if (accessLevel === 'profile_only') return [account, connectedApps]
 
   return [
     account,
+    connectedApps,
     { key: 'fees', title: 'Session Fees', subtitle: 'Clinic & home visits' },
     {
       key: 'types',

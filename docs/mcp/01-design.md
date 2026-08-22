@@ -1,9 +1,10 @@
 # Care-Book MCP Server — Design
 
 **Date:** 2026-08-15
-**Status:** Draft for review
+**Status:** Implemented 2026-08-22
 **Scope:** Expose Care-Book to Chanakya (and any other MCP client) as a remote,
-OAuth-protected MCP server. Full read + write tool surface, including billing.
+OAuth-protected MCP server with least-privilege reads, patient/appointment
+creation, and audited billing writes. Billing views are not exposed.
 
 ---
 
@@ -12,7 +13,8 @@ OAuth-protected MCP server. Full read + write tool surface, including billing.
 Care-Book gains two new capabilities:
 
 1. **An MCP server** at `POST /api/mcp` — stateless JSON-RPC, protocol
-   `2024-11-05`, exposing patients, schedule, clinical notes and billing as tools.
+   `2024-11-05`, exposing patient, schedule, clinical-note, reference, and
+   audited billing-write tools.
 2. **An OAuth 2.1 authorization server** on top of Supabase Auth, so a Chanakya
    user can link *their own* Care-Book account by consent, exactly the way a
    Claude user links a Google account.
@@ -164,7 +166,7 @@ If `expires_in` is omitted Chanakya assumes 55 minutes. We always send it.
 
 Chanakya proactively refreshes within a 5-minute window before expiry, sweeping
 every 120 s. An access-token lifetime of **1 hour** is comfortable. Refresh
-tokens must survive far longer — **30 days, rotating on each use**.
+grants have no fixed expiry and rotate on each use until revoked.
 
 ### 3.6 Redirect URI
 
@@ -210,7 +212,7 @@ hardcode it, but we **must** validate exact-match at both `/oauth/authorize` and
 │    ├── tokens.ts       mint / hash / verify opaque tokens   │
 │    └── guardrails.ts   scopes, idempotency, dry-run, limits │
 │                                                             │
-│  supabase/migrations/039_mcp_oauth.sql                      │
+│  supabase/migrations/040_mcp_oauth.sql                      │
 └───────────────┬─────────────────────────────────────────────┘
                 │  PostgREST, as the *end user*
                 ▼
@@ -306,10 +308,11 @@ would see in the UI. That is defence in depth, not the primary control.
 
 ---
 
-## 6. Data model — `supabase/migrations/039_mcp_oauth.sql`
+## 6. Data model — `supabase/migrations/040_mcp_oauth.sql`
 
-Four tables, all with RLS on. Numeric prefix 039 is free and unique (required —
-the Supabase CLI keys migrations by prefix).
+Five tables, all with RLS on. Migration `040_mcp_oauth.sql` is the
+authoritative MCP migration; migration 039 is already occupied by existing
+application history.
 
 ```sql
 -- Dynamically registered OAuth clients (RFC 7591). One row per MCP client
@@ -395,9 +398,10 @@ only — the OAuth endpoints run before a user session exists, so they use
 **Token format:** 32 random bytes, base64url, prefixed `cbk_at_` / `cbk_rt_`.
 Only SHA-256 digests are stored. Codes are hashed the same way.
 
-**Lifetimes:** authorization code 60 s · access token 1 h · refresh token 30 d
-with rotation on every use (old digest replaced atomically in the same
-transaction).
+**Lifetimes:** authorization code 60 s · access token 1 h · refresh token has
+no fixed expiry and rotates on every use (old digest replaced atomically in the
+same transaction). Resolution tokens are grant-bound, hashed, expire after
+10 minutes, and are consumed on writes.
 
 ---
 
@@ -545,9 +549,9 @@ Naming: `carebook_<verb>_<noun>`. Chanakya namespaces these as
 
 | Scope | Grants |
 |---|---|
-| `read` | All read tools, subject to the user's own role and RLS |
-| `write:clinical` | Patients, appointments, session notes |
-| `write:billing` | Payments, packages, refunds, fee adjustments. Admin-only |
+| `read` | Account, patient, appointment, SOAP-note, and reference reads, subject to RLS |
+| `write:clinical` | Patient and appointment creation only |
+| `write:billing` | Audited payment, refund, void, package-cancel, and fee-adjustment writes. Admin-only |
 
 A tool is callable only if its scope is in the grant **and** the underlying RLS
 or RPC lets that user do it. Both must pass.
@@ -558,21 +562,19 @@ or RPC lets that user do it. Both must pass.
 |---|---|
 | `carebook_whoami` | Linked user, role, clinic, granted scopes. First call an agent should make |
 | `carebook_search_patients` | Name/phone search. Reuses `src/lib/schedule/patient-search.ts` |
-| `carebook_get_patient` | Demographics, treatment plans, active packages, recent appointments |
+| `carebook_get_patient` | Demographics and treatment plans; no billing data |
 | `carebook_list_appointments` | Date range + status + patient filters. Applies `getAppointmentVisibilityFilter` |
 | `carebook_get_appointment` | One appointment with its session note |
 | `carebook_list_session_notes` | SOAP notes for a patient or appointment |
-| `carebook_get_patient_billing` | Packages, payments, balances. Gated on `canViewBilling` |
-| `carebook_billing_summary` | Clinic totals over a date range. Admin only |
 | `carebook_list_appointment_types` | Configurable types (migration 028) |
 | `carebook_list_staff` | Profiles + external staff for assignment |
 | `carebook_list_doctors` | Referral sources |
 
 ### 8.3 Clinical writes (`write:clinical`)
 
-`carebook_create_patient` · `carebook_update_patient` ·
-`carebook_create_appointment` · `carebook_reschedule_appointment` ·
-`carebook_cancel_appointment` · `carebook_upsert_session_note`
+`carebook_create_patient` · `carebook_create_appointment`. Patient updates,
+appointment rescheduling/cancellation, session-note writes, and deletes remain
+excluded.
 
 ### 8.4 Billing writes (`write:billing`, admin only)
 
@@ -686,7 +688,7 @@ are largely mechanical once the identity bridge is proven.
 | Phase | Delivers | Done when |
 |---|---|---|
 | **0. Identity spike** | Answers §5.3: can we mint a Supabase user JWT? | A throwaway script reads a row as a specific user through a minted JWT and RLS demonstrably applies. Outcome recorded; Plan B adopted if it fails |
-| **1. Foundations** | Migration 039, token mint/hash/verify, `identity.ts`, JSON-RPC framing, middleware + login `?next=` changes | Unit + integration tests green; no HTTP surface yet |
+| **1. Foundations** | Migration 040, token mint/hash/verify, `identity.ts`, JSON-RPC framing, middleware + login `?next=` changes | Unit + integration tests green; no HTTP surface yet |
 | **2. OAuth server** | The four `.well-known`/`oauth/*` endpoints and the consent page | Conformance script completes discovery → DCR → authorize → token against a local server |
 | **3. MCP endpoint + read tools** | `/api/mcp`, registry, all §8.2 tools | Chanakya connects to a preview deploy and `tools/list` returns the read catalogue |
 | **4. Clinical writes** | §8.3 tools, dry-run + idempotency + rate-limit guardrails | Integration tests prove idempotent replay and scope denial |
@@ -719,22 +721,21 @@ Open questions for review:
    should the token follow whatever clinic the profile currently points at?
    Current schema suggests one clinic per profile, so pinning is fine — worth
    confirming.
-3. **Should `carebook_billing_summary` expose clinic-wide revenue to an LLM
-   context at all?** It is admin-visible in the UI already, but MCP output flows
-   into a model's context and possibly a third-party API.
+3. **Billing remains write-only through MCP.** Billing history, balances,
+   package lists, reconciliation, and refund-void operations stay in Care-Book.
 
 ---
 
 ## 15. Branch and sequencing note
 
-The working tree currently sits on `fix/security-review-2026-08-15` with
-uncommitted changes, including a new `src/lib/security/`, three new migrations
-(036–038), and middleware edits.
+**Resolved 2026-08-22.** The 2026-08-15 security review merged as `db0801b`,
+taking `src/lib/security/`, migrations 036–038, and the middleware edits with
+it. The concern this section originally raised — that MCP work would tangle two
+security-relevant reviews — no longer applies.
 
-This work touches `src/middleware.ts` and adds migration 039, so it should
-**land after** that branch merges, on a fresh branch off the updated `main`.
-Starting it as a branch off the security work would tangle two security-relevant
-reviews together.
+This work now proceeds on `feat/carebook-mcp`, branched off the updated `main`.
+Migration `040_mcp_oauth.sql` is the authoritative MCP migration, and
+`src/middleware.ts` is at its post-review state.
 
 ---
 

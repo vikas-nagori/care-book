@@ -18,6 +18,7 @@ test('admin mobile settings sections include Session Fees after the account summ
     sections.map(({ key, title }) => ({ key, title })),
     [
       { key: 'account', title: 'Your Account' },
+      { key: 'connected_apps', title: 'Connected Apps' },
       { key: 'fees', title: 'Session Fees' },
       { key: 'types', title: 'Appointment Types' },
       { key: 'packages', title: 'Package Templates' },
@@ -30,9 +31,10 @@ test('admin mobile settings sections include Session Fees after the account summ
   assert.equal(sections.some((section) => section.title === 'Session Fees'), true)
 })
 
-test('profile-only mobile settings contains only the account section', () => {
+test('profile-only mobile settings contains account and connected apps', () => {
   assert.deepEqual(getMobileSettingsSections('profile_only', counts), [
     { key: 'account', title: 'Your Account', subtitle: 'Profile & logout' },
+    { key: 'connected_apps', title: 'Connected Apps', subtitle: '0 apps' },
   ])
 })
 
@@ -43,10 +45,12 @@ test('count subtitles use the required singular labels', () => {
     externalStaff: 1,
     invites: 1,
     activeUsers: 1,
+    connectedApps: 1,
   })
 
   assert.deepEqual(sections.map((section) => section.subtitle), [
     'Profile & logout',
+    '1 app',
     'Clinic & home visits',
     '1 type',
     '1 template',
@@ -64,10 +68,12 @@ test('count subtitles use the required plural labels, including zero', () => {
     externalStaff: 2,
     invites: 0,
     activeUsers: 2,
+    connectedApps: 0,
   })
 
   assert.deepEqual(sections.map((section) => section.subtitle), [
     'Profile & logout',
+    '0 apps',
     'Clinic & home visits',
     '0 types',
     '2 templates',
