@@ -28,3 +28,22 @@ test('a partial match requires confirmation rather than auto-selecting', () => {
 test('no matches are reported distinctly', () => {
   assert.deepEqual(classifyPatientMatches('Unknown', []), { kind: 'none' })
 })
+
+test('an exact match never suppresses the other candidates it was found alongside', () => {
+  // The Aadi regression: "Aadi" and "Aadi dadi" both match a search for "Aadi", and the exact hit
+  // used to be selected silently, so every booking went to the first record with no prompt.
+  const exact = patient('p1', 'Aadi')
+  const near = patient('p2', 'Aadi dadi')
+  const result = classifyPatientMatches('Aadi', [exact, near])
+
+  assert.equal(result.kind, 'ambiguous')
+  assert.deepEqual(result.kind === 'ambiguous' ? result.candidates : [], [exact, near])
+})
+
+test('exact matches are ordered ahead of near matches', () => {
+  const near = patient('p2', 'Aadi dadi')
+  const exact = patient('p1', 'Aadi')
+  const result = classifyPatientMatches('Aadi', [near, exact])
+
+  assert.deepEqual(result.kind === 'ambiguous' ? result.candidates.map((c) => c.id) : [], ['p1', 'p2'])
+})

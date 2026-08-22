@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { isMcpEnabled, mcpResourceUrl } from '@/lib/mcp/config'
 import { OAuthError, redeemAuthorizationCode, refreshGrant, type GrantTokens } from '@/lib/mcp/grants'
+import { allowOAuthRequest, clientIpFrom } from '@/lib/mcp/rate-limit'
 import { logger } from '@/lib/logger'
 
 const NO_STORE = { 'Cache-Control': 'no-store', Pragma: 'no-cache' }
@@ -20,6 +21,9 @@ function tokenResponse(tokens: GrantTokens): NextResponse {
 
 export async function POST(request: NextRequest) {
   if (!isMcpEnabled()) return new NextResponse(null, { status: 404 })
+  if (!allowOAuthRequest('token', clientIpFrom(request.headers))) {
+    return NextResponse.json({ error: 'temporarily_unavailable' }, { status: 429, headers: NO_STORE })
+  }
   try {
     const form = await request.formData()
     const grantType = String(form.get('grant_type') ?? '')
