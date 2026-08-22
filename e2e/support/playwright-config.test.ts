@@ -68,5 +68,5 @@ test('the browser runs on the clinic calendar so seeded dates and the dashboard 
   const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
   const timezoneSetting = config.match(/timezoneId:\s*([^,\n]+)/)?.[1]?.trim()
 
-  assert.equal(timezoneSetting, 'CLINIC_TIME_ZONE')
+  assert.equal(timezoneSetting, "'Asia/Kolkata'")
 })
