@@ -1,6 +1,8 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { usePathname } from 'next/navigation'
+import { shouldHideAppChrome } from '@/lib/layout/app-chrome'
 import type { TourRole } from '@/lib/tour/content'
 import { GuidedTour } from './guided-tour'
 
@@ -38,8 +40,14 @@ type GuidedTourProviderProps = {
  */
 export function GuidedTourProvider({ role, children }: GuidedTourProviderProps) {
   const [open, setOpen] = useState(false)
+  const pathname = usePathname()
 
   useEffect(() => {
+    // Auth-flow screens (forced password change, invite completion) must never be covered by
+    // the tour — its modal focus trap would block the very form the user is required to
+    // submit. Leaving the seen flag unset defers the first-run auto-open to the dashboard.
+    if (shouldHideAppChrome(pathname)) return
+
     let seen = false
     try {
       seen = window.localStorage.getItem(TOUR_SEEN_KEY) === 'true'
@@ -56,7 +64,7 @@ export function GuidedTourProvider({ role, children }: GuidedTourProviderProps) 
         // Ignore write failures; the tour still works this session.
       }
     }
-  }, [])
+  }, [pathname])
 
   return (
     <GuidedTourContext.Provider value={{ openTour: () => setOpen(true) }}>

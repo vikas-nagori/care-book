@@ -5,7 +5,8 @@ function isFutureBan(bannedUntil: string | undefined): boolean {
   return Boolean(bannedUntil && Date.parse(bannedUntil) > Date.now())
 }
 
-test('approves a disposable onboarding request and persists its clinic and owner invite', async ({ page, factory }) => {
+test('approves a request, issues a temp password, and walks the owner through first login', async ({ page, factory, browser }) => {
+  test.setTimeout(90_000)
   const guards = attachErrorGuards(page)
   const request = await factory.createOnboardingRequest()
   const email = String(request.owner_email)
@@ -16,6 +17,12 @@ test('approves a disposable onboarding request and persists its clinic and owner
   await page.getByRole('button', { name: `Approve ${request.clinic_name}`, exact: true }).click()
   await expect(page.getByText('Clinic approved', { exact: true }).filter({ visible: true })).toBeVisible()
 
+  // Approval shows the owner's one-time temporary password — the only place it ever appears.
+  await expect(page.getByText('Temporary password issued', { exact: true })).toBeVisible()
+  const tempPassword = (await page.getByTestId('temp-password').textContent())!.trim()
+  expect(tempPassword.length).toBeGreaterThanOrEqual(8)
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
+
   await expect.poll(async () => (await factory.findOnboardingRequestByEmail(email))?.status).toBe('approved')
   const approved = await factory.findOnboardingRequestByEmail(email)
   expect(approved?.clinic_id).toBeTruthy()
@@ -24,21 +31,96 @@ test('approves a disposable onboarding request and persists its clinic and owner
   const invite = await factory.findInviteByEmail(email)
   expect(invite).toMatchObject({ clinic_id: approved!.clinic_id, email, role: 'admin', status: 'pending' })
   expect(invite?.auth_user_id).toBeTruthy()
-  factory.trackAuthUser(invite!.auth_user_id!, email)
-  factory.trackProfile(invite!.auth_user_id!, email)
-  expect((await factory.getAuthUser(invite!.auth_user_id!)).email).toBe(email)
+  const ownerAuthId = invite!.auth_user_id!
+  factory.trackAuthUser(ownerAuthId, email)
+  factory.trackProfile(ownerAuthId, email)
+  const ownerAuthUser = await factory.getAuthUser(ownerAuthId)
+  expect(ownerAuthUser.email).toBe(email)
+  // No invite email — the account is born confirmed with the forced-change flag armed.
+  expect(ownerAuthUser.app_metadata?.must_change_password).toBe(true)
 
   // The on_auth_user_created trigger writes an unprivileged placeholder (role 'staff', no
   // clinic). Approval must leave the owner as an admin of the clinic it just created, without
-  // waiting for the invite to be accepted.
-  const ownerProfile = await factory.findProfileById(invite!.auth_user_id!)
+  // waiting for first login.
+  const ownerProfile = await factory.findProfileById(ownerAuthId)
   expect(ownerProfile).toMatchObject({ role: 'admin', clinic_id: approved!.clinic_id })
 
   await page.goto('/platform/users')
-  const ownerRow = page.getByTestId(`user-row-${invite!.auth_user_id!}`)
+  const ownerRow = page.getByTestId(`user-row-${ownerAuthId}`)
   await expect(ownerRow).toContainText('admin')
   await expect(ownerRow).toContainText(String(clinic!.name))
   await expect(ownerRow).toContainText('invite pending')
+
+  // First login with the temp password: middleware forces the change page before anything else.
+  // `browser.newContext()` inherits the project's storageState (the platform admin session), so
+  // the owner's context must start explicitly signed out.
+  const ownerContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
+  const ownerPage = await ownerContext.newPage()
+  const ownerGuards = attachErrorGuards(ownerPage)
+  await ownerPage.goto('http://localhost:3000/login')
+  await ownerPage.getByLabel('Email').fill(email)
+  await ownerPage.getByLabel('Password').fill(tempPassword)
+  await ownerPage.getByRole('button', { name: 'Sign In', exact: true }).click()
+  await ownerPage.waitForURL('**/auth/change-password', { timeout: 15_000 })
+
+  const newPassword = `E2e-${factory.token}-Own3r`
+  await ownerPage.getByLabel('New password', { exact: true }).fill(newPassword)
+  await ownerPage.getByLabel('Confirm new password', { exact: true }).fill(newPassword)
+  // Submit with Enter rather than clicking: success replaces the route while the button is in
+  // its disabled loading state, which strands a pointer click's actionability loop (the click
+  // has no timeout of its own and hangs the test).
+  await ownerPage.getByLabel('Confirm new password', { exact: true }).press('Enter')
+  await ownerPage.waitForURL((url) => url.pathname === '/', { timeout: 15_000 })
+  // The first-run guided tour greets the owner on the dashboard (never earlier — on the forced
+  // change page it would trap focus over the form). Dismiss it to prove the dashboard renders.
+  await ownerPage.getByRole('button', { name: 'Skip tour', exact: true }).click({ timeout: 15_000 })
+  await expect(ownerPage.getByRole('heading', { name: 'Today', exact: true })).toBeVisible({ timeout: 15_000 })
+  await ownerGuards.assertClean()
+  await ownerContext.close()
+
+  // First password change doubles as invite acceptance: flag cleared, invite accepted, and the
+  // owner name/mobile from the onboarding request synced onto the profile.
+  await expect.poll(async () => (await factory.getAuthUser(ownerAuthId)).app_metadata?.must_change_password).toBe(false)
+  await expect.poll(async () => (await factory.findInviteByEmail(email))?.status).toBe('accepted')
+  expect(await factory.findProfileById(ownerAuthId)).toMatchObject({
+    role: 'admin',
+    clinic_id: approved!.clinic_id,
+    full_name: request.owner_full_name,
+    mobile_number: request.owner_mobile_number,
+  })
+
+  // The badge disappears once onboarding is complete.
+  await page.goto('/platform/users')
+  await expect(page.getByTestId(`user-row-${ownerAuthId}`)).not.toContainText('invite pending')
+  await guards.assertClean()
+})
+
+test('re-issues a temp password for a user who never completed first login', async ({ page, factory, browser }) => {
+  const guards = attachErrorGuards(page)
+  const clinic = await factory.createClinic()
+  const user = await factory.createAuthUser({ clinicId: clinic.id })
+  await factory.createUserInvite({ clinicId: clinic.id, email: user.email, authUserId: user.id })
+
+  await page.goto('/platform/users')
+  const row = page.getByTestId(`user-row-${user.id}`)
+  await expect(row).toContainText('invite pending')
+  await row.getByRole('button', { name: `Issue temp password for ${user.email}`, exact: true }).click()
+
+  await expect(page.getByText('Temporary password issued', { exact: true })).toBeVisible()
+  const tempPassword = (await page.getByTestId('temp-password').textContent())!.trim()
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
+
+  // The re-issue overwrites the old password and arms the forced-change flag.
+  await expect.poll(async () => (await factory.getAuthUser(user.id)).app_metadata?.must_change_password).toBe(true)
+
+  const userContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
+  const userPage = await userContext.newPage()
+  await userPage.goto('http://localhost:3000/login')
+  await userPage.getByLabel('Email').fill(user.email)
+  await userPage.getByLabel('Password').fill(tempPassword)
+  await userPage.getByRole('button', { name: 'Sign In', exact: true }).click()
+  await userPage.waitForURL('**/auth/change-password', { timeout: 15_000 })
+  await userContext.close()
   await guards.assertClean()
 })
 

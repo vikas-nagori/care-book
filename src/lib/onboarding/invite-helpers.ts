@@ -73,6 +73,20 @@ export function getInviteCompletionFieldErrorTarget(
   }
 }
 
+export type PasswordChangeField = 'currentPassword' | InviteCompletionField
+
+export function getPasswordChangeFieldErrorTarget(
+  errorCode: string
+): PasswordChangeField | null {
+  switch (errorCode) {
+    case 'PASSWORD_CURRENT_REQUIRED':
+    case 'PASSWORD_CURRENT_INVALID':
+      return 'currentPassword'
+    default:
+      return getInviteCompletionFieldErrorTarget(errorCode)
+  }
+}
+
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
 }

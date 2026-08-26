@@ -12,11 +12,17 @@ import {
   getInviteErrorMessage,
   syncInvitedProfile,
 } from '@/lib/onboarding/invite-server'
-import { getInviteCollisionResult, validateInviteInput } from '@/lib/onboarding/invite-helpers'
+import {
+  getInviteCollisionResult,
+  validateInviteCompletionInput,
+  validateInviteInput,
+} from '@/lib/onboarding/invite-helpers'
 import { validateAppointmentTypeInput } from '@/lib/appointments/appointment-type'
 import { validatePackageTemplateInput } from '@/lib/billing/package-template'
 import type {
   AppointmentTypeResult,
+  ChangeOwnPasswordInput,
+  ChangeOwnPasswordResult,
   CreateAppointmentTypeInput,
   CreatePackageTemplateInput,
   CreateUserInviteInput,
@@ -1039,6 +1045,88 @@ export async function revokeUserInvite(
       success: false,
       errorCode: 'INVITE_REVOKE_FAILED',
       message: getInviteErrorMessage(error),
+    }
+  }
+}
+
+export async function changeOwnPassword(
+  input: ChangeOwnPasswordInput
+): Promise<ChangeOwnPasswordResult> {
+  try {
+    // Any signed-in user may change their own password — staff included — so this only needs
+    // a profile, not admin settings access.
+    const profile = await getCurrentProfile()
+    if (!profile?.email) {
+      return {
+        success: false,
+        errorCode: 'PASSWORD_CHANGE_AUTH_REQUIRED',
+        message: 'Sign in to change your password.',
+      }
+    }
+
+    if (!input.currentPassword) {
+      return {
+        success: false,
+        errorCode: 'PASSWORD_CURRENT_REQUIRED',
+        message: 'Enter your current password.',
+      }
+    }
+
+    const validation = validateInviteCompletionInput({
+      password: input.password,
+      passwordConfirmation: input.passwordConfirmation,
+    })
+    if (!validation.success) {
+      return {
+        success: false,
+        errorCode: validation.errorCode,
+        message: validation.message,
+      }
+    }
+
+    // Re-authenticate on the session-less client so a borrowed open session cannot silently
+    // take over the account, and so this sign-in never touches the caller's cookies.
+    const verifyClient = createServerAuthClient()
+    const { error: verifyError } = await verifyClient.auth.signInWithPassword({
+      email: profile.email,
+      password: input.currentPassword,
+    })
+
+    if (verifyError) {
+      return {
+        success: false,
+        errorCode: 'PASSWORD_CURRENT_INVALID',
+        message: 'Your current password is incorrect.',
+      }
+    }
+
+    // Best effort: revoke the throwaway session the verification just minted. Scope must stay
+    // 'local' — the default 'global' scope revokes every session the user has, including the
+    // cookie session this action is about to update.
+    await verifyClient.auth.signOut({ scope: 'local' })
+
+    const supabase = await createClient()
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: validation.values.password,
+    })
+
+    if (updateError) {
+      logger.error('settings/changeOwnPassword/updateUser', updateError, { userId: profile.id })
+      return {
+        success: false,
+        errorCode: updateError.code ?? 'PASSWORD_CHANGE_UPDATE_FAILED',
+        message: updateError.message,
+      }
+    }
+
+    return { success: true }
+  } catch (error) {
+    // `input` carries the user's credentials — log the error alone, never the input.
+    logger.error('settings/changeOwnPassword/unexpected', error)
+    return {
+      success: false,
+      errorCode: 'PASSWORD_CHANGE_FAILED',
+      message: 'Unable to change your password right now.',
     }
   }
 }

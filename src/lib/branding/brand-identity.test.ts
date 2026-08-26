@@ -68,8 +68,10 @@ test('brand identity appears only on the approved chrome and auth surfaces', () 
   const onboardingSource = readSource('src/app/clinic-onboarding/clinic-onboarding-form.tsx')
   const inviteSource = readSource('src/app/auth/complete-invite/complete-invite-form.tsx')
   const updatePasswordSource = readSource('src/app/auth/update-password/update-password-form.tsx')
+  const changePasswordSource = readSource('src/app/auth/change-password/change-password-form.tsx')
 
   assert.deepEqual(brandedSourcePaths, [
+    'src/app/auth/change-password/change-password-form.tsx',
     'src/app/auth/complete-invite/complete-invite-form.tsx',
     'src/app/auth/update-password/update-password-form.tsx',
     'src/app/clinic-onboarding/clinic-onboarding-form.tsx',
@@ -83,6 +85,7 @@ test('brand identity appears only on the approved chrome and auth surfaces', () 
   assert.match(onboardingSource, /<BrandLockup/)
   assert.match(inviteSource, /<BrandLockup/)
   assert.match(updatePasswordSource, /<BrandLockup/)
+  assert.match(changePasswordSource, /<BrandLockup/)
   assert.doesNotMatch(
     brandedSourcePaths.map((path) => readSource(path)).join('\n'),
     /\bpriority\b/,

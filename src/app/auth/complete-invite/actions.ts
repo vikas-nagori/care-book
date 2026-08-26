@@ -4,6 +4,10 @@ import { revalidatePath } from 'next/cache'
 import { logger } from '@/lib/logger'
 import { validateInviteCompletionInput, normalizeEmail } from '@/lib/onboarding/invite-helpers'
 import { getInviteErrorMessage } from '@/lib/onboarding/invite-server'
+import {
+  MUST_CHANGE_PASSWORD_FLAG,
+  mustChangePassword,
+} from '@/lib/security/forced-password-change'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import type {
@@ -99,6 +103,18 @@ export async function completeInvitedSignup(
         success: false,
         errorCode: updateUserError.code ?? 'INVITE_PASSWORD_UPDATE_FAILED',
         message: updateUserError.message,
+      }
+    }
+
+    // An account issued a temporary password may complete onboarding here instead of the forced
+    // change page (/auth/* is exempt from the middleware gate) — they just set their own
+    // password, so clear the flag rather than forcing them through a second change. Non-fatal.
+    if (mustChangePassword(user.app_metadata)) {
+      const { error: flagClearError } = await adminSupabase.auth.admin.updateUserById(user.id, {
+        app_metadata: { [MUST_CHANGE_PASSWORD_FLAG]: false },
+      })
+      if (flagClearError) {
+        logger.warn('auth/completeInvite/clearFlag', flagClearError.message, { userId: user.id })
       }
     }
 

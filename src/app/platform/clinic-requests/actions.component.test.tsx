@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { meetsInvitePasswordPolicy } from '@/lib/onboarding/invite-helpers'
 
 const mocks = vi.hoisted(() => ({
   requirePlatformAdminUser: vi.fn(),
   createAdminClient: vi.fn(),
   revalidatePath: vi.fn(),
   loggerError: vi.fn(),
-  inviteUserByEmail: vi.fn(),
+  createUser: vi.fn(),
   profileUpsert: vi.fn(),
   inviteInsert: vi.fn(),
   requestRow: vi.fn(),
@@ -53,7 +54,7 @@ function adminClient() {
 
   mocks.createAdminClient.mockReturnValue({
     from: vi.fn((table: string) => tables[table]),
-    auth: { admin: { inviteUserByEmail: mocks.inviteUserByEmail } },
+    auth: { admin: { createUser: mocks.createUser } },
   })
 }
 
@@ -72,13 +73,37 @@ describe('approveClinicOnboardingRequest', () => {
       },
       error: null,
     })
-    mocks.inviteUserByEmail.mockResolvedValue({
+    mocks.createUser.mockResolvedValue({
       data: { user: { id: OWNER_AUTH_ID } },
       error: null,
     })
     mocks.profileUpsert.mockResolvedValue({ error: null })
     mocks.inviteInsert.mockResolvedValue({ error: null })
     adminClient()
+  })
+
+  it('creates the owner with a confirmed email, a policy-passing temp password, and the forced-change flag', async () => {
+    const result = await approveClinicOnboardingRequest({ requestId: 'request-1' })
+
+    expect(result.success).toBe(true)
+    expect(mocks.createUser).toHaveBeenCalledTimes(1)
+    const [payload] = mocks.createUser.mock.calls[0] as [Record<string, unknown>]
+    expect(payload.email).toBe('owner@example.com')
+    expect(payload.email_confirm).toBe(true)
+    expect(payload.app_metadata).toEqual({ must_change_password: true })
+    expect(meetsInvitePasswordPolicy(payload.password as string)).toBe(true)
+  })
+
+  it('returns the owner credentials once so the platform admin can hand them over', async () => {
+    const result = await approveClinicOnboardingRequest({ requestId: 'request-1' })
+
+    expect(result.success).toBe(true)
+    if (!result.success) return
+    const [payload] = mocks.createUser.mock.calls[0] as [Record<string, unknown>]
+    expect(result.ownerCredentials).toEqual({
+      email: 'owner@example.com',
+      tempPassword: payload.password,
+    })
   })
 
   it('promotes the trigger-created placeholder profile to admin of the new clinic', async () => {
@@ -104,20 +129,34 @@ describe('approveClinicOnboardingRequest', () => {
     expect(payload).not.toHaveProperty('mobile_number')
   })
 
-  it('carries the owner name and mobile from the request onto the invite', async () => {
+  it('carries the owner name and mobile from the request onto the invite, still pending', async () => {
     await approveClinicOnboardingRequest({ requestId: 'request-1' })
 
     expect(mocks.inviteInsert).toHaveBeenCalledWith(
-      expect.objectContaining({ full_name: 'Owner Name', mobile_number: '9999999999' })
+      expect.objectContaining({
+        full_name: 'Owner Name',
+        mobile_number: '9999999999',
+        status: 'pending',
+      })
     )
   })
 
   it('writes the profile only after the auth identity exists', async () => {
     await approveClinicOnboardingRequest({ requestId: 'request-1' })
 
-    expect(mocks.inviteUserByEmail.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mocks.createUser.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.profileUpsert.mock.invocationCallOrder[0]
     )
+  })
+
+  it('never logs the generated password, even on later failures', async () => {
+    mocks.profileUpsert.mockResolvedValue({ error: { code: '23503', message: 'fk violation' } })
+
+    await approveClinicOnboardingRequest({ requestId: 'request-1' })
+
+    const [payload] = mocks.createUser.mock.calls[0] as [{ password: string }]
+    const logged = JSON.stringify(mocks.loggerError.mock.calls)
+    expect(logged).not.toContain(payload.password)
   })
 
   it('fails closed when the profile cannot be promoted, rather than reporting success', async () => {

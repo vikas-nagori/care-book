@@ -4,6 +4,10 @@ import { logger } from '@/lib/logger'
 import { isPlatformAdminEmail } from '@/lib/platform/access'
 import { resolveSuperadminRedirect } from '@/lib/platform/routing'
 import { buildContentSecurityPolicy, createCspNonce } from '@/lib/security/csp'
+import {
+  FORCED_PASSWORD_CHANGE_PATH,
+  needsForcedPasswordChange,
+} from '@/lib/security/forced-password-change'
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
@@ -74,6 +78,15 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user) {
+    // Accounts issued a temporary password must set their own before touching anything else.
+    // /auth/* stays reachable (the change page itself, the callback, complete-invite).
+    if (needsForcedPasswordChange(user.app_metadata, path)) {
+      const url = request.nextUrl.clone()
+      url.pathname = FORCED_PASSWORD_CHANGE_PATH
+      url.search = ''
+      return redirectWithCsp(url)
+    }
+
     const isSuperadmin = isPlatformAdminEmail(user.email)
 
     // Authenticated users shouldn't sit on /login — superadmins land in the

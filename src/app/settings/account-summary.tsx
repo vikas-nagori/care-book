@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/card'
 import { getAccountSummaryItems } from '@/lib/settings/account-summary'
 import type { Profile } from '@/lib/supabase/types'
+import { ChangePasswordForm } from './change-password-form'
 
 type AccountSummaryProps = {
   profile: Profile
@@ -47,10 +48,23 @@ export function AccountSummary({ profile, logoutAction, variant = 'card' }: Acco
     </dl>
   )
 
+  const changePasswordSection = (
+    <section className="space-y-3 rounded-lg border p-3.5">
+      <div>
+        <h3 className="text-sm font-semibold">Change Password</h3>
+        <p className="text-xs text-muted-foreground">
+          Confirm your current password, then choose a new one. No email needed.
+        </p>
+      </div>
+      <ChangePasswordForm />
+    </section>
+  )
+
   if (variant === 'sheet') {
     return (
       <div className="space-y-5">
         {summary}
+        {changePasswordSection}
         <form action={logoutAction}>
           <Button type="submit" variant="outline" className="h-11 w-full">
             Logout
@@ -66,8 +80,9 @@ export function AccountSummary({ profile, logoutAction, variant = 'card' }: Acco
         <CardTitle>Your Account</CardTitle>
         <CardDescription>Your profile details are visible here for reference only.</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         {summary}
+        {changePasswordSection}
       </CardContent>
       <CardFooter className="justify-end">
         <form action={logoutAction}>

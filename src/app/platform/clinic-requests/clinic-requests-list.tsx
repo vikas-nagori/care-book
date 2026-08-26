@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
-import type { ClinicOnboardingRequest } from '@/lib/supabase/types'
+import { TempPasswordDialog } from '@/components/platform/temp-password-dialog'
+import type { ClinicOnboardingRequest, OwnerCredentials } from '@/lib/supabase/types'
 import {
   approveClinicOnboardingRequest,
   rejectClinicOnboardingRequest,
@@ -21,6 +22,7 @@ export function ClinicRequestsList({ requests }: ClinicRequestsListProps) {
   const { toast } = useToast()
   const [busyId, setBusyId] = useState<string | null>(null)
   const [rejectionReasons, setRejectionReasons] = useState<Record<string, string>>({})
+  const [ownerCredentials, setOwnerCredentials] = useState<OwnerCredentials | null>(null)
 
   async function approve(requestId: string) {
     setBusyId(requestId)
@@ -30,10 +32,14 @@ export function ClinicRequestsList({ requests }: ClinicRequestsListProps) {
     toast({
       title: result.success ? 'Clinic approved' : 'Approval failed',
       description: result.success
-        ? 'The clinic was created and the owner invite was sent.'
+        ? 'The clinic was created. Share the temporary password with the owner directly.'
         : result.message,
       variant: result.success ? 'default' : 'destructive',
     })
+
+    if (result.success && result.ownerCredentials) {
+      setOwnerCredentials(result.ownerCredentials)
+    }
   }
 
   async function reject(requestId: string) {
@@ -65,6 +71,10 @@ export function ClinicRequestsList({ requests }: ClinicRequestsListProps) {
 
   return (
     <div className="space-y-4">
+      <TempPasswordDialog
+        credentials={ownerCredentials}
+        onClose={() => setOwnerCredentials(null)}
+      />
       {requests.map((request) => {
         const isBusy = busyId === request.id
         const isPending = request.status === 'pending'

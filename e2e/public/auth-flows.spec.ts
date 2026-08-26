@@ -142,3 +142,37 @@ test('updates a password through a real local recovery action link', async ({ pa
   await expect(page).toHaveURL('http://localhost:3000/')
   await guards.assertClean()
 })
+
+test('changes the password from Settings with current-password verification, no email involved', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const clinic = await factory.createClinic()
+  const user = await factory.createAuthUser({ clinicId: clinic.id })
+
+  await page.goto('/login')
+  await page.getByLabel('Email').fill(user.email)
+  await page.getByLabel('Password').fill(user.password)
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+  await expect(page).toHaveURL('http://localhost:3000/')
+
+  await page.goto('/settings')
+  const isMobile = (page.viewportSize()?.width ?? 1280) < 768
+  if (isMobile) {
+    await page.getByRole('button', { name: /Your Account.*Profile & logout/i }).click()
+  }
+
+  const newPassword = `E2e-${factory.token}-Chang3d`
+  await page.getByLabel('Current password', { exact: true }).fill(user.password)
+  await page.getByLabel('New password', { exact: true }).fill(newPassword)
+  await page.getByLabel('Confirm new password', { exact: true }).fill(newPassword)
+  await page.getByRole('button', { name: 'Change Password', exact: true }).click()
+  await expect(page.getByText('Password changed', { exact: true }).filter({ visible: true })).toBeVisible()
+
+  // The new password signs in through the real login form — proof the change stuck.
+  await page.getByRole('button', { name: 'Logout', exact: true }).click()
+  await page.waitForURL('**/login**', { timeout: 15_000 })
+  await page.getByLabel('Email').fill(user.email)
+  await page.getByLabel('Password').fill(newPassword)
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+  await expect(page).toHaveURL('http://localhost:3000/')
+  await guards.assertClean()
+})
