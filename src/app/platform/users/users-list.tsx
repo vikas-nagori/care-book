@@ -6,8 +6,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
-import type { PlatformUserSummary } from '@/lib/supabase/types'
-import { blockUser, sendPasswordReset, unblockUser } from './actions'
+import { TempPasswordDialog } from '@/components/platform/temp-password-dialog'
+import type { OwnerCredentials, PlatformUserSummary } from '@/lib/supabase/types'
+import { blockUser, issueTempPassword, sendPasswordReset, unblockUser } from './actions'
 
 type UsersListProps = {
   users: PlatformUserSummary[]
@@ -18,7 +19,26 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
   const { toast } = useToast()
   const [busyId, setBusyId] = useState<string | null>(null)
   const [resetBusyId, setResetBusyId] = useState<string | null>(null)
+  const [tempPasswordBusyId, setTempPasswordBusyId] = useState<string | null>(null)
+  const [issuedCredentials, setIssuedCredentials] = useState<OwnerCredentials | null>(null)
   const superadmins = new Set(superadminIds)
+
+  async function issuePassword(user: PlatformUserSummary) {
+    setTempPasswordBusyId(user.id)
+    const result = await issueTempPassword({ userId: user.id })
+    setTempPasswordBusyId(null)
+
+    if (!result.success) {
+      toast({
+        title: 'Could not issue temp password',
+        description: result.message,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setIssuedCredentials(result.credentials)
+  }
 
   async function sendReset(user: PlatformUserSummary) {
     setResetBusyId(user.id)
@@ -63,6 +83,10 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
 
   return (
     <div className="space-y-3">
+      <TempPasswordDialog
+        credentials={issuedCredentials}
+        onClose={() => setIssuedCredentials(null)}
+      />
       {users.map((user) => {
         const isBusy = busyId === user.id
         const isBlocked = user.status === 'blocked'
@@ -88,6 +112,21 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {user.has_pending_invite && !isDeleted ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => issuePassword(user)}
+                    disabled={tempPasswordBusyId === user.id}
+                    aria-label={`Issue temp password for ${user.email}`}
+                  >
+                    {tempPasswordBusyId === user.id ? (
+                      <Loader2 className="mr-1 animate-spin" size={14} />
+                    ) : null}
+                    Issue temp password
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   size="sm"

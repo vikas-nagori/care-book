@@ -521,10 +521,17 @@ export type ManageClinicOnboardingRequestInput = {
   rejectionReason?: string | null
 }
 
+export type OwnerCredentials = {
+  email: string
+  /** Shown once to the platform admin; never persisted or logged. */
+  tempPassword: string
+}
+
 export type ManageClinicOnboardingRequestResult =
   | {
       success: true
       request: ClinicOnboardingRequest
+      ownerCredentials?: OwnerCredentials
     }
   | ActionErrorResult
 
@@ -568,6 +575,40 @@ export type CompleteInvitedSignupInput = {
 export type CompleteInvitedSignupResult =
   | {
       success: true
+    }
+  | ActionErrorResult
+
+export type ForcedPasswordChangeInput = {
+  password: string
+  passwordConfirmation: string
+}
+
+export type ForcedPasswordChangeResult =
+  | {
+      success: true
+    }
+  | ActionErrorResult
+
+export type ChangeOwnPasswordInput = {
+  currentPassword: string
+  password: string
+  passwordConfirmation: string
+}
+
+export type ChangeOwnPasswordResult =
+  | {
+      success: true
+    }
+  | ActionErrorResult
+
+export type IssueTempPasswordInput = {
+  userId: string
+}
+
+export type IssueTempPasswordResult =
+  | {
+      success: true
+      credentials: OwnerCredentials
     }
   | ActionErrorResult
 

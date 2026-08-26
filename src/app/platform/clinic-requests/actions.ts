@@ -2,11 +2,12 @@
 
 import { revalidatePath } from 'next/cache'
 import {
-  buildInviteRedirectTo,
   getInviteErrorMessage,
   syncInvitedProfile,
 } from '@/lib/onboarding/invite-server'
 import { normalizeEmail } from '@/lib/onboarding/invite-helpers'
+import { generateTempPassword } from '@/lib/onboarding/temp-password'
+import { MUST_CHANGE_PASSWORD_FLAG } from '@/lib/security/forced-password-change'
 import { requirePlatformAdminUser } from '@/lib/platform/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { logger } from '@/lib/logger'
@@ -85,21 +86,25 @@ export async function approveClinicOnboardingRequest(
       }
     }
 
-    const redirectTo = await buildInviteRedirectTo()
+    // No invite email: the owner gets a one-time temporary password that the platform admin
+    // shares with them directly. must_change_password forces a new password on first login.
+    const tempPassword = generateTempPassword()
     const { data: inviteUserData, error: inviteUserError } =
-      await adminSupabase.auth.admin.inviteUserByEmail(normalizedOwnerEmail, {
-        redirectTo,
-        data: { role: 'admin', clinic_id: clinic.id },
+      await adminSupabase.auth.admin.createUser({
+        email: normalizedOwnerEmail,
+        password: tempPassword,
+        email_confirm: true,
+        app_metadata: { [MUST_CHANGE_PASSWORD_FLAG]: true },
       })
 
     if (inviteUserError) {
-      logger.error('platform/approveClinicOnboardingRequest/inviteOwner', inviteUserError, {
+      logger.error('platform/approveClinicOnboardingRequest/createOwner', inviteUserError, {
         requestId: request.id,
         clinicId: clinic.id,
       })
       return {
         success: false,
-        errorCode: inviteUserError.code ?? 'CLINIC_OWNER_INVITE_FAILED',
+        errorCode: inviteUserError.code ?? 'CLINIC_OWNER_CREATE_FAILED',
         message: getInviteErrorMessage(inviteUserError),
       }
     }
@@ -193,6 +198,10 @@ export async function approveClinicOnboardingRequest(
     return {
       success: true,
       request: updatedRequest as ClinicOnboardingRequest,
+      ownerCredentials: {
+        email: normalizedOwnerEmail,
+        tempPassword,
+      },
     }
   } catch (error) {
     logger.error('platform/approveClinicOnboardingRequest/unexpected', error, input)

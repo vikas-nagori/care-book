@@ -189,6 +189,16 @@ export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
       landmark: { kind: 'button', name: 'Sign In' },
     }],
   },
+  {
+    pattern: '/auth/change-password',
+    access: 'public',
+    owner: 'e2e/public/routes.spec.ts',
+    cases: [{
+      requestPath: '/auth/change-password',
+      expected: { kind: 'redirect', pathname: '/login' },
+      landmark: { kind: 'button', name: 'Sign In' },
+    }],
+  },
 ] as const
 
 export function pageRoutesFor(access: RouteAccessGroup): readonly PageRouteDeclaration[] {

@@ -277,3 +277,12 @@ test('getInviteCollisionResult blocks cross-clinic invites without mutating them
     'conflict'
   )
 })
+
+test('getPasswordChangeFieldErrorTarget maps current-password errors and falls back to invite fields', async () => {
+  const { getPasswordChangeFieldErrorTarget } = await import('./invite-helpers.ts')
+  assert.equal(getPasswordChangeFieldErrorTarget('PASSWORD_CURRENT_REQUIRED'), 'currentPassword')
+  assert.equal(getPasswordChangeFieldErrorTarget('PASSWORD_CURRENT_INVALID'), 'currentPassword')
+  assert.equal(getPasswordChangeFieldErrorTarget('INVITE_PASSWORD_TOO_WEAK'), 'password')
+  assert.equal(getPasswordChangeFieldErrorTarget('INVITE_PASSWORD_MISMATCH'), 'passwordConfirmation')
+  assert.equal(getPasswordChangeFieldErrorTarget('SOMETHING_ELSE'), null)
+})

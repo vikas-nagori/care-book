@@ -6,11 +6,16 @@ import { isPlatformAdminEmail } from '@/lib/platform/access'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { getAppOrigin } from '@/lib/onboarding/invite-server'
+import { normalizeEmail } from '@/lib/onboarding/invite-helpers'
+import { generateTempPassword } from '@/lib/onboarding/temp-password'
+import { MUST_CHANGE_PASSWORD_FLAG } from '@/lib/security/forced-password-change'
 import { logger } from '@/lib/logger'
 import { BAN_DURATION, UNBAN_DURATION, shouldUnbanOnUserUnblock } from '@/lib/platform/block'
 import { normalizeUserDeletionReason } from '@/lib/platform/user-lifecycle'
 import type {
   ClinicStatus,
+  IssueTempPasswordInput,
+  IssueTempPasswordResult,
   ManageUserBlockInput,
   ManageUserBlockResult,
   SoftDeleteUserInput,
@@ -281,6 +286,105 @@ export async function softDeleteUser(input: SoftDeleteUserInput): Promise<Manage
       success: false,
       errorCode: 'USER_DELETE_FAILED',
       message: 'Unable to delete this user right now.',
+    }
+  }
+}
+
+export async function issueTempPassword(
+  input: IssueTempPasswordInput
+): Promise<IssueTempPasswordResult> {
+  try {
+    await requirePlatformAdminUser()
+    if (!input.userId) {
+      return { success: false, errorCode: 'USER_ID_REQUIRED', message: 'Choose a user.' }
+    }
+
+    const adminSupabase = createAdminClient()
+    const { data: target, error: lookupError } = await adminSupabase
+      .from('profiles')
+      .select('id, email, status')
+      .eq('id', input.userId)
+      .maybeSingle()
+
+    if (lookupError || !target?.email) {
+      logger.error('platform/issueTempPassword/lookup', lookupError, { userId: input.userId })
+      return {
+        success: false,
+        errorCode: lookupError?.code ?? 'USER_NOT_FOUND',
+        message: 'User was not found.',
+      }
+    }
+
+    if (target.status === 'deleted') {
+      return {
+        success: false,
+        errorCode: 'USER_DELETED',
+        message: 'Deleted users cannot receive temporary passwords.',
+      }
+    }
+
+    // A temp password may only be issued while the user has never set their own password —
+    // their invite is still pending. Once they complete first login, re-issuing would clobber
+    // a real password, so it is refused.
+    let { data: pendingInvite } = await adminSupabase
+      .from('user_invites')
+      .select('id')
+      .eq('auth_user_id', input.userId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (!pendingInvite) {
+      const { data: byEmail } = await adminSupabase
+        .from('user_invites')
+        .select('id')
+        .eq('email', normalizeEmail(target.email))
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      pendingInvite = byEmail
+    }
+
+    if (!pendingInvite) {
+      return {
+        success: false,
+        errorCode: 'TEMP_PASSWORD_NOT_ELIGIBLE',
+        message:
+          'This user has already set their own password. Ask them to change it themselves, or use a reset link.',
+      }
+    }
+
+    const tempPassword = generateTempPassword()
+    // email_confirm too: accounts from the legacy invite-email flow stay unconfirmed until the
+    // link is clicked, and GoTrue refuses password sign-in for unconfirmed emails. The platform
+    // admin handing the password to the owner directly is the address verification here.
+    const { error: updateError } = await adminSupabase.auth.admin.updateUserById(input.userId, {
+      password: tempPassword,
+      email_confirm: true,
+      app_metadata: { [MUST_CHANGE_PASSWORD_FLAG]: true },
+    })
+
+    if (updateError) {
+      logger.error('platform/issueTempPassword/updateUser', updateError, { userId: input.userId })
+      return {
+        success: false,
+        errorCode: 'TEMP_PASSWORD_ISSUE_FAILED',
+        message: 'Unable to issue a temporary password right now.',
+      }
+    }
+
+    return {
+      success: true,
+      credentials: { email: target.email, tempPassword },
+    }
+  } catch (error) {
+    logger.error('platform/issueTempPassword/unexpected', error, { userId: input.userId })
+    return {
+      success: false,
+      errorCode: 'TEMP_PASSWORD_ISSUE_FAILED',
+      message: 'Unable to issue a temporary password right now.',
     }
   }
 }
