@@ -75,11 +75,14 @@ describe('issueTempPassword', () => {
     expect(mocks.updateUserById).toHaveBeenCalledTimes(1)
     const [id, payload] = mocks.updateUserById.mock.calls[0] as [
       string,
-      { password: string; app_metadata: Record<string, unknown> },
+      { password: string; email_confirm: boolean; app_metadata: Record<string, unknown> },
     ]
     expect(id).toBe(USER_ID)
     expect(meetsInvitePasswordPolicy(payload.password)).toBe(true)
     expect(payload.app_metadata).toEqual({ must_change_password: true })
+    // Legacy invite-email accounts are unconfirmed until their link is clicked; without this,
+    // sign-in with the issued password fails with "Email not confirmed".
+    expect(payload.email_confirm).toBe(true)
     expect(result.credentials).toEqual({
       email: 'Owner@Example.com',
       tempPassword: payload.password,

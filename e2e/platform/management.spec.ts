@@ -98,25 +98,29 @@ test('approves a request, issues a temp password, and walks the owner through fi
 test('re-issues a temp password for a user who never completed first login', async ({ page, factory, browser }) => {
   const guards = attachErrorGuards(page)
   const clinic = await factory.createClinic()
-  const user = await factory.createAuthUser({ clinicId: clinic.id })
-  await factory.createUserInvite({ clinicId: clinic.id, email: user.email, authUserId: user.id })
+  // A legacy invite-email account: the auth user exists but its email is unconfirmed because
+  // the invite link was never clicked. Issuing a temp password must still let them sign in.
+  const pending = await factory.createInviteAction({ clinicId: clinic.id })
+  expect((await factory.getAuthUser(pending.authUserId)).email_confirmed_at).toBeFalsy()
 
   await page.goto('/platform/users')
-  const row = page.getByTestId(`user-row-${user.id}`)
+  const row = page.getByTestId(`user-row-${pending.authUserId}`)
   await expect(row).toContainText('invite pending')
-  await row.getByRole('button', { name: `Issue temp password for ${user.email}`, exact: true }).click()
+  await row.getByRole('button', { name: `Issue temp password for ${pending.email}`, exact: true }).click()
 
   await expect(page.getByText('Temporary password issued', { exact: true })).toBeVisible()
   const tempPassword = (await page.getByTestId('temp-password').textContent())!.trim()
   await page.getByRole('button', { name: 'Done', exact: true }).click()
 
-  // The re-issue overwrites the old password and arms the forced-change flag.
-  await expect.poll(async () => (await factory.getAuthUser(user.id)).app_metadata?.must_change_password).toBe(true)
+  // The re-issue overwrites the old password, arms the forced-change flag, and confirms the
+  // email — GoTrue refuses password sign-in for unconfirmed addresses.
+  await expect.poll(async () => (await factory.getAuthUser(pending.authUserId)).app_metadata?.must_change_password).toBe(true)
+  expect((await factory.getAuthUser(pending.authUserId)).email_confirmed_at).toBeTruthy()
 
   const userContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
   const userPage = await userContext.newPage()
   await userPage.goto('http://localhost:3000/login')
-  await userPage.getByLabel('Email').fill(user.email)
+  await userPage.getByLabel('Email').fill(pending.email)
   await userPage.getByLabel('Password').fill(tempPassword)
   await userPage.getByRole('button', { name: 'Sign In', exact: true }).click()
   await userPage.waitForURL('**/auth/change-password', { timeout: 15_000 })

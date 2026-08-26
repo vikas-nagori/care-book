@@ -357,8 +357,12 @@ export async function issueTempPassword(
     }
 
     const tempPassword = generateTempPassword()
+    // email_confirm too: accounts from the legacy invite-email flow stay unconfirmed until the
+    // link is clicked, and GoTrue refuses password sign-in for unconfirmed emails. The platform
+    // admin handing the password to the owner directly is the address verification here.
     const { error: updateError } = await adminSupabase.auth.admin.updateUserById(input.userId, {
       password: tempPassword,
+      email_confirm: true,
       app_metadata: { [MUST_CHANGE_PASSWORD_FLAG]: true },
     })
 
