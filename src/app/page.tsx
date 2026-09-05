@@ -23,7 +23,8 @@ import Link from 'next/link'
 import { CalendarDays, Users, IndianRupee, AlertCircle } from 'lucide-react'
 import { DashboardDate } from './dashboard-date'
 import { DashboardNewAppointmentButton, DashboardNewAppointmentMobile } from './dashboard-new-appointment'
-import type { Appointment } from '@/lib/supabase/types'
+import { DashboardReminders } from './dashboard-reminders'
+import type { Appointment, CalendarReminder } from '@/lib/supabase/types'
 
 function Money({ n, className = '' }: { n: number; className?: string }) {
   return (
@@ -112,6 +113,8 @@ export default async function DashboardPage() {
     { data: monthRefunds },
     { data: refundReversals },
     { count: totalPatients },
+    { data: rawReminders, error: remindersError },
+    { data: reminderPatients, error: reminderPatientsError },
   ] = await Promise.all([
     apptQuery,
     billingBalancesP,
@@ -119,9 +122,28 @@ export default async function DashboardPage() {
     monthRefundsP,
     refundReversalsP,
     supabase.from('patients').select('*', { count: 'exact', head: true }),
+    // Pending reminders dated today or earlier stay on today's schedule until they are closed.
+    supabase
+      .from('reminders')
+      .select('id, clinic_id, patient_id, title, contact_name, phone, notes, date, time, status, created_by, created_at, updated_at, patient:patients(id, name)')
+      .eq('status', 'pending')
+      .lte('date', calendar.date)
+      .order('date')
+      .order('time'),
+    supabase.from('patients').select('id, name').order('name'),
   ])
 
   if (apptError) logger.error('Dashboard/appts', apptError)
+  if (remindersError) logger.error('Dashboard/reminders', remindersError)
+  if (reminderPatientsError) logger.error('Dashboard/reminderPatients', reminderPatientsError)
+
+  type RawReminderRow = Omit<CalendarReminder, 'patient'> & {
+    patient: CalendarReminder['patient'] | NonNullable<CalendarReminder['patient']>[]
+  }
+  const dueReminders: CalendarReminder[] = ((rawReminders ?? []) as unknown as RawReminderRow[]).map((reminder) => ({
+    ...reminder,
+    patient: Array.isArray(reminder.patient) ? (reminder.patient[0] ?? null) : (reminder.patient ?? null),
+  }))
 
   type ApptRow = Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status' | 'payment_status' | 'fee'> & {
     patient: { id: string; name: string; phone: string } | null
@@ -272,6 +294,12 @@ export default async function DashboardPage() {
             </Link>
           </div>
           <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
+            <DashboardReminders
+              reminders={dueReminders}
+              patients={reminderPatients ?? []}
+              today={calendar.date}
+              loadError={Boolean(remindersError)}
+            />
             {appts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ph-ink-4)', fontSize: 13 }}>
                 No appointments scheduled today.

@@ -43,6 +43,7 @@ async function mutateReminder(operation: Operation, id?: string, input?: unknown
     }
     if (!data) return { success: false, message: 'This reminder is unavailable. Refresh the calendar and try again.' }
     revalidatePath('/schedule')
+    revalidatePath('/')
     return { success: true }
   } catch (error) {
     logger.error(`reminders/${operation}`, error)
