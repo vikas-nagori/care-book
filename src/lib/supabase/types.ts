@@ -652,3 +652,23 @@ export type PlatformUserSummary = Profile & {
   /** True while an invite for this user is still pending — they have never signed in. */
   has_pending_invite: boolean
 }
+
+export type Reminder = {
+  id: string
+  clinic_id: string
+  created_by: string | null
+  patient_id: string | null
+  title: string
+  date: string
+  time: string | null
+  contact_name: string | null
+  phone: string | null
+  notes: string | null
+  status: 'pending' | 'completed'
+  created_at: string
+  updated_at: string
+}
+
+export type CalendarReminder = Reminder & {
+  patient: { id: string; name: string } | null
+}
