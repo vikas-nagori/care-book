@@ -70,11 +70,14 @@ available source sockets and cause unrelated `/auth/v1/user` requests to return 
 Keep the single-worker guard unless the local auth/database connection path is changed and the
 complete matrix is proven stable at higher concurrency.
 
-CI runs on every branch push and pull request. Its `test` job runs lint, app + E2E typechecks,
-unit/component/integration suites, and a production E2E-environment build. Its `e2e` job boots an
-isolated local Supabase stack and runs the complete project matrix. The HTML report plus failure
-traces/screenshots in `test-results/` are uploaded as the `playwright-report` artifact even when the
-suite fails. Both jobs must remain required for `main`; see `.github/BRANCH_PROTECTION.md`.
+CI runs on every branch push and pull request. Its `test` check gates four parallel jobs: lint +
+app/E2E typechecks, unit + component suites, the integration suite, and a production
+E2E-environment build. Its `e2e` check gates the `e2e-shard` matrix, where each runner boots its
+own isolated local Supabase stack (in the background, while Chromium installs and `next build`
+runs) and then serves that build with `E2E_PREBUILT=1` for its slice of the complete project
+matrix. The HTML report plus failure traces/screenshots in `test-results/` are uploaded as the
+`playwright-report-shard-<n>` artifacts even when the suite fails. Both checks must remain
+required for `main`; see `.github/BRANCH_PROTECTION.md`.
 
 The normal test command never resets the database. It starts the local stack if necessary and
 idempotently restores fixed fixture rows. Use `npm run e2e:db:reset` only when you intentionally
@@ -162,6 +165,7 @@ bounding boxes, and document order.
 | Settings | Persistent account/admin panels; no sheet menu triggers | Semantic section buttons open named bottom sheets, expose `aria-expanded`, close, and restore trigger focus | Admin; staff remains account-only |
 | Schedule | Day/week controls, seven-date weekly strip, appointment timeline, and two-column filter sidebar layout; rolling rail hidden | Named rolling-date region and swipe instruction; seeded day timeline, selected date centered, native horizontal wheel scrolling, exact date-query navigation, calendar jump and New Appointment dialogs, and filter chips | Admin + staff |
 | Dashboard | Header `New appointment`; only the desktop `Up next` instance is visible | Quick-action grid is two columns for admin (`New appt`, `New billing`) and one for staff; `Up next` precedes stats | Admin + staff |
+| Today's reminders | Pending reminders dated today or earlier open the reminder dialog from the `Today's schedule` card and leave once completed or deleted (`shared/reminders.spec.ts`) | Same card and dialog | Admin + staff |
 | Patients | `Patient`, `Phone`, and `Joined` table headers with desktop row representation | Compact patient cards with the seeded name, phone, and gender; table headers hidden | Admin + staff |
 | Billing | Balance/payment column headers and a two-column package-card grid | Balance/payment compact rows with desktop headers hidden and a one-column package-card grid | Admin only |
 | Nested headers | Desktop heading/back controls | Sticky mobile title/back controls on representative new, detail, metric, and payment-due pages | Shared + admin |

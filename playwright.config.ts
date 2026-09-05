@@ -8,6 +8,10 @@ dotenv.config({ path: '.env.e2e', override: true })
 import { ADMIN, STAFF, PLATFORM } from './e2e/support/accounts'
 
 const CI = !!process.env.CI
+// CI builds the app while the local Supabase stack is still booting (see
+// .github/workflows/test.yml) and sets E2E_PREBUILT so the web server only serves that build.
+// Everywhere else the default still builds first, so a stale .next can never be tested.
+const PREBUILT = process.env.E2E_PREBUILT === '1'
 
 export default defineConfig({
   testDir: './e2e',
@@ -39,7 +43,7 @@ export default defineConfig({
   // port-3000 process: it may have been built against a hosted Supabase project while the harness
   // cleanup still targets the local stack. Timeout covers a cold `next build`.
   webServer: {
-    command: 'npm run build:e2e && npm run start:e2e',
+    command: PREBUILT ? 'npm run start:e2e' : 'npm run build:e2e && npm run start:e2e',
     url: 'http://localhost:3000',
     // The server must share the browser's clock. Pinning only the browser leaves the app rendering
     // dates in the runner's zone on the server and the clinic zone on the client, which React

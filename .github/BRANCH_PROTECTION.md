@@ -8,7 +8,8 @@ run at least once:
 2. Require a pull request before merging.
 3. Enable **Require status checks to pass before merging**.
 4. Require these workflow job checks from `.github/workflows/test.yml`:
-   - `test` — lint, app + E2E typecheck, unit, component, integration, and production build.
+   - `test` — gate over the fast suites: lint + typecheck, unit + component, integration, and
+     the production build, which run as separate parallel jobs.
    - `e2e` — the full Playwright role/viewport matrix against isolated local Supabase.
 5. Enable **Require branches to be up to date before merging** so both checks run against the
    current `main` tip.
@@ -16,10 +17,13 @@ run at least once:
 Do not mark only the overall `Tests` workflow as required. Requiring the two job checks prevents a
 change from merging when either the fast/build suite or the browser suite is skipped or fails.
 
-## Why `e2e` is a separate job from `e2e-shard`
+## Why `test` and `e2e` are aggregator jobs
 
-The Playwright suite runs as a `e2e-shard` matrix across four runners, so its own checks report as
-`e2e-shard (1)` … `e2e-shard (4)` — names that change whenever the shard count changes. The `e2e`
-job does no testing; it depends on the matrix and fails unless every shard succeeded. Keep
-requiring `e2e`, never the individual shards: an administrator then never has to revisit this
-setting when the shard count is tuned, and a shard that never starts still fails the gate.
+The fast suites run as four independent jobs (`lint-typecheck`, `unit-component`, `integration`,
+`build`) so they finish side by side instead of one after another. The Playwright suite runs as a
+`e2e-shard` matrix across several runners, so its own checks report as `e2e-shard (1)` …
+`e2e-shard (n)` — names that change whenever the shard count changes. Neither `test` nor `e2e`
+does any testing itself; each depends on its group and fails unless every member succeeded. Keep
+requiring only `test` and `e2e`, never the individual jobs or shards: an administrator then never
+has to revisit this setting when the suites are regrouped or the shard count is tuned, and a job
+that never starts still fails the gate.

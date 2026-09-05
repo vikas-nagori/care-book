@@ -13,8 +13,41 @@ concurrency:
 permissions:
   contents: read
 
+# The fast suites are split into independent jobs so they run side by side instead of in series.
+# Each pays ~1 minute of checkout + `npm ci`, which is cheaper than waiting for the slowest one.
+# Branch protection requires the `test` and `e2e` checks by name (.github/BRANCH_PROTECTION.md);
+# both are aggregators over the jobs below so regrouping the work never changes what an
+# administrator has to select.
 jobs:
-  test:
+  lint-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+
+  unit-component:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Component tests
+        run: npm run test:component
+
+  integration:
     runs-on: ubuntu-latest
 
     # Throwaway Postgres for the integration suite. It lives only for this job; the harness
@@ -42,37 +75,46 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
 
-      # psql is the client the integration harness shells out to.
-      - name: Install Postgres client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      # psql is the client the integration harness shells out to. The runner image already ships
+      # one; only fall back to apt when it is missing.
+      - name: Ensure Postgres client
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
 
       - run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Unit tests
-        run: npm run test:unit
-
-      - name: Component tests
-        run: npm run test:component
-
       - name: Integration tests
         run: npm run test:integration
 
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
       - name: Production build
         # Use the committed loopback-only E2E environment so the build never depends on hosted
         # Supabase credentials. Next builds route code but does not need the stack to be running.
         run: npm run build:e2e
+
+  # Single check that gates on every fast suite. Branch protection requires `test` by name.
+  test:
+    runs-on: ubuntu-latest
+    needs: [lint-typecheck, unit-component, integration, build]
+    if: always()
+    steps:
+      - name: Require every fast suite to pass
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success")' >/dev/null
 
   # End-to-end suite: boots the real app against an isolated local Supabase stack (Docker) and
   # drives it as admin/staff on desktop/mobile. No secrets — the local stack uses fixed dev keys.
@@ -81,7 +123,8 @@ jobs:
   # purpose: parallel workers on one machine exhaust the Docker network's source sockets and turn
   # healthy GoTrue auth requests into 500s. Each shard is a separate runner with its own Docker
   # network and its own Supabase stack, so it stays serial locally while the suite runs in
-  # parallel overall. Keep SHARD_TOTAL and the matrix list in step.
+  # parallel overall. Every shard pays the same fixed boot cost, so more shards only help while
+  # the per-shard test time still dominates. Keep SHARD_TOTAL and the matrix list in step.
   e2e-shard:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -89,9 +132,9 @@ jobs:
       # One shard's failure should not hide the others' results.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     env:
-      SHARD_TOTAL: '4'
+      SHARD_TOTAL: '6'
     steps:
       - uses: actions/checkout@v5
 
@@ -111,23 +154,38 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      - name: Install Playwright browser
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
+      - name: Start local Supabase, install the browser, and build the app
+        # `supabase start` is dominated by image pulls and container health checks, so it runs in
+        # the background while the CPU-bound browser install and `next build` happen in the
+        # foreground. Only the services the suite needs (db + auth + kong gateway + rest). Docker
+        # is preinstalled on ubuntu runners; the CLI is pinned as a devDependency.
+        env:
+          PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+        run: |
+          npx supabase start -x studio,imgproxy,inbucket,edge-runtime,realtime,storage,meta,vector,analytics,functions > supabase-start.log 2>&1 &
+          supabase_pid=$!
 
-      - name: Install Playwright system deps
-        # The browser binary is cached but its apt dependencies are not part of that cache.
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+          if [ "$PLAYWRIGHT_CACHE_HIT" = 'true' ]; then
+            # The browser binary is cached but its apt dependencies are not part of that cache.
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
 
-      - name: Start local Supabase
-        # Only the services the suite needs (db + auth + kong gateway + rest). Docker is
-        # preinstalled on ubuntu runners; the CLI is pinned as a devDependency.
-        run: npx supabase start -x studio,imgproxy,inbucket,edge-runtime,realtime,storage,meta,vector,analytics,functions
+          npm run build:e2e
+
+          if ! wait "$supabase_pid"; then
+            cat supabase-start.log
+            echo '::error::supabase start failed'
+            exit 1
+          fi
+          cat supabase-start.log
 
       - name: E2E tests
-        # Playwright's webServer builds (build:e2e) and serves (start:e2e) with .env.e2e.
+        # Playwright's webServer serves the build from the previous step (E2E_PREBUILT) with .env.e2e.
         # Setup projects re-run in every shard, which is required — each shard seeds its own stack.
+        env:
+          E2E_PREBUILT: '1'
         run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ env.SHARD_TOTAL }}
 
       - name: Stop local Supabase
