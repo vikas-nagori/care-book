@@ -6,7 +6,7 @@ import { resolveScheduleDateRange } from '@/lib/schedule/date-range'
 import { getUserTimeZone } from '@/lib/timezone/server'
 import { logger } from '@/lib/logger'
 import { ScheduleView } from './schedule-view'
-import type { Appointment, ExternalStaff } from '@/lib/supabase/types'
+import type { Appointment, ExternalStaff, CalendarReminder } from '@/lib/supabase/types'
 
 type ScheduleAppointmentRow = Pick<
   Appointment,
@@ -56,12 +56,16 @@ export default async function SchedulePage({
 
   const [
     { data: appointments, error: appointmentsError },
+    { data: reminders, error: remindersError },
     { data: patients, error: patientsError },
     { data: doctors, error: doctorsError },
     { data: assigneeOptions, error: assigneeOptionsError },
     { data: externalStaffOptions, error: externalStaffOptionsError },
   ] = await Promise.all([
     appointmentsQuery,
+    supabase.from('reminders')
+      .select('id, clinic_id, patient_id, title, contact_name, phone, notes, date, time, status, created_by, created_at, updated_at, patient:patients(id, name)')
+      .gte('date', rangeStart).lte('date', rangeEnd).order('date'),
     supabase
       .from('patients')
       .select('id, name')
@@ -81,6 +85,7 @@ export default async function SchedulePage({
       .order('name'),
   ])
 
+  if (remindersError) logger.error('SchedulePage/reminders', remindersError)
   if (appointmentsError) logger.error('SchedulePage/appointments', appointmentsError)
   if (patientsError) logger.error('SchedulePage/patients', patientsError)
   if (doctorsError) logger.error('SchedulePage/doctors', doctorsError)
@@ -103,6 +108,11 @@ export default async function SchedulePage({
         initialSelectedDate={selectedDate}
         todayDate={todayDate}
         initialAppointments={normalizedAppointments}
+        initialReminders={((reminders ?? []) as unknown as (CalendarReminder & { patient: CalendarReminder['patient'] | NonNullable<CalendarReminder['patient']>[] })[]).map(reminder => ({
+          ...reminder,
+          patient: Array.isArray(reminder.patient) ? reminder.patient[0] ?? null : reminder.patient,
+        }))}
+        remindersLoadError={Boolean(remindersError)}
         patients={patients ?? []}
         doctors={doctors ?? []}
         assigneeOptions={assigneeOptions ?? []}

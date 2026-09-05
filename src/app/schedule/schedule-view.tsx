@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { Fragment, useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, addDays, startOfWeek, isSameDay, parseISO } from 'date-fns'
 import { CalendarIcon, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -8,7 +8,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
 import { AppointmentForm } from './appointment-form'
-import type { Appointment, AppointmentAssigneeOption, Doctor, ExternalStaff } from '@/lib/supabase/types'
+import { ReminderList } from './reminder-list'
+import { ReminderDialog } from './reminder-dialog'
+import type { Appointment, AppointmentAssigneeOption, Doctor, ExternalStaff, CalendarReminder } from '@/lib/supabase/types'
 import Link from 'next/link'
 import { formatTime12 } from '@/lib/format-time'
 import {
@@ -29,6 +31,8 @@ function typeColorTokens(isShared: boolean) {
 }
 
 interface ScheduleViewProps {
+  initialReminders?: CalendarReminder[]
+  remindersLoadError?: boolean
   initialSelectedDate: string
   todayDate: string
   initialAppointments: (Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status'> & {
@@ -114,6 +118,8 @@ function computeColumns<T extends { id: string; time: string; duration_minutes: 
 }
 
 export function ScheduleView({
+  initialReminders = [],
+  remindersLoadError = false,
   initialSelectedDate,
   todayDate,
   initialAppointments,
@@ -131,6 +137,15 @@ export function ScheduleView({
     [initialSelectedDate]
   )
   const [calView, setCalView] = useState<'day' | 'week'>('day')
+  const [reminderOpen, setReminderOpen] = useState(false)
+  const [selectedReminder, setSelectedReminder] = useState<CalendarReminder | undefined>()
+  const [reminderMessage, setReminderMessage] = useState('')
+  const reminderTriggerRef = useRef<HTMLElement | null>(null)
+  function openReminder(reminder?: CalendarReminder) {
+    reminderTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setSelectedReminder(reminder)
+    setReminderOpen(true)
+  }
   const [dialogOpen, setDialogOpen] = useState(false)
   const [mobileDialogOpen, setMobileDialogOpen] = useState(false)
   const [calendarOpen, setCalendarOpen] = useState(false)
@@ -292,6 +307,10 @@ export function ScheduleView({
             </PopoverContent>
           </Popover>
           <div style={{ width: 1, height: 20, background: 'var(--ph-line)' }} />
+          <button type="button" aria-label="Add reminder" onClick={() => openReminder()}
+            className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-[var(--ph-accent)] bg-[var(--ph-surface)] px-3 text-xs text-[var(--ph-accent)]">
+            <Plus size={14} aria-hidden="true" />Reminder
+          </button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <button style={{
@@ -325,6 +344,10 @@ export function ScheduleView({
       <div className="flex md:hidden items-center justify-between mb-4">
         <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: '-0.015em' }}>Schedule</h1>
         <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" aria-label="Add reminder" onClick={() => openReminder()}
+            className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-[var(--ph-accent)] bg-[var(--ph-surface)] px-3 text-xs text-[var(--ph-accent)]">
+            <Plus size={14} aria-hidden="true" />Reminder
+          </button>
           <Dialog open={mobileDialogOpen} onOpenChange={setMobileDialogOpen}>
             <DialogTrigger asChild>
               <button className="min-w-[44px] min-h-[44px]" style={{
@@ -376,6 +399,10 @@ export function ScheduleView({
           </PopoverContent>
         </Popover>
       </div>
+
+      <p role="status" className="text-sm text-[var(--ph-accent)]">{reminderMessage}</p>
+      {reminderOpen && <ReminderDialog open onOpenChange={setReminderOpen} reminder={selectedReminder} patients={patients}
+        defaultDate={initialSelectedDate} onSuccess={setReminderMessage} returnFocusRef={reminderTriggerRef} />}
 
       {/* Desktop date strip */}
       <div className="hidden md:block">
@@ -509,6 +536,9 @@ export function ScheduleView({
                 {filteredDayAppts.length} appointments
               </div>
             </div>
+
+            <ReminderList key={initialSelectedDate} reminders={initialReminders.filter(reminder => reminder.date === initialSelectedDate)}
+              loadError={remindersLoadError} onSelect={openReminder} />
 
             {filteredDayAppts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ph-ink-4)', fontSize: 13 }}>
@@ -660,6 +690,12 @@ export function ScheduleView({
         <p className="md:hidden text-xs mb-2" style={{ color: 'var(--ph-ink-4)' }}>
           Scroll horizontally to see the full week
         </p>
+        <div className="mb-3 grid gap-2 md:grid-cols-7">
+          {weekDays.map(day => (
+            <ReminderList key={format(day, 'yyyy-MM-dd')} reminders={initialReminders.filter(reminder => reminder.date === format(day, 'yyyy-MM-dd'))}
+              loadError={remindersLoadError} onSelect={openReminder} />
+          ))}
+        </div>
         <div style={{ overflowX: 'auto' }} className="ph-scroll">
           <div style={{
             display: 'grid',
@@ -692,7 +728,7 @@ export function ScheduleView({
               )
             })}
             {weekHours.map((h) => (
-              <>
+              <Fragment key={h.label}>
                 <div key={`t-${h.label}`} style={{
                   fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--ph-ink-4)',
                   padding: '6px 6px', textAlign: 'right',
@@ -724,7 +760,7 @@ export function ScheduleView({
                     </div>
                   )
                 })}
-              </>
+              </Fragment>
             ))}
           </div>
         </div>
