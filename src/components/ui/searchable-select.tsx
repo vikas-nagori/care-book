@@ -22,6 +22,8 @@ interface SearchableSelectProps {
   disabled?: boolean
   id?: string
   className?: string
+  /** Extra classes for the trigger button (e.g. taller mobile-friendly fields). */
+  triggerClassName?: string
   /** When true, typing a name with no exact match offers a "create" option. */
   allowCreate?: boolean
   onCreate?: (query: string) => void
@@ -43,6 +45,7 @@ export function SearchableSelect({
   disabled = false,
   id,
   className,
+  triggerClassName,
   allowCreate = false,
   onCreate,
   createLabel = (q) => `Add “${q}”`,
@@ -107,6 +110,7 @@ export function SearchableSelect({
         aria-expanded={open}
         className={cn(
           'flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
+          triggerClassName,
         )}
       >
         <span className={cn('truncate', !selectedOption && 'text-muted-foreground')}>

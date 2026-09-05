@@ -79,3 +79,13 @@ test('the app server shares the browser clinic calendar so nothing hydrates mism
 
   assert.match(webServerBlock, /env:\s*\{\s*TZ:\s*'Asia\/Kolkata'\s*\}/)
 })
+
+test('the web server builds by default and only skips the build when CI has already produced one', () => {
+  // CI overlaps `next build` with the Supabase boot and then passes E2E_PREBUILT=1. Any other
+  // caller must still get a fresh build so a stale .next directory is never what gets tested.
+  const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
+  const command = config.match(/command:\s*([^\n]+),\n/)?.[1]?.trim() ?? ''
+
+  assert.match(config, /process\.env\.E2E_PREBUILT === '1'/)
+  assert.match(command, /PREBUILT \? 'npm run start:e2e' : 'npm run build:e2e && npm run start:e2e'/)
+})

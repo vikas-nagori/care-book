@@ -53,8 +53,10 @@ test('manages inquiry and patient reminders without changing appointments', asyn
     await card.click()
     await dialog.getByRole('button', { name: 'Edit or reschedule' }).click()
     await dialog.getByRole('button', { name: 'Existing patient', exact: true }).click()
-    await dialog.getByLabel('Search patients').fill(patient.name as string)
-    await dialog.getByLabel('Patient', { exact: true }).selectOption(patient.id)
+    await dialog.getByLabel('Patient', { exact: true }).click()
+    await dialog.getByPlaceholder('Search patients…').fill(patient.name as string)
+    await dialog.getByRole('button', { name: patient.name as string, exact: true }).click()
+    await expect(dialog.getByLabel('Patient', { exact: true })).toContainText(patient.name as string)
     await dialog.getByLabel('Date', { exact: true }).fill(movedDate)
     await dialog.getByRole('button', { name: 'Save reminder', exact: true }).click()
     await expect(dialog).toBeHidden()
@@ -74,6 +76,47 @@ test('manages inquiry and patient reminders without changing appointments', asyn
     await guards.assertClean()
   } finally {
     const { error } = await db.from('reminders').delete().eq('clinic_id', CLINIC_A.id).eq('title', title)
+    if (error) throw error
+  }
+})
+
+test('keeps pending reminders on today\'s schedule until they are completed or deleted', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const todayTitle = factory.uniqueName('today-reminder')
+  const overdueTitle = factory.uniqueName('overdue-reminder')
+  const db = adminClient()
+  const { error: insertError } = await db.from('reminders').insert([
+    { clinic_id: CLINIC_A.id, title: todayTitle, date: clinicDate(0) },
+    { clinic_id: CLINIC_A.id, title: overdueTitle, date: clinicDate(-1), time: '10:30' },
+  ])
+  expect(insertError).toBeNull()
+  try {
+    await page.goto('/')
+    const section = page.getByRole('region', { name: "Today's reminders" })
+    const todayCard = section.getByRole('button').filter({ hasText: todayTitle })
+    const overdueCard = section.getByRole('button').filter({ hasText: overdueTitle })
+    await expect(todayCard).toBeVisible()
+    await expect(overdueCard).toBeVisible()
+    await expect(overdueCard).toContainText('Overdue')
+    await expect(todayCard).not.toContainText('Overdue')
+
+    const dialog = page.getByRole('dialog')
+    await todayCard.click()
+    await dialog.getByRole('button', { name: 'Mark complete' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(todayCard).toHaveCount(0)
+    await expect(overdueCard).toBeVisible()
+
+    await overdueCard.click()
+    await dialog.getByRole('button', { name: 'Delete reminder' }).click()
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await expect(overdueCard).toHaveCount(0)
+    await expect(section.getByRole('button')).toHaveCount(0)
+    await expect(section.getByRole('status')).toContainText('Reminder deleted.')
+    await guards.assertClean()
+  } finally {
+    const { error } = await db.from('reminders').delete().eq('clinic_id', CLINIC_A.id).in('title', [todayTitle, overdueTitle])
     if (error) throw error
   }
 })

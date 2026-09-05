@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from 'react'
 import type { CalendarReminder } from '@/lib/supabase/types'
-import { filterAppointmentPatientOptions } from '@/lib/schedule/patient-search'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { createReminder, updateReminder } from './reminder-actions'
 
 const fieldClass = 'w-full min-w-0 rounded-lg border border-[var(--ph-line)] bg-[var(--ph-surface)] p-3 text-base'
@@ -19,7 +19,6 @@ export function ReminderForm({ patients, defaultDate, reminder, onSuccess }: Pro
   const prefix = useId()
   const [mode, setMode] = useState(reminder?.patient_id ? 'patient' : 'name')
   const [patientId, setPatientId] = useState(reminder?.patient_id ?? '')
-  const [search, setSearch] = useState('')
   const [title, setTitle] = useState(reminder?.title ?? '')
   const [name, setName] = useState(reminder?.contact_name ?? '')
   const [date, setDate] = useState(reminder?.date ?? defaultDate)
@@ -29,14 +28,13 @@ export function ReminderForm({ patients, defaultDate, reminder, onSuccess }: Pro
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
   const saving = useRef(false)
-  const matches = filterAppointmentPatientOptions(patients, search)
-  const selected = patients.find(p => p.id === patientId)
-  const choices = selected && !matches.some(p => p.id === selected.id) ? [selected, ...matches] : matches
+  const patientOptions = patients.map(patient => ({ value: patient.id, label: patient.name }))
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     if (saving.current) return
     if (!title.trim()) { setError('Enter what needs following up.'); return }
+    if (mode === 'patient' && !patientId) { setError('Choose a patient, or switch to name only.'); return }
     saving.current = true
     setPending(true)
     setError('')
@@ -73,15 +71,11 @@ export function ReminderForm({ patients, defaultDate, reminder, onSuccess }: Pro
             <p className="mt-1.5 text-xs text-[var(--ph-ink-3)]">No patient record will be created.</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            <label className={labelClass} htmlFor={`${prefix}-search`}>Search patients</label>
-            <input id={`${prefix}-search`} type="search" className={fieldClass} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name" />
+          <div>
             <label className={labelClass} htmlFor={`${prefix}-patient`}>Patient</label>
-            <select id={`${prefix}-patient`} className={fieldClass} value={patientId} onChange={e => setPatientId(e.target.value)} required>
-              <option value="">Choose a patient</option>
-              {choices.map(patient => <option key={patient.id} value={patient.id}>{patient.name}</option>)}
-            </select>
-            {!matches.length && <p className="text-xs text-[var(--ph-ink-3)]">No matching patients. You can use name only.</p>}
+            <SearchableSelect id={`${prefix}-patient`} options={patientOptions} value={patientId || null} onChange={setPatientId}
+              placeholder="Search or choose a patient" searchPlaceholder="Search patients…" emptyText="No matching patients. You can use name only."
+              triggerClassName={`${fieldClass} h-auto min-h-11 shadow-none`} />
           </div>
         )}
         <div>
