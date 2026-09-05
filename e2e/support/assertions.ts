@@ -25,7 +25,11 @@ function isKnownNonAppConsoleError(
   ) || [...observabilityRedirectTargets].some((url) => text.includes(url))
 
   return isKnownObservabilityRequest
-    && (text.includes('404 (Not Found)') || text.includes("MIME type ('text/html') is not executable"))
+    // Next renders the HTML not-found page for document requests but, since 16.3, answers
+    // subresource requests (sec-fetch-dest: script) with a plain-text 404 instead.
+    && (text.includes('404 (Not Found)')
+      || text.includes("MIME type ('text/html') is not executable")
+      || text.includes("MIME type ('text/plain') is not executable"))
 }
 
 function landmarkLocator(page: Page, landmark: RouteLandmark): Locator {
