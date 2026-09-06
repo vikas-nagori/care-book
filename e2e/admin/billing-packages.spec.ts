@@ -241,7 +241,7 @@ test('generates a regular payment PDF from completed sessions and keeps it ready
   })
 
   await page.goto(`/billing/payment-due/${patient.id}`)
-  await page.getByRole('button', { name: 'Generate PDF', exact: true }).click()
+  await page.getByRole('button', { name: 'Share payment PDF', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
 
@@ -364,7 +364,7 @@ test('generates a payment PDF for a patient whose only billing is a fully prepai
   })
 
   await page.goto(`/billing/payment-due/${patient.id}`)
-  await page.getByRole('button', { name: 'Generate PDF', exact: true }).click()
+  await page.getByRole('button', { name: 'Share payment PDF', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
 

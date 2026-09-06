@@ -186,24 +186,18 @@ export function PaymentDueDetail({
     <div className="px-4 pb-4 md:p-6">
       <MobilePageHeader title="Balance detail" backHref="/billing" />
 
-      <div className="hidden md:flex items-center gap-2" style={{ marginBottom: 20 }}>
-        <Button variant="ghost" size="icon" asChild>
+      {/* One header at both widths so the PDF action shares the patient's line and the dialog is
+          mounted once. The desktop-only back button pairs with MobilePageHeader's own back link. */}
+      <div className="mt-3 mb-4 flex items-center gap-2 md:mt-0 md:mb-5">
+        <Button variant="ghost" size="icon" asChild className="hidden md:inline-flex">
           <Link href="/billing" aria-label="Back to billing"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: '-0.015em', color: 'var(--ph-ink)' }}>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[17px] md:text-[20px]" style={{ margin: 0, fontWeight: 600, letterSpacing: '-0.015em', color: 'var(--ph-ink)' }}>
             {patientName}
           </h1>
           <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 2 }}>Payments balance detail</div>
         </div>
-      </div>
-
-      <div className="md:hidden" style={{ margin: '12px 0 16px' }}>
-        <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--ph-ink)' }}>{patientName}</div>
-        <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>Payments balance detail</div>
-      </div>
-
-      <div className="mb-5 flex justify-end">
         <PaymentDuePdfDialog
           patientId={patientId}
           patientName={patientName}

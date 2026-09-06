@@ -28,7 +28,7 @@ describe('PaymentDuePdfDialog', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
 
     render(<PaymentDuePdfDialog patientId="patient-1" patientName="Nayana Pai" previousMonth={{ periodMonth: '2026-08', label: 'August 2026' }} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Generate PDF' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Share payment PDF' }))
     const dialog = await screen.findByRole('dialog')
     fireEvent.click(within(dialog).getByDisplayValue('previous_month'))
     fireEvent.click(within(dialog).getByRole('button', { name: 'Generate PDF' }))
@@ -52,7 +52,7 @@ describe('PaymentDuePdfDialog', () => {
     Object.defineProperty(navigator, 'share', { configurable: true, value: vi.fn(async () => undefined) })
 
     render(<PaymentDuePdfDialog patientId="patient-1" patientName="Nayana Pai" previousMonth={{ periodMonth: '2026-08', label: 'August 2026' }} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Generate PDF' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Share payment PDF' }))
     const dialog = await screen.findByRole('dialog')
     expect(fetchMock).toHaveBeenCalledTimes(0)
     fireEvent.click(within(dialog).getByRole('button', { name: 'Generate PDF' }))

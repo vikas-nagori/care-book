@@ -157,9 +157,8 @@ export function PaymentDuePdfDialog({ patientId, patientName, previousMonth }: P
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
-          <FileDown className="h-4 w-4" />
-          Generate PDF
+        <Button type="button" variant="outline" size="icon" className="min-w-[44px] min-h-[44px]" aria-label="Share payment PDF" title="Share payment PDF">
+          <Share2 className="h-4 w-4" />
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[480px]">
