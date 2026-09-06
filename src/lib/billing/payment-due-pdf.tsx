@@ -5,7 +5,8 @@ import {
   View,
   StyleSheet,
 } from '@react-pdf/renderer'
-import { createElement, type ReactElement } from 'react'
+import { createElement } from './react-pdf-elements.cjs'
+import type { ReactElement } from 'react'
 import { formatDateOnly } from '../timezone'
 import { formatPaiseAsInr, type PaymentDueStatement } from './payment-due-statement'
 
