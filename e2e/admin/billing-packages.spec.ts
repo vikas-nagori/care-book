@@ -228,6 +228,32 @@ test('metric drill-downs list their real records and payment due lists the seede
   await guards.assertClean()
 })
 
+test('generates a regular payment PDF from completed sessions and keeps it ready to share', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  await factory.createAppointment({
+    patientId: patient.id,
+    date: clinicDate(-2),
+    time: '10:20',
+    fee: 800,
+    status: 'completed',
+    payment_status: 'unpaid',
+  })
+
+  await page.goto(`/billing/payment-due/${patient.id}`)
+  await page.getByRole('button', { name: 'Generate PDF', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+
+  const downloadPromise = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Generate PDF', exact: true }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toMatch(/^payment-summary-.*\.pdf$/)
+  await expect(dialog.getByRole('button', { name: 'Share PDF', exact: true })).toBeVisible()
+  await expect(dialog).toContainText('PDF downloaded and ready to share.')
+  await guards.assertClean()
+})
+
 // The v2 balance view sums appointment charges in both 'pending' (scheduled) and 'posted'
 // (completed) states, so the drill-down has to list scheduled sessions too — otherwise the
 // ₹1,600 Regular due tile is unexplainable from the ₹800 of completed sessions below it.
@@ -311,5 +337,75 @@ test('Balance detail omits the packages section for a patient with no packages',
   await expect(page.getByRole('heading', { name: 'Sessions due' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Packages' })).toHaveCount(0)
   await expect(page.getByTestId('package-progress-list')).toHaveCount(0)
+  await guards.assertClean()
+})
+
+// A prepaid package owes nothing, so the collection-only statement used to come back empty and the
+// admin could never produce the package's session record. Package history is reportable on its own.
+test('generates a payment PDF for a patient whose only billing is a fully prepaid package', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  await factory.createPackage({
+    patientId: patient.id,
+    name: factory.uniqueName('prepaid-only-package'),
+    total_sessions: 4,
+    total_amount: 3200,
+    per_session_amount: 800,
+    paid_amount: 3200,
+    payment_timing: 'prepaid',
+  })
+  await factory.createAppointment({
+    patientId: patient.id,
+    date: clinicDate(-2),
+    time: '08:25',
+    fee: 800,
+    status: 'completed',
+    payment_status: 'unpaid',
+  })
+
+  await page.goto(`/billing/payment-due/${patient.id}`)
+  await page.getByRole('button', { name: 'Generate PDF', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+
+  const downloadPromise = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Generate PDF', exact: true }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toMatch(/^payment-summary-.*\.pdf$/)
+  await expect(dialog).not.toContainText('No payment pending')
+  await expect(dialog).toContainText('PDF downloaded and ready to share.')
+  await guards.assertClean()
+})
+
+// Reconciliation releases the 'scheduled' allocation and inserts an 'availed' one when a session is
+// completed, so the ledger holds two rows for one session. Session history reads per session.
+test('Package session history shows one row per session after a scheduled session is completed', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const pkg = await factory.createPackage({
+    patientId: patient.id,
+    name: factory.uniqueName('reconciled-package'),
+    total_sessions: 4,
+    total_amount: 3200,
+    per_session_amount: 800,
+    paid_amount: 3200,
+    payment_timing: 'prepaid',
+  })
+  const appointment = await factory.createAppointment({
+    patientId: patient.id,
+    date: clinicDate(-2),
+    time: '08:35',
+    fee: 800,
+    status: 'scheduled',
+    payment_status: 'unpaid',
+  })
+  await factory.updateAppointment(appointment.id as string, { status: 'completed' })
+
+  await page.goto(`/billing/packages/${pkg.id}`)
+
+  await expect(page.getByRole('heading', { name: 'Session history · 1' })).toBeVisible()
+  await expect(page.getByText('Availed', { exact: true })).toHaveCount(1)
+  await expect(page.getByText('Released', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('reconciled: appointment or package eligibility changed')).toHaveCount(0)
   await guards.assertClean()
 })

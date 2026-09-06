@@ -3,6 +3,8 @@ import { requireAdmin } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 import { isBalanceDetailPackage } from '@/lib/billing/package-progress'
+import { CLINIC_TIME_ZONE } from '@/lib/timezone'
+import { getPreviousMonthPeriod } from '@/lib/billing/payment-due-statement'
 import { PaymentDueDetail, type PaymentDuePackage, type PaymentDueSession } from './payment-due-detail'
 
 // Drill-down behind a Payments Balance row: the sessions that tally to a patient's gross due, then
@@ -88,7 +90,12 @@ export default async function PaymentDueDetailPage({ params }: { params: Promise
 
   return (
     <PaymentDueDetail
+      patientId={patientId}
       patientName={patient.name}
+      previousMonth={(() => {
+        const period = getPreviousMonthPeriod(new Date(), CLINIC_TIME_ZONE)
+        return { periodMonth: period.periodMonth, label: period.periodLabel }
+      })()}
       sessions={completedSessions}
       scheduledSessions={scheduledSessions}
       packages={packages}

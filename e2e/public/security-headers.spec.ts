@@ -48,7 +48,7 @@ test('the other hardened security headers survive the CSP move', async ({ reques
   expect(headers['x-frame-options']).toBe('DENY')
   expect(headers['x-content-type-options']).toBe('nosniff')
   expect(headers['referrer-policy']).toBe('strict-origin-when-cross-origin')
-  expect(headers['permissions-policy']).toBe('camera=(), microphone=(), geolocation=()')
+  expect(headers['permissions-policy']).toBe('camera=(), microphone=(), geolocation=(), web-share=(self)')
 })
 
 test('static assets excluded from the middleware still ship a CSP', async ({ request }) => {

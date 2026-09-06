@@ -10,7 +10,7 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.component.test.tsx'],
+    include: ['src/**/*.component.test.tsx', 'src/app/api/**/*.route.test.ts'],
     clearMocks: true,
     restoreMocks: true,
   },
