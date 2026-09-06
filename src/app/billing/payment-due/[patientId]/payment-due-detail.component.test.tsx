@@ -31,7 +31,9 @@ const packages: PaymentDuePackage[] = [
 function renderDetail(overrides: Partial<React.ComponentProps<typeof PaymentDueDetail>> = {}) {
   return render(
     <PaymentDueDetail
+      patientId="patient-1"
       patientName="Nayana Pai"
+      previousMonth={{ periodMonth: '2026-08', label: 'August 2026' }}
       sessions={completed}
       scheduledSessions={scheduled}
       packages={packages}

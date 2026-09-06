@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
 import { Button } from '@/components/ui/button'
 import { formatTime12 } from '@/lib/format-time'
+import { PaymentDuePdfDialog } from './payment-due-pdf-dialog'
 import {
   getPackageProgress,
   PACKAGE_STATUS_BADGE_CLASS,
@@ -32,7 +33,9 @@ export type PaymentDuePackage = {
 }
 
 type PaymentDueDetailProps = {
+  patientId: string
   patientName: string
+  previousMonth: { periodMonth: string; label: string }
   sessions: PaymentDueSession[]
   // Required, not optional: forgetting to pass these is exactly the bug that made the due tile
   // unexplainable from the list below it.
@@ -159,10 +162,12 @@ function PackageProgressCard({ pkg }: { pkg: PaymentDuePackage }) {
   )
 }
 
-// Presentational tally of a patient's balance — kept prop-driven and side-effect free so a future
-// "Export / Share PDF" action can render the same summary without touching data fetching.
+// Presentational tally of a patient's balance. The PDF action remains prop-driven and fetches its
+// own single-snapshot statement so the existing balance view never becomes a financial export source.
 export function PaymentDueDetail({
+  patientId,
   patientName,
+  previousMonth,
   sessions,
   scheduledSessions,
   packages,
@@ -196,6 +201,14 @@ export function PaymentDueDetail({
       <div className="md:hidden" style={{ margin: '12px 0 16px' }}>
         <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--ph-ink)' }}>{patientName}</div>
         <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>Payments balance detail</div>
+      </div>
+
+      <div className="mb-5 flex justify-end">
+        <PaymentDuePdfDialog
+          patientId={patientId}
+          patientName={patientName}
+          previousMonth={previousMonth}
+        />
       </div>
 
       {/* Summary: how the balance is calculated */}

@@ -68,8 +68,15 @@ export async function middleware(request: NextRequest) {
     path.startsWith('/login') ||
     path.startsWith('/clinic-onboarding') ||
     path.startsWith('/auth/')
+  const isPaymentDuePdfApi = path.startsWith('/api/billing/payment-due/') && path.endsWith('/pdf')
 
   if (!user && !isPublicRoute) {
+    if (isPaymentDuePdfApi) {
+      return NextResponse.json(
+        { errorCode: 'UNAUTHORIZED', message: 'You need to sign in again.' },
+        { status: 401, headers: { 'Cache-Control': 'private, no-store' } },
+      )
+    }
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.search = ''
@@ -81,6 +88,12 @@ export async function middleware(request: NextRequest) {
     // Accounts issued a temporary password must set their own before touching anything else.
     // /auth/* stays reachable (the change page itself, the callback, complete-invite).
     if (needsForcedPasswordChange(user.app_metadata, path)) {
+      if (isPaymentDuePdfApi) {
+        return NextResponse.json(
+          { errorCode: 'FORBIDDEN', message: 'Set your password before generating payment PDFs.' },
+          { status: 403, headers: { 'Cache-Control': 'private, no-store' } },
+        )
+      }
       const url = request.nextUrl.clone()
       url.pathname = FORCED_PASSWORD_CHANGE_PATH
       url.search = ''

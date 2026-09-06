@@ -228,6 +228,32 @@ test('metric drill-downs list their real records and payment due lists the seede
   await guards.assertClean()
 })
 
+test('generates a regular payment PDF from completed sessions and keeps it ready to share', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  await factory.createAppointment({
+    patientId: patient.id,
+    date: clinicDate(-2),
+    time: '10:20',
+    fee: 800,
+    status: 'completed',
+    payment_status: 'unpaid',
+  })
+
+  await page.goto(`/billing/payment-due/${patient.id}`)
+  await page.getByRole('button', { name: 'Generate PDF', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+
+  const downloadPromise = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Generate PDF', exact: true }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toMatch(/^payment-summary-.*\.pdf$/)
+  await expect(dialog.getByRole('button', { name: 'Share PDF', exact: true })).toBeVisible()
+  await expect(dialog).toContainText('PDF downloaded and ready to share.')
+  await guards.assertClean()
+})
+
 // The v2 balance view sums appointment charges in both 'pending' (scheduled) and 'posted'
 // (completed) states, so the drill-down has to list scheduled sessions too — otherwise the
 // ₹1,600 Regular due tile is unexplainable from the ₹800 of completed sessions below it.
