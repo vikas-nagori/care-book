@@ -94,3 +94,36 @@ describe('PDF text encoding', () => {
     expect(buffer.subarray(0, 5).toString()).toBe('%PDF-')
   })
 })
+
+describe('package section visibility', () => {
+  it('omits the package section entirely for a patient with no packages', () => {
+    const text = collectStrings(createPaymentDuePdfElement({ ...statement, packages: [], totalDuePaise: 50000 })).join('\n')
+
+    expect(text).not.toContain('Packages')
+    expect(text).not.toContain('Complete package history')
+    expect(text).not.toContain('Total sessions')
+    expect(text).toContain('Regular sessions')
+  })
+
+  it('shows total sessions, sessions left, and the availed dates for an availed package', () => {
+    const text = collectStrings(createPaymentDuePdfElement({
+      ...statement,
+      packages: [{
+        ...statement.packages[0],
+        totalSessions: 10,
+        sessionsLeft: 6,
+        completedSessions: [
+          { id: 'a', date: '2026-07-20', time: '11:00:00', type: 'Clinic' },
+          { id: 'b', date: '2026-08-25', time: '11:00:00', type: 'Clinic' },
+        ],
+      }],
+    })).join('\n')
+
+    expect(text).toContain('Total sessions')
+    expect(text).toContain('10')
+    expect(text).toContain('Sessions left')
+    expect(text).toContain('6')
+    expect(text).toContain('Completed session dates')
+    expect(text).toContain('20 Jul 2026 · 25 Aug 2026')
+  })
+})

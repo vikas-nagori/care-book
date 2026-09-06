@@ -2,7 +2,7 @@
 
 Date: 6 September 2026
 
-Status: Incorporates the user's confirmed requirements; ready for written review.
+Status: Implemented. Revised on 6 September 2026 after implementation feedback — see §4 (packages appear on availed sessions, not on money owed), §6, §7 (currency renders as `Rs.`, not ₹), and §10.
 
 Independent spec review: Approved on 6 September 2026, including the Share PDF revision.
 
@@ -10,7 +10,7 @@ Scope: Design documentation only. Application implementation and deployment are 
 
 ## 1. Purpose and final scope
 
-Let a clinic admin generate a patient-facing PDF explaining payment still due for completed treatment. The doctor can save the file or use **Share PDF** to open the device's sharing menu and choose WhatsApp or another available destination.
+Let a clinic admin generate a patient-facing PDF summarising completed treatment and any payment still due for it. The doctor can save the file or use **Share PDF** to open the device's sharing menu and choose WhatsApp or another available destination.
 
 The entry action is **Generate PDF**, with **Share PDF** available once the file is ready. Sharing uses the same generated PDF and the same selected regular-session period. There is no copy-message option, direct WhatsApp API integration, public statement link, or automatic sending.
 
@@ -67,7 +67,9 @@ Regular rows show **Date | Session type | Fee | Paid | Due**, ordered by date, t
 
 ## 4. Packages: complete counts and completed-session history
 
-Retain the collection-only scope established during discussion: include a package when it has payment outstanding against at least one completed package session. A fully paid package, a package with only scheduled-session dues, and a package with no completed sessions do not create a collection section. Package status alone does not hide a legitimate remaining completed-session balance.
+Revised on 6 September 2026, superseding the collection-only scope established during the original discussion. The collection-only rule made the document unusable for a prepaid patient: a package funded in advance owes nothing, so the statement came back empty and the admin could never produce the patient's session record at all. The PDF is a payment summary the patient keeps, not only a collection notice.
+
+Include a package when at least one of its sessions has been availed — that is, when it has a current availed allocation on a completed appointment — regardless of whether any money is still due on it. A package with no completed sessions has nothing to report and does not create a section, and a patient with no packages gets no package section at all. Package status alone does not hide a legitimate remaining completed-session balance, and a package due of zero does not hide legitimate session history.
 
 For every included package, display:
 
@@ -116,9 +118,10 @@ Migration 039 normally excludes zero-value charges from automatic package alloca
 | Regular sessions and packages | Render both sections and the combined total. |
 | Regular sessions only | Omit the complete package section and any package subtotal or package scope note. |
 | Packages only | Omit the complete regular section, its month label, count, subtotal, and regular scope note. Packages remain unchanged by the radio choice. |
+| Packages with nothing due | Render the package section with its counts, availed dates, and a package due of zero. A prepaid package is reportable history, so it never blocks generation. |
 | No eligible content | Do not download or offer sharing of an empty PDF. Show: “No payment pending for the selected regular-session period or completed package sessions.” |
 
-Absence is based on eligible content, not just whether any historical regular appointment/package exists. For example, choosing August when only July regular dues exist must remove the regular section, while retaining any eligible packages.
+Absence is based on eligible content, not just whether any historical regular appointment/package exists. For example, choosing August when only July regular dues exist must remove the regular section, while retaining any eligible packages. A statement is empty only when no regular row survives the period filter *and* no package has an availed session — a total due of zero is not by itself an empty statement.
 
 ## 7. PDF output design
 
@@ -145,28 +148,28 @@ Generated: 06 Sep 2026, 10:00 IST
 
 | Date | Session type | Fee | Paid | Due |
 | --- | --- | ---: | ---: | ---: |
-| 01 Aug 2026 | Clinic session | ₹800 | ₹300 | ₹500 |
-| 03 Aug 2026 | Home visit | ₹1,200 | ₹0 | ₹1,200 |
-| Subtotal — 2 sessions | | ₹2,000 | ₹300 | **₹1,700** |
+| 01 Aug 2026 | Clinic session | Rs. 800 | Rs. 300 | Rs. 500 |
+| 03 Aug 2026 | Home visit | Rs. 1,200 | Rs. 0 | Rs. 1,200 |
+| Subtotal — 2 sessions | | Rs. 2,000 | Rs. 300 | **Rs. 1,700** |
 
 **Physiotherapy package · Complete package history**
 
 | Detail | Value |
 | --- | ---: |
-| Total package amount | ₹8,000 |
-| Amount paid into package | ₹2,400 |
+| Total package amount | Rs. 8,000 |
+| Amount paid into package | Rs. 2,400 |
 | Total sessions | 10 |
 | Sessions left | 6 |
 
 Completed session dates: 20 Jul 2026; 22 Jul 2026; 25 Aug 2026; 28 Aug 2026.
 
-Charges for completed sessions: ₹3,200
+Charges for completed sessions: Rs. 3,200
 
-Payment applied to completed sessions: ₹2,400
+Payment applied to completed sessions: Rs. 2,400
 
-**Package payment due: ₹800**
+**Package payment due: Rs. 800**
 
-**Total payment due in this statement: ₹2,500**
+**Total payment due in this statement: Rs. 2,500**
 
 Regular sessions cover August 2026. Packages include their complete completed-session history.
 
@@ -176,7 +179,11 @@ Please arrange payment at your convenience. Thank you.
 
 Repeat patient identification and page numbers on continuation pages. Repeat regular table column labels on pages continuing that table, prevent individual table rows from splitting, and keep subtotals with their final rows. Allow long package date histories to continue with a package-name continuation label; do not force an entire long package onto one page. Keep sufficient footer clearance.
 
-Bundle licensed static font files supporting INR and the patient/clinic names in the deployment. Check glyph coverage and shaping with representative English and Indian-script names; never silently replace unsupported names with missing-glyph boxes. No runtime remote font/image requests. The renderer must handle long names, descriptions, and many rows without clipping or silent truncation.
+Revised on 6 September 2026. The implementation ships no bundled font: it renders in Helvetica, a PDF standard-14 font, and spells the currency out as `Rs. 6,000.00` rather than using ₹.
+
+The reason is a hard encoding limit, not a preference. pdfkit encodes standard-14 text as WinAnsi (`encodeText`, `node_modules/pdfkit/js/pdfkit.js`). WinAnsi has no slot for ₹ (U+20B9), so pdfkit falls through to the raw code point and emits four hex digits, `20b9`, into a stream that a viewer reads two hex digits at a time — producing a space followed by ¹. Every `₹6,000.00` printed as ` ¹6,000.00`. Any code point above 255 that WinAnsi does not map has the same failure mode; `src/lib/billing/payment-due-pdf.component.test.tsx` walks the element tree and fails on one.
+
+The known cost of not bundling a font: a patient or clinic name in an Indian script still renders as `.notdef` boxes, because names come from data rather than from a literal the test can guard. Bundling licensed static fonts covering INR and Indian scripts — checked for glyph coverage and shaping, with no runtime remote font/image requests — remains the correct fix for that and is deferred, not rejected. The renderer must handle long names, descriptions, and many rows without clipping or silent truncation.
 
 ## 8. Implementation boundaries and data flow
 
@@ -243,7 +250,7 @@ While the native share promise is pending, show **Opening share options…** and
 5. For identical source data, switching regular scope produces identical package content and package subtotals, including package dates outside the selected month.
 6. A ten-session package with four availed sessions and two scheduled reservations displays six sessions left, and exactly four completed date entries.
 7. Package allocation membership prevents double charging. Partial applications, refunds/reversals, zero-fee package sessions, multiple payments per charge, and multiple packages preserve exact totals and scoped credit behavior.
-8. Package quoted amount, net receipts, completed charges, applied money, and completed-session due remain distinct when prepayments fund future sessions. Fully paid/only-scheduled-due packages do not appear.
+8. Package quoted amount, net receipts, completed charges, applied money, and completed-session due remain distinct when prepayments fund future sessions. A fully paid package with availed sessions still appears, showing its total sessions, sessions left, availed dates, and a package due of zero; a package with no availed session does not appear.
 9. Independent empty-section tests cover regular-only, package-only, both, no data, no regular matches for the selected month, and all previously eligible sessions becoming paid before generation.
 10. Corrupt/missing required data produces an error rather than incomplete output; a single-snapshot read yields a consistent before-or-after result during concurrent billing changes.
 
