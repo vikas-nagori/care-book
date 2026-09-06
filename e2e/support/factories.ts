@@ -594,6 +594,16 @@ export class E2EFactory {
     })
   }
 
+  /**
+   * Drives an appointment through a real status change so the billing reconciliation runs, which is
+   * how one session ends up with both a released and a replacement package allocation.
+   */
+  async updateAppointment(id: string, values: Record<string, unknown>): Promise<Row> {
+    const { data, error } = await this.db.from('appointments').update(values).eq('id', id).select('*').single()
+    if (error || !data) throw new Error(`factory update appointment: ${error?.message ?? 'row was not returned'}`)
+    return data as Row
+  }
+
   async createPackage({
     patientId,
     appointmentTypeId,

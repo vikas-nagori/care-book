@@ -140,7 +140,7 @@ export function createPaymentDuePdfElement(statement: PaymentDueStatement): Reac
         createElement(Text, { style: styles.totalLabel }, 'Total payment due in this statement'),
         createElement(Text, { style: styles.totalValue }, createElement(Money, { value: statement.totalDuePaise })),
       ),
-      createElement(Text, { style: styles.note }, 'Please arrange payment at your convenience. Thank you.'),
+      createElement(Text, { style: styles.note }, statement.totalDuePaise > 0 ? 'Please arrange payment at your convenience. Thank you.' : 'No payment is due for the sessions listed above. Thank you.'),
       createElement(Text, { style: styles.footer, fixed: true, render: ({ pageNumber, totalPages }: { pageNumber: number; totalPages: number }) => `Care-Book · ${pageNumber} / ${totalPages}` }),
     ),
   )

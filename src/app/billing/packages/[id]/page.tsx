@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
+import { collapsePackageSessionHistory } from '@/lib/billing/package-session-history'
 import { PackageDetail, type PackageSession } from './package-detail'
 
 // Detail behind a billing package: which sessions have been taken under it, with their dates.
@@ -43,8 +44,14 @@ export default async function PackageDetailPage({ params }: { params: Promise<{ 
   if (balanceError) logger.error('PackageDetail/balance', balanceError, { id })
   if (allocationsError) logger.error('PackageDetail/allocations', allocationsError, { id })
 
-  // Oldest session first, matching how a course of treatment reads chronologically.
-  const sessions: PackageSession[] = (allocations ?? [])
+  // One row per session, oldest first: the ledger keeps a released row alongside the replacement
+  // allocation whenever an appointment is reconciled, and session history reads per session.
+  const sessions: PackageSession[] = collapsePackageSessionHistory(
+    (allocations ?? []).map((row) => ({
+      ...(row as AllocationRow),
+      appointmentReferenceId: (row as AllocationRow).appointment_reference_id,
+    })),
+  )
     .map((row) => ({ row: row as AllocationRow, appointment: normalizeAppointment((row as AllocationRow).appointment) }))
     .map(({ row, appointment }) => ({
       id: row.id,

@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildPaymentDueStatement,
+  formatPaiseAsInr,
   getPreviousMonthPeriod,
   type PaymentDueStatementSource,
 } from './payment-due-statement.ts'
@@ -102,11 +103,13 @@ test('omits empty sections and returns an empty statement when no eligible conte
   assert.ok(regularOnly.regular)
   assert.equal(regularOnly.packages.length, 0)
 
-  const empty = buildPaymentDueStatement({ ...source, appointments: source.appointments.map((row) => ({ ...row, applications: [{ amount: row.chargeAmount, status: 'active' as const }] })) }, { regularScope: 'all_due', generatedAt: new Date('2026-09-06T04:30:00.000Z') })
-  assert.equal(empty.regular, null)
-  assert.equal(empty.packages.length, 0)
-  assert.equal(empty.totalDuePaise, 0)
-  assert.equal(empty.isEmpty, true)
+  // Fully applied charges settle the regular section, but a package with completed sessions is
+  // still reportable history, so the statement is not empty.
+  const settled = buildPaymentDueStatement({ ...source, appointments: source.appointments.map((row) => ({ ...row, applications: [{ amount: row.chargeAmount, status: 'active' as const }] })) }, { regularScope: 'all_due', generatedAt: new Date('2026-09-06T04:30:00.000Z') })
+  assert.equal(settled.regular, null)
+  assert.equal(settled.packages.length, 1)
+  assert.equal(settled.totalDuePaise, 0)
+  assert.equal(settled.isEmpty, false)
 })
 
 test('rejects malformed or over-applied money instead of producing a plausible total', () => {
@@ -122,4 +125,40 @@ test('derives the previous month including year across January rollover', () => 
     startDate: '2026-12-01',
     endDate: '2026-12-31',
   })
+})
+
+test('keeps a fully paid package so a prepaid package-only patient still gets a statement', () => {
+  const packageOnly: PaymentDueStatementSource = {
+    ...source,
+    appointments: source.appointments
+      .filter((row) => row.packageId)
+      .map((row) => ({ ...row, applications: [{ amount: row.chargeAmount, status: 'active' as const }] })),
+  }
+  const statement = buildPaymentDueStatement(packageOnly, { regularScope: 'all_due', generatedAt: new Date('2026-09-06T04:30:00.000Z') })
+
+  assert.equal(statement.regular, null)
+  assert.equal(statement.packages.length, 1)
+  assert.equal(statement.packages[0]?.duePaise, 0)
+  assert.deepEqual(statement.packages[0]?.completedSessions.map((session) => session.date), ['2026-07-20', '2026-08-25', '2026-08-28'])
+  assert.equal(statement.totalDuePaise, 0)
+  assert.equal(statement.isEmpty, false)
+})
+
+test('drops a package with no completed sessions and stays empty when nothing is left to report', () => {
+  const nothing = buildPaymentDueStatement({
+    ...source,
+    appointments: source.appointments
+      .filter((row) => !row.packageId)
+      .map((row) => ({ ...row, applications: [{ amount: row.chargeAmount, status: 'active' as const }] })),
+  }, { regularScope: 'all_due', generatedAt: new Date('2026-09-06T04:30:00.000Z') })
+
+  assert.equal(nothing.regular, null)
+  assert.equal(nothing.packages.length, 0)
+  assert.equal(nothing.isEmpty, true)
+})
+
+test('formats money without ₹ because the PDF standard font has no rupee glyph', () => {
+  assert.equal(formatPaiseAsInr(600000), 'Rs. 6,000.00')
+  assert.equal(formatPaiseAsInr(0), 'Rs. 0.00')
+  assert.equal(formatPaiseAsInr(12345678), 'Rs. 1,23,456.78')
 })

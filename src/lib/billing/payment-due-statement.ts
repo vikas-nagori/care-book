@@ -232,7 +232,10 @@ export function buildPaymentDueStatement(
         completedPaidPaise += amounts.paid
         duePaise += amounts.due
       }
-      if (duePaise <= 0) return []
+      // A prepaid package legitimately owes nothing yet still belongs in the summary: it is the
+      // patient's record of the sessions taken under the package. Only a package with no completed
+      // session has nothing to report.
+      if (completedSessions.length === 0) return []
 
       const quoteAmountPaise = parseMoneyPaise(packageSource.quoteAmount, `package ${packageSource.id} quote`)
       const paidIntoPackagePaise = parseMoneyPaise(packageSource.netReceived, `package ${packageSource.id} receipts`)
@@ -265,9 +268,14 @@ export function buildPaymentDueStatement(
   }
 }
 
+/**
+ * Formats paise for the PDF. The renderer uses a PDF standard-14 font (Helvetica), whose WinAnsi
+ * encoding has no glyph for ₹ (U+20B9): pdfkit then emits the raw code point as two hex bytes,
+ * which a viewer reads as a space followed by ¹. Spell the currency out instead.
+ */
 export function formatPaiseAsInr(value: number) {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error('Money cannot be negative or unsafe.')
   const whole = Math.floor(value / 100)
   const fraction = value % 100
-  return `₹${whole.toLocaleString('en-IN')}.${fraction.toString().padStart(2, '0')}`
+  return `Rs. ${whole.toLocaleString('en-IN')}.${fraction.toString().padStart(2, '0')}`
 }
