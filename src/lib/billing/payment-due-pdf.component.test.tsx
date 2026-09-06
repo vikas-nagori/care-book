@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToBuffer } from '@react-pdf/renderer'
 
-import { PaymentDuePdf } from './payment-due-pdf'
+import { createPaymentDuePdfElement, PaymentDuePdf } from './payment-due-pdf'
 import type { PaymentDueStatement } from './payment-due-statement'
 
 const statement: PaymentDueStatement = {
@@ -36,6 +36,13 @@ const statement: PaymentDueStatement = {
 describe('PaymentDuePdf', () => {
   it('renders a non-empty text PDF for a combined statement', async () => {
     const buffer = await renderToBuffer(<PaymentDuePdf statement={statement} />)
+
+    expect(buffer.byteLength).toBeGreaterThan(500)
+    expect(buffer.subarray(0, 5).toString()).toBe('%PDF-')
+  })
+
+  it('renders the classic element tree used by the server route', async () => {
+    const buffer = await renderToBuffer(createPaymentDuePdfElement(statement))
 
     expect(buffer.byteLength).toBeGreaterThan(500)
     expect(buffer.subarray(0, 5).toString()).toBe('%PDF-')

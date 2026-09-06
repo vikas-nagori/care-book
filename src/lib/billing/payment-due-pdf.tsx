@@ -5,6 +5,7 @@ import {
   View,
   StyleSheet,
 } from '@react-pdf/renderer'
+import { createElement, type ReactElement } from 'react'
 import { formatDateOnly } from '../timezone'
 import { formatPaiseAsInr, type PaymentDueStatement } from './payment-due-statement'
 
@@ -41,92 +42,109 @@ const styles = StyleSheet.create({
 })
 
 function Money({ value }: { value: number }) {
-  return <Text>{formatPaiseAsInr(value)}</Text>
+  return createElement(Text, null, formatPaiseAsInr(value))
 }
 
 function RegularSection({ statement }: { statement: PaymentDueStatement }) {
   if (!statement.regular) return null
   const regular = statement.regular
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Regular sessions</Text>
-      <Text style={styles.sectionSubtitle}>{regular.periodLabel}</Text>
-      <View style={styles.table}>
-        <View style={styles.tableHeader} fixed>
-          <Text style={styles.date}>Date</Text>
-          <Text style={styles.type}>Session type</Text>
-          <Text style={styles.amount}>Fee</Text>
-          <Text style={styles.amount}>Paid</Text>
-          <Text style={styles.amount}>Due</Text>
-        </View>
-        {regular.rows.map((row) => (
-          <View style={styles.row} key={row.id} wrap={false}>
-            <Text style={styles.date}>{formatDateOnly(row.date, 'dd MMM yyyy')}</Text>
-            <Text style={styles.type}>{row.type}</Text>
-            <Text style={styles.amount}><Money value={row.feePaise} /></Text>
-            <Text style={styles.amount}><Money value={row.paidPaise} /></Text>
-            <Text style={styles.amount}><Money value={row.duePaise} /></Text>
-          </View>
-        ))}
-        <View style={styles.subtotal} wrap={false}>
-          <Text style={{ width: '50%' }}>Subtotal — {regular.rows.length} session{regular.rows.length === 1 ? '' : 's'}</Text>
-          <Text style={styles.amount}><Money value={regular.totalFeePaise} /></Text>
-          <Text style={styles.amount}><Money value={regular.totalPaidPaise} /></Text>
-          <Text style={styles.amount}><Money value={regular.totalDuePaise} /></Text>
-        </View>
-      </View>
-    </View>
+  const header = createElement(
+    View,
+    { style: styles.tableHeader, fixed: true },
+    createElement(Text, { style: styles.date }, 'Date'),
+    createElement(Text, { style: styles.type }, 'Session type'),
+    createElement(Text, { style: styles.amount }, 'Fee'),
+    createElement(Text, { style: styles.amount }, 'Paid'),
+    createElement(Text, { style: styles.amount }, 'Due'),
+  )
+  const rows = regular.rows.map((row) => createElement(
+    View,
+    { style: styles.row, key: row.id, wrap: false },
+    createElement(Text, { style: styles.date }, formatDateOnly(row.date, 'dd MMM yyyy')),
+    createElement(Text, { style: styles.type }, row.type),
+    createElement(Text, { style: styles.amount }, createElement(Money, { value: row.feePaise })),
+    createElement(Text, { style: styles.amount }, createElement(Money, { value: row.paidPaise })),
+    createElement(Text, { style: styles.amount }, createElement(Money, { value: row.duePaise })),
+  ))
+  const subtotal = createElement(
+    View,
+    { style: styles.subtotal, wrap: false },
+    createElement(Text, { style: { width: '50%' } }, `Subtotal — ${regular.rows.length} session${regular.rows.length === 1 ? '' : 's'}`),
+    createElement(Text, { style: styles.amount }, createElement(Money, { value: regular.totalFeePaise })),
+    createElement(Text, { style: styles.amount }, createElement(Money, { value: regular.totalPaidPaise })),
+    createElement(Text, { style: styles.amount }, createElement(Money, { value: regular.totalDuePaise })),
+  )
+  return createElement(
+    View,
+    { style: styles.section },
+    createElement(Text, { style: styles.sectionTitle }, 'Regular sessions'),
+    createElement(Text, { style: styles.sectionSubtitle }, regular.periodLabel),
+    createElement(View, { style: styles.table }, header, ...rows, subtotal),
   )
 }
 
 function PackageSection({ statement }: { statement: PaymentDueStatement }) {
   if (statement.packages.length === 0) return null
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Packages</Text>
-      <Text style={styles.sectionSubtitle}>Complete package history</Text>
-      {statement.packages.map((pkg) => (
-        <View style={styles.packageCard} key={pkg.id}>
-          <Text style={styles.packageName}>{pkg.name}</Text>
-          <View style={styles.packageMeta}><Text style={styles.detailLabel}>Total package amount</Text><Text style={styles.detailValue}><Money value={pkg.quoteAmountPaise} /></Text></View>
-          <View style={styles.packageMeta}><Text style={styles.detailLabel}>Amount paid into package</Text><Text style={styles.detailValue}><Money value={pkg.paidIntoPackagePaise} /></Text></View>
-          <View style={styles.packageMeta}><Text style={styles.detailLabel}>Total sessions</Text><Text style={styles.detailValue}>{pkg.totalSessions}</Text></View>
-          <View style={styles.packageMeta}><Text style={styles.detailLabel}>Sessions left</Text><Text style={styles.detailValue}>{pkg.sessionsLeft}</Text></View>
-          <Text style={styles.datesLabel}>Completed session dates</Text>
-          <Text style={styles.dateList}>{pkg.completedSessions.map((session) => formatDateOnly(session.date, 'dd MMM yyyy')).join(' · ')}</Text>
-          <View style={styles.packageMeta}><Text style={styles.detailLabel}>Charges for completed sessions</Text><Text style={styles.detailValue}><Money value={pkg.completedChargePaise} /></Text></View>
-          <View style={styles.packageMeta}><Text style={styles.detailLabel}>Payment applied to completed sessions</Text><Text style={styles.detailValue}><Money value={pkg.completedPaidPaise} /></Text></View>
-          <View style={styles.packageDue}><Text style={styles.detailLabel}>Package payment due</Text><Text style={styles.detailValue}><Money value={pkg.duePaise} /></Text></View>
-        </View>
-      ))}
-    </View>
+  const cards = statement.packages.map((pkg) => createElement(
+    View,
+    { style: styles.packageCard, key: pkg.id },
+    createElement(Text, { style: styles.packageName }, pkg.name),
+    createElement(View, { style: styles.packageMeta }, createElement(Text, { style: styles.detailLabel }, 'Total package amount'), createElement(Text, { style: styles.detailValue }, createElement(Money, { value: pkg.quoteAmountPaise }))),
+    createElement(View, { style: styles.packageMeta }, createElement(Text, { style: styles.detailLabel }, 'Amount paid into package'), createElement(Text, { style: styles.detailValue }, createElement(Money, { value: pkg.paidIntoPackagePaise }))),
+    createElement(View, { style: styles.packageMeta }, createElement(Text, { style: styles.detailLabel }, 'Total sessions'), createElement(Text, { style: styles.detailValue }, pkg.totalSessions)),
+    createElement(View, { style: styles.packageMeta }, createElement(Text, { style: styles.detailLabel }, 'Sessions left'), createElement(Text, { style: styles.detailValue }, pkg.sessionsLeft)),
+    createElement(Text, { style: styles.datesLabel }, 'Completed session dates'),
+    createElement(Text, { style: styles.dateList }, pkg.completedSessions.map((session) => formatDateOnly(session.date, 'dd MMM yyyy')).join(' · ')),
+    createElement(View, { style: styles.packageMeta }, createElement(Text, { style: styles.detailLabel }, 'Charges for completed sessions'), createElement(Text, { style: styles.detailValue }, createElement(Money, { value: pkg.completedChargePaise }))),
+    createElement(View, { style: styles.packageMeta }, createElement(Text, { style: styles.detailLabel }, 'Payment applied to completed sessions'), createElement(Text, { style: styles.detailValue }, createElement(Money, { value: pkg.completedPaidPaise }))),
+    createElement(View, { style: styles.packageDue }, createElement(Text, { style: styles.detailLabel }, 'Package payment due'), createElement(Text, { style: styles.detailValue }, createElement(Money, { value: pkg.duePaise }))),
+  ))
+  return createElement(
+    View,
+    { style: styles.section },
+    createElement(Text, { style: styles.sectionTitle }, 'Packages'),
+    createElement(Text, { style: styles.sectionSubtitle }, 'Complete package history'),
+    ...cards,
+  )
+}
+
+/**
+ * Build the renderer element with React.createElement. Next's server JSX
+ * runtime can emit a React element symbol that react-pdf's reconciler does
+ * not understand, so this factory keeps the PDF tree on the classic element
+ * shape expected by @react-pdf/renderer.
+ */
+export function createPaymentDuePdfElement(statement: PaymentDueStatement): ReactElement {
+  const generated = new Date(statement.generatedAt)
+  const generatedLabel = `${generated.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}, ${generated.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })} IST`
+  return createElement(
+    Document,
+    { title: `Payment summary — ${statement.patientName}`, author: statement.clinicName },
+    createElement(
+      Page,
+      { size: 'A4', style: styles.page, wrap: true },
+      createElement(
+        View,
+        { style: styles.header },
+        createElement(Text, { style: styles.clinic }, statement.clinicName),
+        createElement(Text, { style: styles.title }, 'Payment summary'),
+        createElement(Text, { style: styles.patient }, `Patient: ${statement.patientName}`),
+        createElement(Text, { style: styles.generated }, `Generated: ${generatedLabel}`),
+      ),
+      createElement(RegularSection, { statement }),
+      createElement(PackageSection, { statement }),
+      createElement(
+        View,
+        { style: styles.total, wrap: false },
+        createElement(Text, { style: styles.totalLabel }, 'Total payment due in this statement'),
+        createElement(Text, { style: styles.totalValue }, createElement(Money, { value: statement.totalDuePaise })),
+      ),
+      createElement(Text, { style: styles.note }, 'Please arrange payment at your convenience. Thank you.'),
+      createElement(Text, { style: styles.footer, fixed: true, render: ({ pageNumber, totalPages }: { pageNumber: number; totalPages: number }) => `Care-Book · ${pageNumber} / ${totalPages}` }),
+    ),
   )
 }
 
 export function PaymentDuePdf({ statement }: { statement: PaymentDueStatement }) {
-  const generated = new Date(statement.generatedAt)
-  const generatedLabel = `${generated.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}, ${generated.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })} IST`
-  return (
-    <Document title={`Payment summary — ${statement.patientName}`} author={statement.clinicName}>
-      <Page size="A4" style={styles.page} wrap>
-        <View style={styles.header}>
-          <Text style={styles.clinic}>{statement.clinicName}</Text>
-          <Text style={styles.title}>Payment summary</Text>
-          <Text style={styles.patient}>Patient: {statement.patientName}</Text>
-          <Text style={styles.generated}>Generated: {generatedLabel}</Text>
-        </View>
-
-        <RegularSection statement={statement} />
-        <PackageSection statement={statement} />
-
-        <View style={styles.total} wrap={false}>
-          <Text style={styles.totalLabel}>Total payment due in this statement</Text>
-          <Text style={styles.totalValue}><Money value={statement.totalDuePaise} /></Text>
-        </View>
-        <Text style={styles.note}>Please arrange payment at your convenience. Thank you.</Text>
-
-        <Text style={styles.footer} fixed render={({ pageNumber, totalPages }) => `Care-Book · ${pageNumber} / ${totalPages}`} />
-      </Page>
-    </Document>
-  )
+  return createPaymentDuePdfElement(statement)
 }

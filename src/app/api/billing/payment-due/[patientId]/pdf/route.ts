@@ -1,13 +1,11 @@
 import { renderToBuffer } from '@react-pdf/renderer'
-import { createElement, type ReactElement } from 'react'
-import type { DocumentProps } from '@react-pdf/renderer'
 import { NextResponse } from 'next/server'
 import { getCurrentProfile } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { CLINIC_TIME_ZONE } from '@/lib/timezone'
 import { buildPaymentDueStatement, getPreviousMonthPeriod, type PaymentDueRegularScope } from '@/lib/billing/payment-due-statement'
 import { getPaymentDueStatementSource, PaymentDueStatementSourceError } from '@/lib/billing/payment-due-statement.server'
-import { PaymentDuePdf } from '@/lib/billing/payment-due-pdf'
+import { createPaymentDuePdfElement } from '@/lib/billing/payment-due-pdf'
 
 export const runtime = 'nodejs'
 
@@ -82,7 +80,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
       timeZone: CLINIC_TIME_ZONE,
     })
     if (statement.isEmpty) return jsonError(422, 'NO_PENDING_PAYMENT', 'No payment pending for the selected regular-session period or completed package sessions.')
-    const buffer = await renderToBuffer(createElement(PaymentDuePdf, { statement }) as unknown as ReactElement<DocumentProps>)
+    const buffer = await renderToBuffer(createPaymentDuePdfElement(statement))
     const filename = sanitizeFilename(statement.patientName, generatedAt, input.regularScope, input.periodMonth)
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
