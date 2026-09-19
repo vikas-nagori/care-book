@@ -1,18 +1,21 @@
 import { notFound, redirect } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
 import { logger } from '@/lib/logger'
 import { formatDateOnly, getZonedCalendarContext } from '@/lib/timezone'
 import { getUserTimeZone } from '@/lib/timezone/server'
 import { buildAppointmentTypeBreakdown, type AppointmentTypeBreakdownRow } from '@/lib/billing/appointment-type-breakdown'
-import { buildMonthlyBilledSeries } from '@/lib/billing/monthly-billed-series'
+import { buildMonthlyBilledSeries, type BilledMonthBucket } from '@/lib/billing/monthly-billed-series'
 import { buildNetReceivedMetric } from '@/lib/billing/received-metric'
+import { groupMetricRowsByDate, paginateDateGroups } from '@/lib/billing/date-grouped-records'
 import { parsePageParam } from '@/lib/pagination'
 import { MetricDetail, type MetricRow } from './metric-detail'
 import { BilledTrendDetail } from './billed-trend-detail'
 
-// Drill-down behind a billing money tile. "Billed" / "Received" tiles list the exact records that sum
-// to the figure (paginated — these lists get very long); the "Billed last month" tile instead opens a
+// Drill-down behind a billing money tile. "Billed" / "Received" tiles list the records that sum to
+// the figure, grouped into a collapsed accordion per date so each day's own total reads at a glance;
+// pagination runs over whole dates, never part of one. The "Billed last month" tile instead opens a
 // month-by-month trendline of total billed since the org's first billed month. Admin-only.
 type MetricView = 'list' | 'trend'
 type MetricKind = 'billed' | 'received'
@@ -22,11 +25,28 @@ const METRICS: Record<string, { title: string; kind: MetricKind; view: MetricVie
   'received-this-month': { title: 'Received', kind: 'received', view: 'list', monthsAgo: 0 },
 }
 
-const PAGE_SIZE = 25
+/** Dates per page. Whole date groups, so a day's total on a header is always that day's full total. */
+const DATE_PAGE_SIZE = 15
+
+type MonthTotalsRow = {
+  month: string
+  appointment_type: string | null
+  amount: number | string | null
+  session_count: number | string | null
+}
 
 function normalizePatient(patient: unknown): string {
   const p = Array.isArray(patient) ? patient[0] : patient
   return (p as { name?: string } | null)?.name ?? 'Unknown patient'
+}
+
+function toBuckets(rows: MonthTotalsRow[]): BilledMonthBucket[] {
+  return rows.map((row) => ({
+    month: row.month,
+    type: row.appointment_type,
+    amount: row.amount,
+    sessionCount: row.session_count,
+  }))
 }
 
 export default async function BillingMetricPage({
@@ -47,28 +67,44 @@ export default async function BillingMetricPage({
   const now = new Date()
   const calendar = getZonedCalendarContext(now, userTimeZone)
 
-  // Trend view — month-by-month total billed (completed session fees) since inception.
+  // Trend view — month-by-month total billed, aggregated by Postgres so the payload stays a few
+  // dozen rows however long the clinic has been running. The second call re-counts every month up
+  // to today's day of the month, which powers the "billed till date" pace comparison.
   if (config.view === 'trend') {
-    const { data, error } = await supabase
-      .from('appointments')
-      .select('date, fee')
-      .eq('status', 'completed')
-      .order('date', { ascending: true })
-    if (error) logger.error('BillingMetric/trend', error, { metric })
+    const tillDay = Number(calendar.date.slice(8, 10))
 
-    const series = buildMonthlyBilledSeries(
-      (data ?? []).map((a) => ({ date: a.date, fee: a.fee })),
-      calendar.monthStart.slice(0, 7),
-    )
-    const total = series.reduce((sum, point) => sum + point.amount, 0)
-    const subtitle = series.length
-      ? `${series[0].label} – ${series[series.length - 1].label}`
+    const [fullTotals, tillDateTotals] = await Promise.all([
+      fetchAllRows<MonthTotalsRow>((from, to) =>
+        supabase.rpc('get_billed_month_totals_v1', { p_till_day: null }).range(from, to),
+      ),
+      fetchAllRows<MonthTotalsRow>((from, to) =>
+        supabase.rpc('get_billed_month_totals_v1', { p_till_day: tillDay }).range(from, to),
+      ),
+    ])
+    if (fullTotals.error) logger.error('BillingMetric/trend/full', fullTotals.error, { metric })
+    if (tillDateTotals.error) logger.error('BillingMetric/trend/tillDate', tillDateTotals.error, { metric })
+
+    const currentMonth = calendar.monthStart.slice(0, 7)
+    const fullSeries = buildMonthlyBilledSeries(toBuckets(fullTotals.data), currentMonth)
+    const tillDateSeries = buildMonthlyBilledSeries(toBuckets(tillDateTotals.data), currentMonth)
+    const subtitle = fullSeries.length
+      ? `${fullSeries[0].label} – ${fullSeries[fullSeries.length - 1].label}`
       : 'No billed sessions yet'
 
-    return <BilledTrendDetail title={config.title} subtitle={subtitle} total={total} series={series} />
+    return (
+      <BilledTrendDetail
+        title={config.title}
+        subtitle={subtitle}
+        fullSeries={fullSeries}
+        tillDateSeries={tillDateSeries}
+        tillDay={tillDay}
+      />
+    )
   }
 
-  // List views — paginated records for the period.
+  // List views — every record for the period, grouped by date. The whole period is read (in chunks,
+  // so PostgREST's max-rows cap can never silently drop records) because the headline total, the
+  // per-type breakdown and every date total must all reflect the period, not one page of it.
   const isCurrentMonth = config.monthsAgo === 0
   const from = isCurrentMonth ? calendar.monthStart : calendar.previousMonthStart
   const to = isCurrentMonth ? calendar.monthEnd : calendar.previousMonthEnd
@@ -77,84 +113,98 @@ export default async function BillingMetricPage({
     : formatDateOnly(calendar.previousMonthStart, 'MMMM yyyy')
 
   const page = parsePageParam(pageParam)
-  const rangeStart = (page - 1) * PAGE_SIZE
-  const rangeEnd = rangeStart + PAGE_SIZE - 1
 
   let rows: MetricRow[] = []
-  // The tile total and per-type breakdown must reflect the WHOLE period, not the visible page, so
-  // they come from a separate lightweight aggregate query (amounts/types only, no join, no range).
   let breakdown: AppointmentTypeBreakdownRow[] | undefined
   let total = 0
-  let totalCount = 0
 
   if (config.kind === 'billed') {
-    const { data: aggregate, error: aggregateError } = await supabase
-      .from('appointments')
-      .select('type, fee')
-      .eq('status', 'completed')
-      .gte('date', from)
-      .lte('date', to)
-    if (aggregateError) logger.error('BillingMetric/billed/aggregate', aggregateError, { metric })
-    total = (aggregate ?? []).reduce((sum, a) => sum + Number(a.fee ?? 0), 0)
-    breakdown = buildAppointmentTypeBreakdown((aggregate ?? []).map((a) => ({ type: a.type, fee: a.fee })))
-
-    const { data, count, error } = await supabase
-      .from('appointments')
-      .select('id, date, time, type, fee, patient:patients(name)', { count: 'exact' })
-      .eq('status', 'completed')
-      .gte('date', from)
-      .lte('date', to)
-      .order('date', { ascending: false })
-      .order('id', { ascending: false })
-      .range(rangeStart, rangeEnd)
+    const { data, error } = await fetchAllRows<{
+      id: string
+      date: string
+      time: string
+      type: string | null
+      fee: number | null
+      patient: unknown
+    }>((rangeStart, rangeEnd) =>
+      supabase
+        .from('appointments')
+        .select('id, date, time, type, fee, patient:patients(name)')
+        .eq('status', 'completed')
+        .gte('date', from)
+        .lte('date', to)
+        .order('date', { ascending: false })
+        .order('id', { ascending: false })
+        .range(rangeStart, rangeEnd),
+    )
     if (error) logger.error('BillingMetric/billed', error, { metric })
-    totalCount = count ?? 0
-    rows = (data ?? []).map((a) => ({
+
+    total = data.reduce((sum, a) => sum + Number(a.fee ?? 0), 0)
+    breakdown = buildAppointmentTypeBreakdown(data.map((a) => ({ type: a.type, fee: a.fee })))
+    rows = data.map((a) => ({
       id: a.id,
       date: a.date,
       title: normalizePatient(a.patient),
-      meta: a.type,
+      meta: a.type ?? undefined,
       amount: Number(a.fee ?? 0),
     }))
   } else {
-    const [
-      { data: periodPayments, error: paymentsError },
-      { data: periodRefunds, error: refundsError },
-      { data: refundReversals, error: reversalsError },
-    ] = await Promise.all([
-      supabase
-        .from('payments')
-        .select('id, date, amount, payment_method, status, patient:patients(name)')
-        .gte('date', from)
-        .lte('date', to),
-      supabase
-        .from('refunds')
-        .select('id, refund_date, amount, refund_method, patient:patients(name)')
-        .gte('refund_date', from)
-        .lte('refund_date', to),
-      supabase.from('refund_reversals').select('refund_id'),
+    const [periodPayments, periodRefunds, refundReversals] = await Promise.all([
+      fetchAllRows<{
+        id: string
+        date: string
+        amount: number | string
+        payment_method: string | null
+        status: string
+        patient: unknown
+      }>((rangeStart, rangeEnd) =>
+        supabase
+          .from('payments')
+          .select('id, date, amount, payment_method, status, patient:patients(name)')
+          .gte('date', from)
+          .lte('date', to)
+          .range(rangeStart, rangeEnd),
+      ),
+      fetchAllRows<{
+        id: string
+        refund_date: string
+        amount: number | string
+        refund_method: string
+        patient: unknown
+      }>((rangeStart, rangeEnd) =>
+        supabase
+          .from('refunds')
+          .select('id, refund_date, amount, refund_method, patient:patients(name)')
+          .gte('refund_date', from)
+          .lte('refund_date', to)
+          .range(rangeStart, rangeEnd),
+      ),
+      fetchAllRows<{ refund_id: string }>((rangeStart, rangeEnd) =>
+        supabase.from('refund_reversals').select('refund_id').range(rangeStart, rangeEnd),
+      ),
     ])
-    if (paymentsError) logger.error('BillingMetric/received/payments', paymentsError, { metric })
-    if (refundsError) logger.error('BillingMetric/received/refunds', refundsError, { metric })
-    if (reversalsError) logger.error('BillingMetric/received/refundReversals', reversalsError, { metric })
+    if (periodPayments.error) logger.error('BillingMetric/received/payments', periodPayments.error, { metric })
+    if (periodRefunds.error) logger.error('BillingMetric/received/refunds', periodRefunds.error, { metric })
+    if (refundReversals.error) logger.error('BillingMetric/received/refundReversals', refundReversals.error, { metric })
 
     const received = buildNetReceivedMetric({
-      payments: (periodPayments ?? []).map((payment) => ({
+      payments: periodPayments.data.map((payment) => ({
         ...payment,
+        amount: payment.amount,
         patientName: normalizePatient(payment.patient),
       })),
-      refunds: (periodRefunds ?? []).map((refund) => ({
+      refunds: periodRefunds.data.map((refund) => ({
         ...refund,
         patientName: normalizePatient(refund.patient),
       })),
-      reversedRefundIds: new Set((refundReversals ?? []).map((reversal) => reversal.refund_id)),
+      reversedRefundIds: new Set(refundReversals.data.map((reversal) => reversal.refund_id)),
     })
     total = received.total
-    totalCount = received.rows.length
-    rows = received.rows.slice(rangeStart, rangeEnd + 1)
+    rows = received.rows
   }
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+  const allGroups = groupMetricRowsByDate(rows)
+  const { groups, totalPages } = paginateDateGroups(allGroups, { page, pageSize: DATE_PAGE_SIZE })
   if (page > totalPages) redirect(`/billing/metrics/${metric}?page=${totalPages}`)
 
   return (
@@ -162,9 +212,10 @@ export default async function BillingMetricPage({
       title={config.title}
       subtitle={periodLabel}
       total={total}
-      rows={rows}
+      groups={groups}
+      unitLabel={config.kind === 'billed' ? 'session' : 'record'}
       breakdown={breakdown}
-      totalCount={totalCount}
+      totalCount={rows.length}
       pagination={{ page, totalPages, basePath: `/billing/metrics/${metric}` }}
       emptyLabel={config.kind === 'billed' ? 'No completed sessions in this period.' : 'No payments received in this period.'}
     />

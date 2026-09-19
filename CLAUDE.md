@@ -61,6 +61,10 @@ Appointments carry denormalized `payment_status` ('unpaid' | 'prepaid' | 'paid')
 
 **Billing mutations go through Postgres RPCs** — `record_payment` and `record_billing_entry` — not direct table inserts. These handle the package/payment/appointment linkage atomically.
 
+**Reads that must see a whole period never use an un-ranged `select`.** PostgREST caps one at `max-rows` (1000) and returns the truncated set *without* an error, so totals silently go wrong as data grows. Two rules:
+- A screen that needs the individual rows reads them through `fetchAllRows()` (`src/lib/supabase/fetch-all.ts`), which walks `.range()` chunks until a short chunk proves the table is exhausted and **throws** at a hard cap rather than returning a partial set.
+- A screen that only displays aggregates aggregates in Postgres instead. `get_billed_month_totals_v1` (migration 043) returns month × appointment-type totals for the billing trend; its optional `p_till_day` restricts every month to its first N days, which is what the "billed till date" comparison uses.
+
 **Manual DB setup**: migration 001 ships a commented-out `cron.schedule` block for auto-completing appointments at 23:59 IST. Requires enabling `pg_cron` in Supabase (Database → Extensions) and running the SQL manually.
 
 ### Schedule Calendar

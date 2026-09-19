@@ -16,7 +16,7 @@ export type BilledSession = {
   fee: number | null | undefined
 }
 
-const UNTYPED_LABEL = 'Untyped'
+export const UNTYPED_LABEL = 'Untyped'
 
 /**
  * Group billed sessions into per-type subtotals, sorted by amount descending then type name (stable).

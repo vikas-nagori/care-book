@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 
 import { MetricDetail, type MetricRow } from './metric-detail'
+import { groupMetricRowsByDate } from '@/lib/billing/date-grouped-records'
 import type { AppointmentTypeBreakdownRow } from '@/lib/billing/appointment-type-breakdown'
 
 afterEach(cleanup)
@@ -10,6 +11,8 @@ const rows: MetricRow[] = [
   { id: 'a1', date: '2026-07-02', title: 'Asha Rao', meta: 'clinic', amount: 800 },
   { id: 'a2', date: '2026-07-03', title: 'Ravi Kumar', meta: 'home_visit', amount: 1000 },
 ]
+
+const groups = groupMetricRowsByDate(rows)
 
 describe('MetricDetail appointment-type breakdown strip', () => {
   it('renders a per-type strip above the list when there are 2+ types', () => {
@@ -23,7 +26,8 @@ describe('MetricDetail appointment-type breakdown strip', () => {
         title="Total billed"
         subtitle="July 2026"
         total={2600}
-        rows={rows}
+        groups={groups}
+        unitLabel="session"
         breakdown={breakdown}
         emptyLabel="No completed sessions in this period."
       />,
@@ -45,7 +49,8 @@ describe('MetricDetail appointment-type breakdown strip', () => {
         title="Total billed"
         subtitle="July 2026"
         total={1600}
-        rows={rows}
+        groups={groups}
+        unitLabel="session"
         breakdown={breakdown}
         emptyLabel="No completed sessions in this period."
       />,
@@ -60,7 +65,8 @@ describe('MetricDetail appointment-type breakdown strip', () => {
         title="Received"
         subtitle="July 2026"
         total={2600}
-        rows={rows}
+        groups={groups}
+        unitLabel="session"
         emptyLabel="No payments received in this period."
       />,
     )
@@ -76,7 +82,8 @@ describe('MetricDetail pagination', () => {
         title="Received"
         subtitle="July 2026"
         total={99000}
-        rows={rows}
+        groups={groups}
+        unitLabel="session"
         totalCount={57}
         pagination={{ page: 2, totalPages: 3, basePath: '/billing/metrics/received-this-month' }}
         emptyLabel="No payments received in this period."
@@ -101,7 +108,8 @@ describe('MetricDetail pagination', () => {
         title="Received"
         subtitle="July 2026"
         total={800}
-        rows={rows}
+        groups={groups}
+        unitLabel="session"
         totalCount={2}
         pagination={{ page: 1, totalPages: 1, basePath: '/billing/metrics/received-this-month' }}
         emptyLabel="No payments received in this period."
@@ -109,5 +117,58 @@ describe('MetricDetail pagination', () => {
     )
 
     expect(screen.queryByRole('navigation', { name: 'Received pages' })).toBeNull()
+  })
+})
+
+describe('MetricDetail date grouping', () => {
+  it('lists one collapsed date row per date rather than a flat record list', () => {
+    render(
+      <MetricDetail
+        title="Total billed"
+        subtitle="July 2026"
+        total={1800}
+        groups={groups}
+        unitLabel="session"
+        emptyLabel="No completed sessions in this period."
+      />,
+    )
+
+    // Both dates are present as headers…
+    expect(screen.getByRole('button', { name: /02 Jul/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /03 Jul/ })).toBeTruthy()
+    // …and the records behind them stay hidden until expanded.
+    expect(screen.queryByText('Asha Rao')).toBeNull()
+  })
+
+  it('shows the total for each date on its header', () => {
+    render(
+      <MetricDetail
+        title="Total billed"
+        subtitle="July 2026"
+        total={1800}
+        groups={groups}
+        unitLabel="session"
+        emptyLabel="No completed sessions in this period."
+      />,
+    )
+
+    const header = screen.getByRole('button', { name: /03 Jul/ })
+    expect(within(header).getByText('1,000')).toBeTruthy()
+    expect(within(header).getByText('1 session')).toBeTruthy()
+  })
+
+  it('shows the empty label when the period has no records', () => {
+    render(
+      <MetricDetail
+        title="Received"
+        subtitle="July 2026"
+        total={0}
+        groups={[]}
+        unitLabel="record"
+        emptyLabel="No payments received in this period."
+      />,
+    )
+
+    expect(screen.getByText('No payments received in this period.')).toBeTruthy()
   })
 })

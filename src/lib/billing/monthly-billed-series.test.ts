@@ -1,15 +1,21 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildMonthlyBilledSeries, type BilledSessionDate } from './monthly-billed-series.ts'
+import { buildMonthlyBilledSeries, type BilledMonthBucket } from './monthly-billed-series.ts'
 
-test('sums fees per calendar month', () => {
-  const sessions: BilledSessionDate[] = [
-    { date: '2026-05-02', fee: 800 },
-    { date: '2026-05-20', fee: 1000 },
-    { date: '2026-06-11', fee: 500 },
-  ]
-  const series = buildMonthlyBilledSeries(sessions, '2026-06')
+const bucket = (month: string, type: string | null, amount: number, sessionCount = 1): BilledMonthBucket => ({
+  month,
+  type,
+  amount,
+  sessionCount,
+})
+
+test('sums every type bucket into that month total', () => {
+  const series = buildMonthlyBilledSeries(
+    [bucket('2026-05', 'Clinic', 800, 2), bucket('2026-05', 'Home', 1000, 1), bucket('2026-06', 'Clinic', 500, 1)],
+    '2026-06',
+  )
+
   assert.deepEqual(
     series.map((p) => ({ month: p.month, amount: p.amount })),
     [
@@ -19,71 +25,88 @@ test('sums fees per calendar month', () => {
   )
 })
 
-test('fills gap months with 0 between inception and current month', () => {
+test('carries a per-appointment-type breakdown on each month', () => {
   const series = buildMonthlyBilledSeries(
-    [
-      { date: '2026-01-15', fee: 800 },
-      { date: '2026-04-15', fee: 1200 },
-    ],
+    [bucket('2026-05', 'Clinic', 800, 2), bucket('2026-05', 'Home', 1000, 3)],
+    '2026-05',
+  )
+
+  assert.deepEqual(series[0].breakdown, [
+    { type: 'Home', amount: 1000, count: 3 },
+    { type: 'Clinic', amount: 800, count: 2 },
+  ])
+})
+
+test('orders a breakdown by amount descending, then type name', () => {
+  const series = buildMonthlyBilledSeries(
+    [bucket('2026-05', 'Online', 500), bucket('2026-05', 'Clinic', 500), bucket('2026-05', 'Home', 900)],
+    '2026-05',
+  )
+
+  assert.deepEqual(series[0].breakdown.map((row) => row.type), ['Home', 'Clinic', 'Online'])
+})
+
+test('collapses a null or blank type into one Untyped bucket', () => {
+  const series = buildMonthlyBilledSeries(
+    [bucket('2026-05', null, 300, 1), bucket('2026-05', '  ', 200, 1)],
+    '2026-05',
+  )
+
+  assert.deepEqual(series[0].breakdown, [{ type: 'Untyped', amount: 500, count: 2 }])
+})
+
+test('fills gap months with 0 and an empty breakdown', () => {
+  const series = buildMonthlyBilledSeries(
+    [bucket('2026-01', 'Clinic', 800), bucket('2026-04', 'Clinic', 1200)],
     '2026-04',
   )
-  assert.deepEqual(
-    series.map((p) => p.amount),
-    [800, 0, 0, 1200],
-  )
-  assert.deepEqual(
-    series.map((p) => p.month),
-    ['2026-01', '2026-02', '2026-03', '2026-04'],
-  )
+
+  assert.deepEqual(series.map((p) => p.month), ['2026-01', '2026-02', '2026-03', '2026-04'])
+  assert.deepEqual(series.map((p) => p.amount), [800, 0, 0, 1200])
+  assert.deepEqual(series[1].breakdown, [])
 })
 
 test('extends through the current month even when it has no billing', () => {
-  const series = buildMonthlyBilledSeries([{ date: '2026-05-02', fee: 800 }], '2026-07')
-  assert.deepEqual(
-    series.map((p) => ({ month: p.month, amount: p.amount })),
-    [
-      { month: '2026-05', amount: 800 },
-      { month: '2026-06', amount: 0 },
-      { month: '2026-07', amount: 0 },
-    ],
-  )
-})
+  const series = buildMonthlyBilledSeries([bucket('2026-05', 'Clinic', 800)], '2026-07')
 
-test('spans across a year boundary', () => {
-  const series = buildMonthlyBilledSeries(
-    [
-      { date: '2025-11-01', fee: 300 },
-      { date: '2026-02-01', fee: 400 },
-    ],
-    '2026-02',
-  )
-  assert.deepEqual(
-    series.map((p) => p.month),
-    ['2025-11', '2025-12', '2026-01', '2026-02'],
-  )
-  assert.equal(series[0].label, "Nov '25")
+  assert.deepEqual(series.map((p) => p.month), ['2026-05', '2026-06', '2026-07'])
 })
 
 test('includes months later than the current month when data extends past it', () => {
-  const series = buildMonthlyBilledSeries([{ date: '2026-09-01', fee: 500 }], '2026-07')
-  assert.deepEqual(
-    series.map((p) => p.month),
-    ['2026-07', '2026-08', '2026-09'],
-  )
+  const series = buildMonthlyBilledSeries([bucket('2026-09', 'Clinic', 500)], '2026-07')
+
+  assert.deepEqual(series.map((p) => p.month), ['2026-07', '2026-08', '2026-09'])
 })
 
-test('treats null/non-finite fees as 0 without dropping the month', () => {
+test('spans a year boundary and labels the month short', () => {
   const series = buildMonthlyBilledSeries(
-    [
-      { date: '2026-05-02', fee: null },
-      { date: '2026-05-03', fee: Number.NaN },
-      { date: '2026-05-04', fee: 800 },
-    ],
+    [bucket('2025-11', 'Clinic', 300), bucket('2026-02', 'Clinic', 400)],
+    '2026-02',
+  )
+
+  assert.deepEqual(series.map((p) => p.month), ['2025-11', '2025-12', '2026-01', '2026-02'])
+  assert.equal(series[0].label, "Nov '25")
+})
+
+test('treats null and non-numeric amounts as 0 without dropping the month', () => {
+  const series = buildMonthlyBilledSeries(
+    [bucket('2026-05', 'Clinic', null as unknown as number, 1), bucket('2026-05', 'Home', 800, 1)],
     '2026-05',
   )
-  assert.deepEqual(series, [{ month: '2026-05', label: "May '26", amount: 800 }])
+
+  assert.equal(series[0].amount, 800)
 })
 
-test('returns an empty series when there are no sessions', () => {
+test('reads numeric amounts delivered as strings', () => {
+  const series = buildMonthlyBilledSeries(
+    [{ month: '2026-05', type: 'Clinic', amount: '1250.00', sessionCount: '3' }],
+    '2026-05',
+  )
+
+  assert.equal(series[0].amount, 1250)
+  assert.deepEqual(series[0].breakdown, [{ type: 'Clinic', amount: 1250, count: 3 }])
+})
+
+test('returns an empty series when there are no buckets', () => {
   assert.deepEqual(buildMonthlyBilledSeries([], '2026-07'), [])
 })
