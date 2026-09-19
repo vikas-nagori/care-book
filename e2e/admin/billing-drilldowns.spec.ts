@@ -5,6 +5,7 @@
 
 import { CLINIC_A } from '../support/accounts'
 import { attachErrorGuards } from '../support/assertions'
+import { expandDateGroup } from '../support/date-groups'
 import { clinicDate } from '../support/clinic-date'
 import { test, expect } from '../support/factories'
 import { adminClient } from '../support/supabase-admin'
@@ -88,10 +89,9 @@ test('Received drill-down keeps a date collapsed until it is opened', async ({ p
 
   const header = page.getByTestId('date-group-header').filter({ hasText: dayLabel() }).first()
   await expect(header).toHaveAttribute('aria-expanded', 'false')
-  await header.click()
 
   // …and appears once that date is expanded.
-  await expect(header).toHaveAttribute('aria-expanded', 'true')
+  await expandDateGroup(header)
   await expect(page.getByText(patient.name as string, { exact: true }).first()).toBeVisible()
 
   await guards.assertClean()

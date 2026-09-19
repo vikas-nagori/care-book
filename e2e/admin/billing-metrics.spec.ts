@@ -6,6 +6,7 @@
 
 import { BillingEntryForm } from '../pages/billing-entry-form'
 import { attachErrorGuards } from '../support/assertions'
+import { collapseDateGroup, expandDateGroup } from '../support/date-groups'
 import { clinicDate } from '../support/clinic-date'
 import { test, expect } from '../support/factories'
 
@@ -100,13 +101,11 @@ test('Billed drill-down groups sessions under a collapsed date that expands on c
   await expect(header).toContainText(/session/)
   await expect(header).toHaveAttribute('aria-expanded', 'false')
 
-  await header.click()
-
-  await expect(header).toHaveAttribute('aria-expanded', 'true')
+  await expandDateGroup(header)
   await expect(page.getByText(patient.name as string, { exact: true }).first()).toBeVisible()
 
   // Clicking again puts it away.
-  await header.click()
+  await collapseDateGroup(header)
   await expect(page.getByText(patient.name as string, { exact: true })).toHaveCount(0)
 
   await guards.assertClean()

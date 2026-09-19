@@ -208,7 +208,8 @@ test('metric drill-downs list their real records and payment due lists the seede
   // Records sit behind a collapsed accordion per date.
   await expandAllDateGroups(page)
   await expect(page.getByText(patient.name as string, { exact: true })).toBeVisible()
-  await expect(page.getByText('₹1,375', { exact: true })).toBeVisible()
+  // The date header shows the day's total, which for a single-session day is this same figure.
+  await expect(page.getByText('₹1,375', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('link', { name: /^(Back to billing|Go back)$/ }).click()
   await page.getByRole('link', { name: /Received/ }).click()
