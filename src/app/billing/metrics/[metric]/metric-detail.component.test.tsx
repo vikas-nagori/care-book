@@ -172,3 +172,23 @@ describe('MetricDetail date grouping', () => {
     expect(screen.getByText('No payments received in this period.')).toBeTruthy()
   })
 })
+
+describe('MetricDetail load failure', () => {
+  it('says the records could not be loaded instead of reading as an empty period', () => {
+    render(
+      <MetricDetail
+        title="Total billed"
+        subtitle="July 2026"
+        total={0}
+        groups={[]}
+        unitLabel="session"
+        loadFailed
+        emptyLabel="No completed sessions in this period."
+      />,
+    )
+
+    expect(screen.getByText(/could not be loaded/i)).toBeTruthy()
+    expect(screen.queryByText('No completed sessions in this period.')).toBeNull()
+    expect(screen.queryByText('0 records')).toBeNull()
+  })
+}) 

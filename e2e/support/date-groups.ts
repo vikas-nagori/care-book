@@ -24,11 +24,19 @@ export async function collapseDateGroup(header: Locator): Promise<void> {
 }
 
 /**
- * Open every date on the page, so a test never has to know which day its fixture landed on. A no-op
- * on a page with no accordions (the payment-due detail, say).
+ * Open every date on the page, so a test never has to know which day its fixture landed on.
+ *
+ * Waits for the list to render first. Locator.count() does not auto-retry, and these routes stream
+ * in behind a loading.tsx — so counting straight after a navigation can see zero headers, silently
+ * expand nothing, and leave the caller asserting against a still-collapsed list.
+ *
+ * Only call this on a drill-down that is expected to have at least one record.
  */
 export async function expandAllDateGroups(page: Page): Promise<void> {
+  await expect(page.getByTestId('date-group-list')).toBeVisible()
   const headers = page.getByTestId('date-group-header')
+  await expect(headers.first()).toBeVisible()
+
   const count = await headers.count()
   for (let index = 0; index < count; index++) {
     await expandDateGroup(headers.nth(index))

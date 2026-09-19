@@ -98,6 +98,7 @@ export default async function BillingMetricPage({
         fullSeries={fullSeries}
         tillDateSeries={tillDateSeries}
         tillDay={tillDay}
+        loadFailed={Boolean(fullTotals.error || tillDateTotals.error)}
       />
     )
   }
@@ -117,6 +118,8 @@ export default async function BillingMetricPage({
   let rows: MetricRow[] = []
   let breakdown: AppointmentTypeBreakdownRow[] | undefined
   let total = 0
+  // A failed read must not render as a quiet month — the screen says so instead of showing ₹0.
+  let loadFailed = false
 
   if (config.kind === 'billed') {
     const { data, error } = await fetchAllRows<{
@@ -138,6 +141,7 @@ export default async function BillingMetricPage({
         .range(rangeStart, rangeEnd),
     )
     if (error) logger.error('BillingMetric/billed', error, { metric })
+    loadFailed = Boolean(error)
 
     total = data.reduce((sum, a) => sum + Number(a.fee ?? 0), 0)
     breakdown = buildAppointmentTypeBreakdown(data.map((a) => ({ type: a.type, fee: a.fee })))
@@ -186,6 +190,7 @@ export default async function BillingMetricPage({
     if (periodPayments.error) logger.error('BillingMetric/received/payments', periodPayments.error, { metric })
     if (periodRefunds.error) logger.error('BillingMetric/received/refunds', periodRefunds.error, { metric })
     if (refundReversals.error) logger.error('BillingMetric/received/refundReversals', refundReversals.error, { metric })
+    loadFailed = Boolean(periodPayments.error || periodRefunds.error || refundReversals.error)
 
     const received = buildNetReceivedMetric({
       payments: periodPayments.data.map((payment) => ({
@@ -216,6 +221,7 @@ export default async function BillingMetricPage({
       unitLabel={config.kind === 'billed' ? 'session' : 'record'}
       breakdown={breakdown}
       totalCount={rows.length}
+      loadFailed={loadFailed}
       pagination={{ page, totalPages, basePath: `/billing/metrics/${metric}` }}
       emptyLabel={config.kind === 'billed' ? 'No completed sessions in this period.' : 'No payments received in this period.'}
     />

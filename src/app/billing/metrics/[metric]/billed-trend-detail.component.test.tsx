@@ -159,3 +159,25 @@ describe('BilledTrendDetail till-date comparison', () => {
     expect(within(screen.getByLabelText('Selected month total')).getByText('800')).toBeTruthy()
   })
 })
+
+describe('BilledTrendDetail load failure', () => {
+  it('says the figures could not be loaded instead of showing a confident zero', () => {
+    renderTrend({ fullSeries: [], tillDateSeries: [], loadFailed: true })
+
+    expect(screen.getByText(/could not be loaded/i)).toBeTruthy()
+    expect(screen.queryByText('No billed sessions yet.')).toBeNull()
+  })
+
+  it('does not present a total when the read failed', () => {
+    renderTrend({ fullSeries: [], tillDateSeries: [], loadFailed: true })
+
+    expect(screen.queryByText('Total billed · all time')).toBeNull()
+  })
+
+  it('still shows the genuine empty state when the read succeeded with no data', () => {
+    renderTrend({ fullSeries: [], tillDateSeries: [] })
+
+    expect(screen.getByText('No billed sessions yet.')).toBeTruthy()
+    expect(screen.queryByText(/could not be loaded/i)).toBeNull()
+  })
+})

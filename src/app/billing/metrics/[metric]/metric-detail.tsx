@@ -8,6 +8,7 @@ import type { DateGroup } from '@/lib/billing/date-grouped-records'
 import { DateGroupList, type MetricListRow } from './date-group-list'
 import { AppointmentTypeStrip } from './appointment-type-strip'
 import { Money } from './money'
+import { LoadFailureNotice } from './load-failure-notice'
 
 export type MetricRow = MetricListRow
 
@@ -26,6 +27,8 @@ type MetricDetailProps = {
   totalCount?: number
   /** Page navigation; omit for un-paginated lists. `basePath` is the metric route (e.g. /billing/metrics/received-this-month). */
   pagination?: { page: number; totalPages: number; basePath: string }
+  /** The query behind these figures failed — say so rather than render a total of zero. */
+  loadFailed?: boolean
 }
 
 // Presentational view of the records behind a billing metric tile — prop-driven and side-effect free.
@@ -41,6 +44,7 @@ export function MetricDetail({
   breakdown,
   totalCount,
   pagination,
+  loadFailed = false,
 }: MetricDetailProps) {
   const recordCount = totalCount ?? groups.reduce((sum, group) => sum + group.count, 0)
   return (
@@ -63,6 +67,10 @@ export function MetricDetail({
         <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>{subtitle}</div>
       </div>
 
+      {loadFailed ? (
+        <LoadFailureNotice subject={title} />
+      ) : (
+        <>
       <div className="ph-stat mb-5">
         <div className="ph-stat-label"><span>{title} · {subtitle}</span></div>
         <div className="ph-stat-value"><Money n={total} /></div>
@@ -85,6 +93,8 @@ export function MetricDetail({
           basePath={pagination.basePath}
           ariaLabel={`${title} pages`}
         />
+      )}
+        </>
       )}
     </div>
   )

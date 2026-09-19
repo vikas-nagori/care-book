@@ -34,7 +34,10 @@ export function DateGroupList({ groups, emptyLabel, unitLabel }: DateGroupListPr
   }
 
   return (
-    <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
+    <div
+      data-testid="date-group-list"
+      style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}
+    >
       {groups.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ph-ink-4)', fontSize: 13 }}>
           {emptyLabel}

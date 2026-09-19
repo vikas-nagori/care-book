@@ -10,6 +10,7 @@ import type { BilledMonthPoint } from '@/lib/billing/monthly-billed-series'
 import { BilledTrendChart } from './billed-trend-chart'
 import { AppointmentTypeStrip } from './appointment-type-strip'
 import { Money } from './money'
+import { LoadFailureNotice } from './load-failure-notice'
 
 type TrendMode = 'full' | 'tillDate'
 
@@ -22,13 +23,22 @@ type BilledTrendDetailProps = {
   tillDateSeries: BilledMonthPoint[]
   /** Day of the month the "billed till date" view cuts off at (today's day of month). */
   tillDay: number
+  /** The aggregation query failed — say so rather than render an all-time total of zero. */
+  loadFailed?: boolean
 }
 
 // The Billed drill-down as a month-by-month trendline, with a mode toggle and a month picker below
 // it. Both series are handed over up front, so switching mode or month is instant — no refetch. The
 // picked month gets a total plus its appointment-type bifurcation; individual sessions are not
 // listed here, that is what the Total billed drill-down is for.
-export function BilledTrendDetail({ title, subtitle, fullSeries, tillDateSeries, tillDay }: BilledTrendDetailProps) {
+export function BilledTrendDetail({
+  title,
+  subtitle,
+  fullSeries,
+  tillDateSeries,
+  tillDay,
+  loadFailed = false,
+}: BilledTrendDetailProps) {
   const [mode, setMode] = useState<TrendMode>('full')
   const series = mode === 'full' ? fullSeries : tillDateSeries
 
@@ -66,6 +76,10 @@ export function BilledTrendDetail({ title, subtitle, fullSeries, tillDateSeries,
         <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)' }}>{subtitle}</div>
       </div>
 
+      {loadFailed ? (
+        <LoadFailureNotice subject="The billing trend" />
+      ) : (
+        <>
       <div className="ph-stat mb-5">
         <div className="ph-stat-label"><span>{headline}</span></div>
         <div className="ph-stat-value"><Money n={total} /></div>
@@ -144,6 +158,8 @@ export function BilledTrendDetail({ title, subtitle, fullSeries, tillDateSeries,
               )}
             </>
           )}
+        </>
+      )}
         </>
       )}
     </div>
