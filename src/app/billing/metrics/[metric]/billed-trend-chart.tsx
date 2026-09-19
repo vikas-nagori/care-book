@@ -1,10 +1,10 @@
 import type { BilledMonthPoint } from '@/lib/billing/monthly-billed-series'
 
-// Single-series month-by-month "total billed" line chart. Hand-rolled SVG (no chart lib), static and
-// server-renderable: per-point native <title> tooltips stand in for a JS hover layer. Colors come from
-// the design-system CSS tokens (accent for the one series, ink/line tokens for all text + grid) so it
-// adapts to light/dark automatically. The chart is a fixed pixel width and scrolls horizontally when
-// there are many months.
+// Single-series month-by-month "total billed" line chart. Hand-rolled SVG (no chart lib): per-point
+// native <title> tooltips stand in for a JS hover layer. Colors come from the design-system CSS
+// tokens (accent for the one series, ink/line tokens for all text + grid) so it adapts to light/dark
+// automatically. The chart is a fixed pixel width and scrolls horizontally when there are many
+// months. `selectedMonth` emphasises the point the month picker is currently sitting on.
 
 const PX_PER_POINT = 60
 const MARGIN = { top: 16, right: 24, bottom: 40, left: 64 }
@@ -25,7 +25,13 @@ function rupees(n: number): string {
   return `₹${Math.round(n).toLocaleString('en-IN')}`
 }
 
-export function BilledTrendChart({ series }: { series: BilledMonthPoint[] }) {
+export function BilledTrendChart({
+  series,
+  selectedMonth,
+}: {
+  series: BilledMonthPoint[]
+  selectedMonth?: string
+}) {
   const plotWidth = Math.max(1, series.length - 1) * PX_PER_POINT
   const width = MARGIN.left + plotWidth + MARGIN.right
   const rawMax = Math.max(1, ...series.map((p) => p.amount))
@@ -72,16 +78,34 @@ export function BilledTrendChart({ series }: { series: BilledMonthPoint[] }) {
         <path d={linePath} fill="none" stroke="var(--ph-accent)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
 
         {/* Point markers (≥8px) with native hover tooltips + x-axis month labels */}
-        {points.map((p) => (
-          <g key={p.month}>
-            <circle cx={p.cx} cy={p.cy} r={4} fill="var(--ph-surface)" stroke="var(--ph-accent)" strokeWidth={2}>
+        {points.map((p) => {
+          const isSelected = p.month === selectedMonth
+          return (
+          <g key={p.month} data-month={p.month}>
+            <circle
+              cx={p.cx}
+              cy={p.cy}
+              r={isSelected ? 6 : 4}
+              fill={isSelected ? 'var(--ph-accent)' : 'var(--ph-surface)'}
+              stroke="var(--ph-accent)"
+              strokeWidth={2}
+              data-selected={isSelected ? 'true' : 'false'}
+            >
               <title>{`${p.label} · ${rupees(p.amount)}`}</title>
             </circle>
-            <text x={p.cx} y={HEIGHT - 14} textAnchor="middle" fontSize={10.5} fill="var(--ph-ink-4)">
+            <text
+              x={p.cx}
+              y={HEIGHT - 14}
+              textAnchor="middle"
+              fontSize={10.5}
+              fontWeight={isSelected ? 600 : 400}
+              fill={isSelected ? 'var(--ph-ink)' : 'var(--ph-ink-4)'}
+            >
               {p.label}
             </text>
           </g>
-        ))}
+          )
+        })}
       </svg>
     </div>
   )
