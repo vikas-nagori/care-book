@@ -86,7 +86,7 @@ test('Received drill-down keeps a date collapsed until it is opened', async ({ p
   // The payment's own row is hidden behind its date header…
   await expect(page.getByText(patient.name as string, { exact: true })).toHaveCount(0)
 
-  const header = page.getByRole('button', { name: new RegExp(dayLabel()) }).first()
+  const header = page.getByTestId('date-group-header').filter({ hasText: dayLabel() }).first()
   await expect(header).toHaveAttribute('aria-expanded', 'false')
   await header.click()
 

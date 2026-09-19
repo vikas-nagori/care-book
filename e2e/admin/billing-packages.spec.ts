@@ -4,6 +4,7 @@
 import { format, parseISO } from 'date-fns'
 import { BillingEntryForm } from '../pages/billing-entry-form'
 import { attachErrorGuards } from '../support/assertions'
+import { expandAllDateGroups } from '../support/date-groups'
 import { clinicDate } from '../support/clinic-date'
 import { test, expect } from '../support/factories'
 import { SEED } from '../support/ids'
@@ -204,12 +205,15 @@ test('metric drill-downs list their real records and payment due lists the seede
   await page.goto('/billing')
   await page.getByRole('link', { name: /Total billed/ }).click()
   await expect(page).toHaveURL('/billing/metrics/billed-this-month')
+  // Records sit behind a collapsed accordion per date.
+  await expandAllDateGroups(page)
   await expect(page.getByText(patient.name as string, { exact: true })).toBeVisible()
   await expect(page.getByText('₹1,375', { exact: true })).toBeVisible()
 
   await page.getByRole('link', { name: /^(Back to billing|Go back)$/ }).click()
   await page.getByRole('link', { name: /Received/ }).click()
   await expect(page).toHaveURL('/billing/metrics/received-this-month')
+  await expandAllDateGroups(page)
   await expect(page.getByText(patient.name as string, { exact: true })).toBeVisible()
   await expect(page.getByText('bank_transfer', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('₹2,468', { exact: true }).first()).toBeVisible()

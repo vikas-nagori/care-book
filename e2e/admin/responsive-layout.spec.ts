@@ -1,5 +1,6 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test'
 
+import { expandAllDateGroups } from '../support/date-groups'
 import { attachErrorGuards } from '../support/assertions'
 import { ADMIN } from '../support/accounts'
 import { SEED } from '../support/ids'
@@ -295,6 +296,9 @@ test('metric and payment-due pages expose responsive titles, content, and exact 
       })).toBeVisible()
       expect(await back.evaluate((link) => link.parentElement?.textContent)).toContain(detail.desktopTitle)
     }
+    // The metric drill-downs hide their records behind a collapsed accordion per date; a no-op on
+    // the payment-due detail, which has none.
+    await expandAllDateGroups(page)
     for (const content of detail.content) {
       await expect(page.getByText(content, { exact: true }).filter({ visible: true }).first()).toBeVisible()
     }

@@ -50,6 +50,7 @@ export function DateGroupList({ groups, emptyLabel, unitLabel }: DateGroupListPr
             >
               <button
                 type="button"
+                data-testid="date-group-header"
                 onClick={() => toggle(group.date)}
                 aria-expanded={isOpen}
                 aria-controls={panelId}

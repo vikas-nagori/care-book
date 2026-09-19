@@ -95,7 +95,7 @@ test('Billed drill-down groups sessions under a collapsed date that expands on c
   // The session is summarised under its date, not listed outright.
   await expect(page.getByText(patient.name as string, { exact: true })).toHaveCount(0)
 
-  const header = page.getByRole('button', { name: new RegExp(dayLabel()) }).first()
+  const header = page.getByTestId('date-group-header').filter({ hasText: dayLabel() }).first()
   await expect(header).toBeVisible()
   await expect(header).toContainText(/session/)
   await expect(header).toHaveAttribute('aria-expanded', 'false')
