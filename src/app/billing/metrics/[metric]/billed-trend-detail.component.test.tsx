@@ -114,18 +114,33 @@ describe('BilledTrendDetail month panel', () => {
   })
 })
 
+/** Open a Radix select by keyboard and choose an option — no pointer events needed in jsdom. */
+function chooseOption(comboboxName: string, optionName: string) {
+  const trigger = screen.getByRole('combobox', { name: comboboxName })
+  fireEvent.keyDown(trigger, { key: 'Enter' })
+  fireEvent.click(screen.getByRole('option', { name: optionName }))
+}
+
 describe('BilledTrendDetail till-date comparison', () => {
   it('starts on the full-month view', () => {
     renderTrend()
 
-    expect(screen.getByRole('button', { name: 'Full month' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('combobox', { name: 'Trend range' }).textContent).toContain('Full month')
     expect(screen.getByText('Total billed · all time')).toBeTruthy()
+  })
+
+  it('offers the range as a dropdown, not a pair of buttons', () => {
+    renderTrend()
+
+    expect(screen.getByRole('combobox', { name: 'Trend range' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Full month' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Billed till date' })).toBeNull()
   })
 
   it('switches the chart to the till-date series', () => {
     renderTrend()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Billed till date' }))
+    chooseOption('Trend range', 'Billed till date')
 
     const chart = screen.getByRole('img', { name: 'Monthly total billed trend' })
     expect(chart.textContent).toContain("May '26 · ₹1,000")
@@ -135,7 +150,7 @@ describe('BilledTrendDetail till-date comparison', () => {
   it('relabels the headline with the cutoff day', () => {
     renderTrend()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Billed till date' }))
+    chooseOption('Trend range', 'Billed till date')
 
     expect(screen.getByText('Total billed · first 19 days of each month')).toBeTruthy()
   })
@@ -143,7 +158,7 @@ describe('BilledTrendDetail till-date comparison', () => {
   it('recomputes the selected month panel from the till-date figures', () => {
     renderTrend()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Billed till date' }))
+    chooseOption('Trend range', 'Billed till date')
 
     const panel = screen.getByLabelText('Selected month total')
     expect(within(panel).getByText('300')).toBeTruthy()
@@ -152,8 +167,8 @@ describe('BilledTrendDetail till-date comparison', () => {
   it('switches back to the full month', () => {
     renderTrend()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Billed till date' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Full month' }))
+    chooseOption('Trend range', 'Billed till date')
+    chooseOption('Trend range', 'Full month')
 
     expect(screen.getByText('Total billed · all time')).toBeTruthy()
     expect(within(screen.getByLabelText('Selected month total')).getByText('800')).toBeTruthy()

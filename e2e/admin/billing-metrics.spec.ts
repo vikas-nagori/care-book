@@ -125,15 +125,18 @@ test('Monthly billed trend switches between the full month and billed till date'
 
   await page.goto('/billing/metrics/billed-last-month')
 
+  const range = page.getByRole('combobox', { name: 'Trend range' })
+  await expect(range).toContainText('Full month')
   await expect(page.getByText('Total billed · all time', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Full month' })).toHaveAttribute('aria-pressed', 'true')
 
-  await page.getByRole('button', { name: 'Billed till date' }).click()
+  await range.click()
+  await page.getByRole('option', { name: 'Billed till date' }).click()
 
+  await expect(range).toContainText('Billed till date')
   await expect(page.getByText(/^Total billed · first \d+ days of each month$/)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Billed till date' })).toHaveAttribute('aria-pressed', 'true')
 
-  await page.getByRole('button', { name: 'Full month' }).click()
+  await range.click()
+  await page.getByRole('option', { name: 'Full month' }).click()
   await expect(page.getByText('Total billed · all time', { exact: true })).toBeVisible()
 
   await guards.assertClean()

@@ -80,10 +80,29 @@ export function BilledTrendDetail({
         <LoadFailureNotice subject="The billing trend" />
       ) : (
         <>
-      <div className="ph-stat mb-5">
+      {/* The range sits with the headline it governs, so the figure below always states its own basis. */}
+      <div className="mb-2.5 w-full md:max-w-[260px]">
+        <Select value={mode} onValueChange={(next) => setMode(next as TrendMode)}>
+          <SelectTrigger aria-label="Trend range" style={{ minHeight: 44 }}>
+            <SelectValue>{mode === 'full' ? 'Full month' : 'Billed till date'}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="full">Full month</SelectItem>
+            <SelectItem value="tillDate">Billed till date</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="ph-stat mb-2">
         <div className="ph-stat-label"><span>{headline}</span></div>
         <div className="ph-stat-value"><Money n={total} /></div>
         <div className="ph-stat-meta">{series.length} month{series.length === 1 ? '' : 's'}</div>
+      </div>
+
+      <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', margin: '0 0 16px' }}>
+        {mode === 'full'
+          ? 'Every month counted in full.'
+          : `Every month counted to day ${tillDay} only, so months compare like for like.`}
       </div>
 
       {series.length === 0 ? (
@@ -94,34 +113,7 @@ export function BilledTrendDetail({
         <>
           <BilledTrendChart series={series} selectedMonth={selected?.month} />
 
-          <div className="ph-tabs" style={{ marginTop: 16 }} role="group" aria-label="Trend range">
-            <button
-              type="button"
-              className={`ph-tab ${mode === 'full' ? 'active' : ''}`}
-              aria-pressed={mode === 'full'}
-              onClick={() => setMode('full')}
-              style={{ minHeight: 44 }}
-            >
-              Full month
-            </button>
-            <button
-              type="button"
-              className={`ph-tab ${mode === 'tillDate' ? 'active' : ''}`}
-              aria-pressed={mode === 'tillDate'}
-              onClick={() => setMode('tillDate')}
-              style={{ minHeight: 44 }}
-            >
-              Billed till date
-            </button>
-          </div>
-
-          <div style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', margin: '8px 0 16px' }}>
-            {mode === 'full'
-              ? 'Every month counted in full.'
-              : `Every month counted to day ${tillDay} only, so months compare like for like.`}
-          </div>
-
-          <div style={{ marginBottom: 12 }}>
+          <div style={{ marginTop: 16, marginBottom: 12 }}>
             <Select value={selected?.month ?? ''} onValueChange={setSelectedMonth}>
               <SelectTrigger aria-label="Month" style={{ minHeight: 44 }}>
                 <SelectValue>{selected?.label ?? 'Select a month'}</SelectValue>
