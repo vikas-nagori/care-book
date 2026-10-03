@@ -409,8 +409,8 @@ export function BillingEntryForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="payment_notes">Notes{mode === 'package_with_payment' ? ' *' : ''}</Label>
-          <Textarea id="payment_notes" name="payment_notes" rows={2} required={mode === 'package_with_payment'} />
+          <Label htmlFor="payment_notes">Notes</Label>
+          <Textarea id="payment_notes" name="payment_notes" rows={2} />
         </div>
       </div>
 

@@ -15,7 +15,7 @@ import { getOutstandingCharges } from './actions'
 afterEach(cleanup)
 
 describe('BillingEntryForm package contract', () => {
-  it('requires type, independent start/payment dates, and package notes', () => {
+  it('requires type and independent start/payment dates, but leaves package notes optional', () => {
     render(<BillingEntryForm
       patients={[{ id: 'p1', name: 'Asha' }]}
       appointmentTypes={[{ id: 'clinic', name: 'Clinic', session_rate: 800 }]}
@@ -26,11 +26,11 @@ describe('BillingEntryForm package contract', () => {
     expect(screen.getByLabelText('Appointment Type *')).toBeTruthy()
     const start = screen.getByLabelText('Package Start Date *') as HTMLInputElement
     const payment = screen.getByLabelText('Payment Date *') as HTMLInputElement
-    const notes = screen.getByLabelText('Notes *') as HTMLTextAreaElement
+    const notes = screen.getByLabelText('Notes') as HTMLTextAreaElement
     expect(start.value).toBe('2026-08-15')
     expect(payment.value).toBe('2026-08-15')
     expect(start).not.toBe(payment)
-    expect(notes.required).toBe(true)
+    expect(notes.required).toBe(false)
   })
 
   it('scopes every standalone receipt to regular funds with no scope picker', () => {

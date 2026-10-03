@@ -34,7 +34,7 @@ export class BillingEntryForm {
   }
 
   async fillPackageFromTemplate(
-    data: BillingPaymentData & { templateName: string },
+    data: Omit<BillingPaymentData, 'notes'> & { templateName: string; notes?: string },
   ): Promise<void> {
     await this.page.getByRole('button', { name: /Package \+ payment/i }).click()
     await this.selectPatient(data.patientName)
@@ -44,7 +44,7 @@ export class BillingEntryForm {
     await this.page.getByRole('option', { name: 'Clinic', exact: true }).click()
     await this.page.getByLabel('Payment Method *', { exact: true }).click()
     await this.page.getByRole('option', { name: data.method, exact: true }).click()
-    await this.page.getByLabel('Notes *', { exact: true }).fill(data.notes)
+    if (data.notes !== undefined) await this.page.getByLabel('Notes', { exact: true }).fill(data.notes)
   }
 
   async expectPackagePrefill(input: {
