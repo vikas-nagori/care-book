@@ -4,6 +4,7 @@ import { getAppointmentVisibilityFilter } from '@/lib/access/appointment-visibil
 import { createClient } from '@/lib/supabase/server'
 import { formatTime12 } from '@/lib/format-time'
 import { logger } from '@/lib/logger'
+import { metricRead } from '@/lib/dashboard/read-health'
 import {
   addCalendarDays,
   CLINIC_TIME_ZONE,
@@ -108,11 +109,11 @@ export default async function DashboardPage() {
 
   const [
     { data: rawAppts, error: apptError },
-    { data: billingBalances },
-    { data: monthPayments },
-    { data: monthRefunds },
-    { data: refundReversals },
-    { count: totalPatients },
+    { data: billingBalances, error: billingBalancesError },
+    { data: monthPayments, error: monthPaymentsError },
+    { data: monthRefunds, error: monthRefundsError },
+    { data: refundReversals, error: refundReversalsError },
+    { count: totalPatients, error: totalPatientsError },
     { data: rawReminders, error: remindersError },
     { data: reminderPatients, error: reminderPatientsError },
   ] = await Promise.all([
@@ -136,6 +137,13 @@ export default async function DashboardPage() {
   if (apptError) logger.error('Dashboard/appts', apptError)
   if (remindersError) logger.error('Dashboard/reminders', remindersError)
   if (reminderPatientsError) logger.error('Dashboard/reminderPatients', reminderPatientsError)
+  for (const [context, error] of [
+    ['billingBalances', billingBalancesError], ['monthPayments', monthPaymentsError],
+    ['monthRefunds', monthRefundsError], ['refundReversals', refundReversalsError],
+    ['totalPatients', totalPatientsError],
+  ] as const) {
+    if (error) logger.error(`Dashboard/${context}`, error)
+  }
 
   type RawReminderRow = Omit<CalendarReminder, 'patient'> & {
     patient: CalendarReminder['patient'] | NonNullable<CalendarReminder['patient']>[]
@@ -178,6 +186,9 @@ export default async function DashboardPage() {
     - (monthRefunds ?? []).reduce((sum, refund) => sum + (reversedRefundIds.has(refund.id) ? 0 : Number(refund.amount)), 0)
   const nextAppt = findNextScheduledAppointment(upNextAppointments, now)
   const cancelledCount = appts.filter((a) => a.status === 'cancelled').length
+  const revenueMetric = metricRead(monthRevenue, [monthPaymentsError, monthRefundsError, refundReversalsError])
+  const outstandingMetric = metricRead(outstanding, [billingBalancesError])
+  const patientsMetric = metricRead(totalPatients ?? 0, [totalPatientsError])
 
   return (
     <div className="flex flex-col overflow-x-hidden p-4 md:p-6 md:pb-10" style={{ gap: 20 }}>
@@ -261,22 +272,22 @@ export default async function DashboardPage() {
         <Link href="/schedule" className="ph-stat ph-stat-link">
           <div className="ph-stat-label"><Users size={13} /><span>This week</span></div>
           <div className="ph-stat-value">{weekCount ?? 0}</div>
-          <div className="ph-stat-meta">{totalPatients ?? 0} total patients</div>
+          <div className="ph-stat-meta">{patientsMetric.status === 'available' ? `${patientsMetric.value} total patients` : 'Unable to load patient count'}</div>
         </Link>
 
         {access.canViewBilling && (
           <>
             <Link href="/billing/metrics/received-this-month" className="ph-stat ph-stat-link">
               <div className="ph-stat-label"><IndianRupee size={13} /><span>This month</span></div>
-              <div className="ph-stat-value"><Money n={monthRevenue} /></div>
-              <div className="ph-stat-meta">collected</div>
+              <div className="ph-stat-value">{revenueMetric.status === 'available' ? <Money n={revenueMetric.value} /> : '—'}</div>
+              <div className="ph-stat-meta">{revenueMetric.status === 'available' ? 'collected' : 'Unable to load'}</div>
             </Link>
             <Link href="/billing?tab=payment_due" className="ph-stat ph-stat-link">
               <div className="ph-stat-label"><AlertCircle size={13} /><span>Outstanding</span></div>
-              <div className="ph-stat-value" style={{ color: outstanding > 0 ? 'var(--ph-warn)' : undefined }}>
-                <Money n={outstanding} />
+              <div className="ph-stat-value" style={{ color: outstandingMetric.status === 'available' && outstandingMetric.value > 0 ? 'var(--ph-warn)' : undefined }}>
+                {outstandingMetric.status === 'available' ? <Money n={outstandingMetric.value} /> : '—'}
               </div>
-              <div className="ph-stat-meta">payment due</div>
+              <div className="ph-stat-meta">{outstandingMetric.status === 'available' ? 'payment due' : 'Unable to load'}</div>
             </Link>
           </>
         )}
