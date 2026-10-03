@@ -32,21 +32,33 @@ export default async function PatientPage({
 
   const { data: patient, error: patientError } = await supabase
     .from('patients')
-    .select('*, referred_by_doctor:doctors(id, name, specialty, address), referred_by_patient:patients!patients_referred_by_patient_id_fkey(id, name)')
+    .select('*, referred_by_doctor:doctors(id, name, specialty, address)')
     .eq('id', id)
     .single()
 
   if (patientError) logger.error('PatientPage/patient', patientError, { id: id })
   if (!patient) notFound()
 
+  // Looked up separately rather than embedded: patients -> patients is a self-reference, and an
+  // embed hinted by its foreign key is ambiguous (it also reads as "patients this one referred"),
+  // which fails the whole patient query and 404s the page.
+  let referredByPatient: { id: string; name: string } | null = null
+  if (patient.referred_by_patient_id) {
+    const { data: referrer, error: referrerError } = await supabase
+      .from('patients')
+      .select('id, name')
+      .eq('id', patient.referred_by_patient_id)
+      .maybeSingle()
+    if (referrerError) logger.error('PatientPage/referrer', referrerError, { id: id })
+    referredByPatient = referrer ?? null
+  }
+
   const normalizedPatient = {
     ...patient,
     referred_by_doctor: Array.isArray(patient.referred_by_doctor)
       ? (patient.referred_by_doctor[0] ?? null)
       : (patient.referred_by_doctor ?? null),
-    referred_by_patient: Array.isArray(patient.referred_by_patient)
-      ? (patient.referred_by_patient[0] ?? null)
-      : (patient.referred_by_patient ?? null),
+    referred_by_patient: referredByPatient,
   }
 
   let appointmentsQuery = supabase
