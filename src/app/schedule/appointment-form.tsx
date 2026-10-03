@@ -356,8 +356,8 @@ export function AppointmentForm({
         return
       }
 
-      const resolvedDoctor = await referral.resolveReferredDoctorId()
-      if (!resolvedDoctor) {
+      const resolvedReferral = await referral.resolveReferral()
+      if (!resolvedReferral) {
         setLoading(false)
         return
       }
@@ -365,7 +365,7 @@ export function AppointmentForm({
       newPatient = {
         ...basePatientData,
         referral_source: referral.referralSource || null,
-        referred_by_doctor_id: resolvedDoctor.doctorId,
+        ...resolvedReferral,
       }
     }
 
@@ -855,7 +855,7 @@ export function AppointmentForm({
               />
             </div>
 
-            <ReferralFields referral={referral} doctors={doctors} />
+            <ReferralFields referral={referral} doctors={doctors} patients={patients} />
           </CardContent>
         </Card>
       )}

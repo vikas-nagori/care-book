@@ -6,7 +6,11 @@ export type PatientFormData = {
   email: string
   dob: string
   gender: 'Male' | 'Female' | 'Other'
-  referralSource: 'Walk-in' | 'Other'
+  referralSource: 'Walk-in' | 'Google page' | 'Referred by existing patient' | 'Other'
+  /** Typed source for an "Other" referral. */
+  referralOther?: string
+  /** Name of the existing patient picked for "Referred by existing patient". */
+  referrerPatientName?: string
   address: string
   medicalHistory: string
   notes: string
@@ -32,9 +36,18 @@ export class PatientForm {
     await this.page.getByLabel('Date of Birth', { exact: true }).fill(data.dob)
     await this.chooseGender(data.gender)
     await this.chooseNamed('How were they referred?', data.referralSource)
+    if (data.referrerPatientName !== undefined) await this.chooseReferrerPatient(data.referrerPatientName)
+    if (data.referralOther !== undefined) await this.page.getByLabel('Please specify', { exact: true }).fill(data.referralOther)
     await this.page.getByLabel('Address', { exact: true }).fill(data.address)
     await this.page.getByLabel('Medical History', { exact: true }).fill(data.medicalHistory)
     await this.page.getByLabel('Notes', { exact: true }).fill(data.notes)
+  }
+
+  private async chooseReferrerPatient(name: string): Promise<void> {
+    await this.page.getByLabel('Referring Patient', { exact: true }).click()
+    await this.page.getByPlaceholder('Search patient name…', { exact: true }).fill(name)
+    // Options carry the phone as a hint, so match the name as a prefix.
+    await this.page.getByRole('button', { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }).click()
   }
 
   async submitCreate(): Promise<void> {

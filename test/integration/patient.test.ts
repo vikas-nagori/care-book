@@ -49,3 +49,59 @@ test('updated_at is bumped on update', { skip }, () => {
   const after = query(DB, `select updated_at from patients where id = '${id}'`)
   assert.ok(after > before, 'updated_at should advance on update')
 })
+
+// Migration 045: Google-page and existing-patient referrals, and typed "Other" detail.
+test('referral sources include google and patient alongside the original three', { skip }, () => {
+  for (const source of ['walk_in', 'doctor', 'google', 'patient', 'other']) {
+    const id = query(DB, `insert into patients (clinic_id, name, referral_source) values ('${clinicId}', 'Source ${source}', '${source}') returning id`)
+    assert.match(id, /^[0-9a-f-]{36}$/, `${source} should be accepted`)
+  }
+  assert.throws(
+    () => query(DB, `insert into patients (clinic_id, name, referral_source) values ('${clinicId}', 'Bad source', 'instagram')`),
+    /patients_referral_source_check/,
+  )
+})
+
+test('a patient can be referred by an existing patient of the same clinic', { skip }, () => {
+  const referrer = query(DB, `insert into patients (clinic_id, name) values ('${clinicId}', 'Referrer') returning id`)
+  const referred = query(
+    DB,
+    `insert into patients (clinic_id, name, referral_source, referred_by_patient_id)
+     values ('${clinicId}', 'Referred', 'patient', '${referrer}') returning id`,
+  )
+  assert.equal(query(DB, `select referred_by_patient_id from patients where id = '${referred}'`), referrer)
+
+  // Deleting the referrer must not delete or block the referred patient; the link just clears.
+  query(DB, `delete from patients where id = '${referrer}'`)
+  assert.equal(query(DB, `select coalesce(referred_by_patient_id::text, 'null') || '/' || referral_source from patients where id = '${referred}'`), 'null/patient')
+})
+
+test('a referring patient must belong to the same clinic and cannot be the patient themself', { skip }, () => {
+  const otherClinic = query(DB, `insert into clinics (name) values ('Other Referral Clinic') returning id`)
+  const outsider = query(DB, `insert into patients (clinic_id, name) values ('${otherClinic}', 'Outsider') returning id`)
+  assert.throws(
+    () => query(DB, `insert into patients (clinic_id, name, referral_source, referred_by_patient_id) values ('${clinicId}', 'Cross clinic', 'patient', '${outsider}')`),
+    /same clinic/i,
+  )
+
+  const self = query(DB, `insert into patients (clinic_id, name) values ('${clinicId}', 'Self') returning id`)
+  assert.throws(
+    () => query(DB, `update patients set referral_source = 'patient', referred_by_patient_id = id where id = '${self}'`),
+    /patients_referred_by_patient_not_self/,
+  )
+})
+
+test('referral detail columns only carry values for their own source', { skip }, () => {
+  const referrer = query(DB, `insert into patients (clinic_id, name) values ('${clinicId}', 'Detail Referrer') returning id`)
+  assert.throws(
+    () => query(DB, `insert into patients (clinic_id, name, referral_source, referred_by_patient_id) values ('${clinicId}', 'Wrong source', 'google', '${referrer}')`),
+    /patients_referred_by_patient_source/,
+  )
+  assert.throws(
+    () => query(DB, `insert into patients (clinic_id, name, referral_source, referral_other) values ('${clinicId}', 'Wrong other', 'walk_in', 'Instagram')`),
+    /patients_referral_other_source/,
+  )
+
+  const id = query(DB, `insert into patients (clinic_id, name, referral_source, referral_other) values ('${clinicId}', 'Other typed', 'other', 'Instagram ad') returning id`)
+  assert.equal(query(DB, `select referral_other from patients where id = '${id}'`), 'Instagram ad')
+})

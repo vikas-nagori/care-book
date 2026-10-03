@@ -1,4 +1,4 @@
-export type ReferralSource = 'walk_in' | 'doctor' | 'other'
+export type ReferralSource = 'walk_in' | 'doctor' | 'google' | 'patient' | 'other'
 
 export type ClinicStatus = 'active' | 'inactive'
 
@@ -60,9 +60,12 @@ export type Patient = {
   notes: string | null
   referral_source: ReferralSource | null
   referred_by_doctor_id: string | null
+  referred_by_patient_id: string | null
+  referral_other: string | null
   created_at: string
   updated_at: string
   referred_by_doctor?: Doctor | null
+  referred_by_patient?: Pick<Patient, 'id' | 'name'> | null
 }
 
 export type Appointment = {

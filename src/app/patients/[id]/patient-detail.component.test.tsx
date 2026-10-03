@@ -116,3 +116,26 @@ describe('PatientDetail delete button gating', () => {
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
   })
 })
+
+describe('PatientDetail referral', () => {
+  it('names the existing patient who referred them, linking to their record', () => {
+    const referred = { ...patient, referral_source: 'patient', referred_by_patient_id: 'patient-2', referred_by_patient: { id: 'patient-2', name: 'Ravi Kumar' } } as unknown as Patient
+    render(<PatientDetail {...baseProps({ patient: referred, initialTab: 'profile' })} />)
+    expect(screen.getAllByText('Referred by existing patient').length).toBeGreaterThan(0)
+    const link = screen.getAllByRole('link', { name: 'Ravi Kumar' })[0]
+    expect(link.getAttribute('href')).toBe('/patients/patient-2')
+  })
+
+  it('shows the typed source of an Other referral', () => {
+    const other = { ...patient, referral_source: 'other', referral_other: 'Instagram ad' } as unknown as Patient
+    render(<PatientDetail {...baseProps({ patient: other, initialTab: 'profile' })} />)
+    expect(screen.getAllByText('Other').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Instagram ad').length).toBeGreaterThan(0)
+  })
+
+  it('labels a Google page referral', () => {
+    const google = { ...patient, referral_source: 'google' } as unknown as Patient
+    render(<PatientDetail {...baseProps({ patient: google, initialTab: 'profile' })} />)
+    expect(screen.getAllByText('Google page').length).toBeGreaterThan(0)
+  })
+})

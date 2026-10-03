@@ -24,6 +24,8 @@ export type NewPatientInput = {
   notes: string | null
   referral_source: ReferralSource | null
   referred_by_doctor_id: string | null
+  referred_by_patient_id: string | null
+  referral_other: string | null
 }
 
 export type CreateAppointmentInput = {
@@ -166,6 +168,8 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
           notes: input.newPatient.notes || null,
           referral_source: input.newPatient.referral_source || null,
           referred_by_doctor_id: input.newPatient.referred_by_doctor_id || null,
+          referred_by_patient_id: input.newPatient.referred_by_patient_id || null,
+          referral_other: input.newPatient.referral_other?.trim() || null,
         })
         .select('id')
         .single()

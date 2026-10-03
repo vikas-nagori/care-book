@@ -32,7 +32,7 @@ export default async function PatientPage({
 
   const { data: patient, error: patientError } = await supabase
     .from('patients')
-    .select('*, referred_by_doctor:doctors(id, name, specialty, address)')
+    .select('*, referred_by_doctor:doctors(id, name, specialty, address), referred_by_patient:patients!patients_referred_by_patient_id_fkey(id, name)')
     .eq('id', id)
     .single()
 
@@ -44,6 +44,9 @@ export default async function PatientPage({
     referred_by_doctor: Array.isArray(patient.referred_by_doctor)
       ? (patient.referred_by_doctor[0] ?? null)
       : (patient.referred_by_doctor ?? null),
+    referred_by_patient: Array.isArray(patient.referred_by_patient)
+      ? (patient.referred_by_patient[0] ?? null)
+      : (patient.referred_by_patient ?? null),
   }
 
   let appointmentsQuery = supabase

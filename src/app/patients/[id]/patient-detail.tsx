@@ -31,13 +31,8 @@ import { getPaginationItems } from '@/lib/patients/appointment-pagination'
 import { getFundingScopeLabel } from '@/lib/billing/unified-billing'
 import { TreatmentPlanForm } from './treatment-plan-form'
 import { deletePatient } from '../actions'
-import type { Patient, Appointment, TreatmentPlan, Package, Payment, ReferralSource, PackageBillingBalanceV2, PatientBillingBalanceV2 } from '@/lib/supabase/types'
-
-const REFERRAL_SOURCE_LABEL: Record<ReferralSource, string> = {
-  walk_in: 'Walk-in',
-  doctor: 'Referred by doctor',
-  other: 'Other',
-}
+import type { Patient, Appointment, TreatmentPlan, Package, Payment, PackageBillingBalanceV2, PatientBillingBalanceV2 } from '@/lib/supabase/types'
+import { REFERRAL_SOURCE_LABEL } from '@/components/referral/referral-fields'
 
 type AppointmentSummary = Pick<Appointment, 'id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'status'>
 
@@ -232,6 +227,16 @@ export function PatientDetail({
                             <div>{patient.referred_by_doctor.address}</div>
                           )}
                         </div>
+                      )}
+                      {patient.referral_source === 'patient' && patient.referred_by_patient && (
+                        <div>
+                          <Link href={`/patients/${patient.referred_by_patient.id}`} className="text-[var(--ph-accent)] underline-offset-2 hover:underline">
+                            {patient.referred_by_patient.name}
+                          </Link>
+                        </div>
+                      )}
+                      {patient.referral_source === 'other' && patient.referral_other && (
+                        <div className="text-muted-foreground">{patient.referral_other}</div>
                       )}
                     </div>
                   </div>
