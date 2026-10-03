@@ -73,7 +73,6 @@ export function validateBillingEntry(input: CreateBillingEntryInput): Validated<
     if (!Number.isFinite(input.packagePerSessionAmount) || Number(input.packagePerSessionAmount) <= 0) return { ok: false, errorCode: 'PACKAGE_INVALID_AMOUNT', message: 'Per-session charge must be greater than zero.' }
     if (!input.appointmentTypeId) return { ok: false, errorCode: 'PACKAGE_APPOINTMENT_TYPE_REQUIRED', message: 'Choose the appointment type covered by this package.' }
     if (!input.packageStartsOn) return { ok: false, errorCode: 'PACKAGE_START_DATE_REQUIRED', message: 'Choose a package start date.' }
-    if (!input.paymentNotes?.trim()) return { ok: false, errorCode: 'PACKAGE_NOTES_REQUIRED', message: 'Add notes for this package receipt.' }
   }
   const paymentAmount = Number(input.paymentAmount ?? 0)
   if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) return { ok: false, errorCode: 'PAYMENT_INVALID_AMOUNT', message: 'Payment amount must be greater than zero.' }

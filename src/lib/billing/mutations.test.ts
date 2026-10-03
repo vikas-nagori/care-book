@@ -31,6 +31,16 @@ test('a package must be paid in full', () => {
   if (full.ok) assert.equal(full.summary.packageTotal, 5000)
 })
 
+test('a package can be saved without notes', () => {
+  const base = { patientId: 'p1', mode: 'package_with_payment' as const, packageName: '5 session package', packageTotalSessions: 5, packagePerSessionAmount: 650, appointmentTypeId: 'type-1', packageStartsOn: '2026-08-15', paymentAmount: 3250, paymentMethod: 'upi', paymentDate: '2026-08-15' }
+  for (const paymentNotes of [null, undefined, '', '   ']) {
+    const result = validateBillingEntry({ ...base, paymentNotes })
+    assert.equal(result.ok, true, `notes ${JSON.stringify(paymentNotes)} should be accepted`)
+  }
+  const blank = validateBillingEntry({ ...base, paymentNotes: null })
+  if (blank.ok) assert.equal(blank.params.p_notes, null)
+})
+
 test('reasoned mutations require a non-empty reason', () => {
   const blank = validateReasonedMutation('void_payment', { entityId: 'pay-1', reason: '   ' })
   assert.equal(blank.ok, false)

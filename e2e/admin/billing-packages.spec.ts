@@ -86,14 +86,13 @@ test('records a payment, allocates the unpaid session, and shows the timeline en
   await guards.assertClean()
 })
 
-test('creates a prepaid package with payment from the seeded template prefill', async ({ page, factory }) => {
+// Notes are optional for a package receipt, so this flow deliberately leaves them blank.
+test('creates a prepaid package with payment from the seeded template prefill, without notes', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient()
   const templateName = 'E2E Standard 6 Sessions'
   const packageName = factory.uniqueName('template-package')
-  const notes = factory.uniqueName('ui-package-payment')
   factory.watchUiPackage({ patientId: patient.id, name: packageName })
-  factory.watchUiPayment({ patientId: patient.id, notes })
 
   await page.goto('/billing')
   const form = new BillingEntryForm(page)
@@ -102,7 +101,6 @@ test('creates a prepaid package with payment from the seeded template prefill', 
     patientName: patient.name as string,
     amount: '4500',
     method: 'Card',
-    notes,
     templateName,
   })
   await form.expectPackagePrefill({ name: templateName, sessions: '6', rate: '750', amount: '4500' })
@@ -125,8 +123,8 @@ test('creates a prepaid package with payment from the seeded template prefill', 
     payment_timing: 'prepaid',
     status: 'active',
   })
-  const payment = await factory.findPayment({ patientId: patient.id, notes })
-  expect(payment).toMatchObject({ package_id: pkg!.id, amount: 4500, payment_method: 'card' })
+  const { data: payment } = await adminClient().from('payments').select('*').eq('package_id', pkg!.id).single()
+  expect(payment).toMatchObject({ package_id: pkg!.id, amount: 4500, payment_method: 'card', notes: null })
   await guards.assertClean()
 })
 
@@ -171,7 +169,7 @@ test('voids a created payment through the audited correction UI', async ({ page,
   await guards.assertClean()
 })
 
-test('cancels a created package without deleting its payment history', async ({ page, factory }) => {
+test('cancelling a package cancels its payment too, keeping both rows for the audit trail', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient()
   const packageName = factory.uniqueName('delete-package')
@@ -185,7 +183,7 @@ test('cancels a created package without deleting its payment history', async ({ 
 
   const db = adminClient()
   await expect.poll(async () => (await db.from('packages').select('status, cancellation_reason').eq('id', pkg.id).single()).data).toMatchObject({ status: 'cancelled', cancellation_reason: 'E2E package correction' })
-  await expect.poll(async () => (await db.from('payments').select('id').eq('id', payment.id).maybeSingle()).data?.id).toBe(payment.id)
+  await expect.poll(async () => (await db.from('payments').select('status, void_reason').eq('id', payment.id).maybeSingle()).data).toMatchObject({ status: 'voided', void_reason: 'E2E package correction' })
   await guards.assertClean()
 })
 
