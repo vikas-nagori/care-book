@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { Loader2, Plus } from 'lucide-react'
 import {
   Dialog,
@@ -12,7 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import type { DashboardAppointmentOptions } from '@/lib/dashboard/appointment-options'
 import { getDashboardAppointmentOptions } from './dashboard-actions'
-import { AppointmentForm } from './schedule/appointment-form'
+const AppointmentForm = dynamic(() => import('./schedule/appointment-form').then(module => module.AppointmentForm))
 
 interface Props {
   defaultDate: string

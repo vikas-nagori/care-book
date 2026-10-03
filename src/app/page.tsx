@@ -115,7 +115,6 @@ export default async function DashboardPage() {
     { data: refundReversals, error: refundReversalsError },
     { count: totalPatients, error: totalPatientsError },
     { data: rawReminders, error: remindersError },
-    { data: reminderPatients, error: reminderPatientsError },
   ] = await Promise.all([
     apptQuery,
     billingBalancesP,
@@ -131,12 +130,10 @@ export default async function DashboardPage() {
       .lte('date', calendar.date)
       .order('date')
       .order('time'),
-    supabase.from('patients').select('id, name').order('name'),
   ])
 
   if (apptError) logger.error('Dashboard/appts', apptError)
   if (remindersError) logger.error('Dashboard/reminders', remindersError)
-  if (reminderPatientsError) logger.error('Dashboard/reminderPatients', reminderPatientsError)
   for (const [context, error] of [
     ['billingBalances', billingBalancesError], ['monthPayments', monthPaymentsError],
     ['monthRefunds', monthRefundsError], ['refundReversals', refundReversalsError],
@@ -307,7 +304,6 @@ export default async function DashboardPage() {
           <div style={{ background: 'var(--ph-surface)', border: '1px solid var(--ph-line)', borderRadius: 10, overflow: 'hidden' }}>
             <DashboardReminders
               reminders={dueReminders}
-              patients={reminderPatients ?? []}
               today={calendar.date}
               loadError={Boolean(remindersError)}
             />
