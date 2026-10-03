@@ -87,6 +87,16 @@ test('a user sees only their own grants under RLS', { skip }, () => {
   assert.equal(queryAsAuthenticated(DB, staffId, `select count(*) from mcp_access_grants`), '1')
 })
 
+test('own-grant policy evaluates the caller once and cannot transfer grant ownership', { skip }, () => {
+  seedClient()
+  const own = seedGrant(staffId, 'owned-grant')
+  seedGrant(adminId, 'foreign-grant')
+  const plan = queryAsAuthenticated(DB, staffId, `explain (analyze, buffers, format json) select id from mcp_access_grants`)
+  assert.match(plan, /InitPlan/)
+  assert.throws(() => queryAsAuthenticated(DB, staffId, `update mcp_access_grants set user_id='${adminId}' where id='${own}'`))
+  assert.equal(queryAsAuthenticated(DB, staffId, `select count(*) from mcp_oauth_clients`), '1')
+})
+
 test('idempotency keys are unique per grant among successful calls', { skip }, () => {
   seedClient()
   const grantId = seedGrant(adminId, 'hash-idem')
