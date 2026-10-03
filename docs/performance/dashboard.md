@@ -25,6 +25,8 @@ For 10,000 synthetic MCP grants, five warm-cache runs of the owning user's SELEC
 
 The baseline mobile browser samples on local fixtures were admin TTFB 43.1ms/LCP 76ms and staff TTFB 52.7ms/LCP 72ms. Run `e2e/shared/dashboard-observability.spec.ts` on the same build mode/data for new samples; its JSON attachment records TTFB, response end, transferred HTML bytes and the observed LCP candidate. These lightweight samples are not a throttled trace or a real-user percentile.
 
+After lazy loading, the broader browser suite recorded admin-mobile TTFB 50.1ms/LCP 92ms and staff-mobile TTFB 39.1ms/LCP 380ms; desktop samples were 55.1ms/420ms and 40.9ms/76ms respectively. These single local samples do **not** establish an LCP improvement. What is verified is removal of one initial data request and successful on-demand editing; production measurement remains required.
+
 ## Release checks
 
 Verify admin/staff routes, reminder edit/retry, appointment creation, and unavailable-versus-zero metrics. Compare fresh production Speed Insights after deployment with at least 50 comparable mobile samples; target LCP <2.5s and dashboard server P75 <1s. Record collection gaps instead of substituting zero.

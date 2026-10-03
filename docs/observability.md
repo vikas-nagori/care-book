@@ -2,7 +2,7 @@
 
 ## Signals and privacy
 
-`logger.error/warn/info` emits a single JSON object with timestamp, level, context, message and redacted metadata. Error events preserve a bounded error code, but deliberately omit arbitrary exception messages, stack traces, database details and hints: these can embed patient or billing data. Use a stable context to locate the failing operation. Do not put patient names, amounts, raw form values, request bodies, authorization headers or clinical diagnostics in log messages.
+`logger.error/warn/info` emits a single JSON object with timestamp, level, context, message and redacted metadata. Error events preserve a bounded error code, an allowlisted technical error class, and a valid HTTP status, but deliberately omit arbitrary exception messages, stack traces, database details and hints: these can embed patient or billing data. Pass provider errors directly to `logger.warn` rather than forwarding their `.message`; string warnings are reserved for authored, non-sensitive descriptions. Use a stable context to locate the failing operation. Do not put patient names, amounts, raw form values, request bodies, authorization headers or clinical diagnostics in log messages.
 
 The Next.js `onRequestError` hook records unexpected server failures. Selected browser failures (`PatientForm/save`, `PatientForm/submit`, `AppointmentForm/save`, `App/errorBoundary`) report a fixed operation name and random correlation ID to `/api/telemetry`. The endpoint requires a same-origin request and an active clinic user, accepts at most 512 characters, and emits only validated fields to existing Vercel runtime logs. No external telemetry vendor or drain is used. Retention follows the project's existing Vercel plan.
 

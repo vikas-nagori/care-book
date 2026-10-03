@@ -90,7 +90,7 @@ export async function completeForcedPasswordChange(
       .maybeSingle()
 
     if (inviteError) {
-      logger.warn('auth/changePassword/inviteLookup', inviteError.message, { userId: user.id })
+      logger.warn('auth/changePassword/inviteLookup', inviteError, { userId: user.id })
     } else if (invite && (!invite.auth_user_id || invite.auth_user_id === user.id)) {
       const now = new Date().toISOString()
       const { error: profileError } = await adminSupabase.from('profiles').upsert(
@@ -107,7 +107,7 @@ export async function completeForcedPasswordChange(
       )
 
       if (profileError) {
-        logger.warn('auth/changePassword/upsertProfile', profileError.message, {
+        logger.warn('auth/changePassword/upsertProfile', profileError, {
           userId: user.id,
           inviteId: invite.id,
         })
@@ -126,7 +126,7 @@ export async function completeForcedPasswordChange(
         .eq('status', 'pending')
 
       if (acceptError) {
-        logger.warn('auth/changePassword/acceptInvite', acceptError.message, {
+        logger.warn('auth/changePassword/acceptInvite', acceptError, {
           userId: user.id,
           inviteId: invite.id,
         })

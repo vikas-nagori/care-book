@@ -6,6 +6,7 @@ export const onRequestError: Instrumentation.onRequestError = (error, _request, 
   logger.error('runtime/request', error, {
     routerKind: context.routerKind,
     routeType: context.routeType,
+    routePattern: context.routePath,
     correlationId: crypto.randomUUID(),
     release: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12),
   })

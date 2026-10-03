@@ -752,7 +752,7 @@ export async function createUserInvite(
         .is('linked_profile_id', null)
 
       if (externalStaffUpdateError) {
-        logger.warn('settings/createUserInvite/updateExternalStaff', externalStaffUpdateError.message, {
+        logger.warn('settings/createUserInvite/updateExternalStaff', externalStaffUpdateError, {
           externalStaffId,
           email,
         })
@@ -922,7 +922,7 @@ export async function resendUserInvite(
         {
           inviteId: invite.id,
           email: invite.email,
-          error: resendError.message,
+          errorCode: resendError.code,
         }
       )
 

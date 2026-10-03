@@ -1,8 +1,10 @@
+import { reportClientError } from './observability/report-client-error.ts'
+
 const REDACTED = '[REDACTED]'
 
 const SENSITIVE_KEY_PATTERN =
   /(^|_)(email|phone|mobile|address|note|notes|medical_history|name|amount|diagnostic|payload|body|details|hint|message|token|secret|password|cookie|authorization|apikey|api_key|service_role|session|jwt)($|_)/i
-const RAW_OBJECT_KEY_PATTERN = /^(input|values)$/i
+const RAW_OBJECT_KEY_PATTERN = /^(input|values|error|exception)$/i
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 // The sensitive-key pattern is anchored on `_` boundaries, but every input type in this
@@ -74,10 +76,26 @@ function errorCode(error: unknown): string | undefined {
   return typeof code === 'string' && /^[A-Za-z0-9_]{2,48}$/.test(code) ? redactString(code) : undefined
 }
 
-function emit(level: 'info' | 'warn' | 'error', context: string, message: string, meta?: Record<string, unknown>, code?: string) {
+const ERROR_TYPES = new Set([
+  'Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError', 'URIError', 'AggregateError',
+  'AuthError', 'AuthApiError', 'AuthRetryableFetchError', 'AuthSessionMissingError',
+  'AuthInvalidTokenResponseError', 'AuthUnknownError', 'AuthWeakPasswordError',
+])
+
+function technicalError(error: unknown) {
+  const fields = error && typeof error === 'object' ? error as Record<string, unknown> : {}
+  const name = typeof fields.name === 'string' && ERROR_TYPES.has(fields.name) ? fields.name : 'UnknownError'
+  const status = fields.status
+  return {
+    errorCode: errorCode(error), errorType: name,
+    statusCode: typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined,
+  }
+}
+
+function emit(level: 'info' | 'warn' | 'error', context: string, message: string, meta?: Record<string, unknown>, error?: unknown) {
   const line = JSON.stringify({
     timestamp: new Date().toISOString(), level, context: redactString(context),
-    message: redactString(message), errorCode: code,
+    message: redactString(message), ...(error !== undefined ? technicalError(error) : {}),
     ...(meta ? { meta: redactLogMeta(meta) } : {}),
   })
   if (level === 'error') console.error(line)
@@ -89,10 +107,12 @@ export const logger = {
   // Arbitrary provider messages can contain patient data (e.g. constraint details).
   // Stable context + code identify the operation without exporting those payloads.
   error: (context: string, error: unknown, meta?: Record<string, unknown>) => {
-    emit('error', context, 'Operation failed', meta, errorCode(error))
+    emit('error', context, 'Operation failed', meta, error)
     reportClientError(context)
   },
-  warn: (context: string, message: string, meta?: Record<string, unknown>) => emit('warn', context, message, meta),
+  warn: (context: string, messageOrError: unknown, meta?: Record<string, unknown>) =>
+    typeof messageOrError === 'string'
+      ? emit('warn', context, messageOrError, meta)
+      : emit('warn', context, 'Operation warning', meta, messageOrError),
   info: (context: string, message: string, meta?: Record<string, unknown>) => emit('info', context, message, meta),
 }
-import { reportClientError } from './observability/report-client-error.ts'

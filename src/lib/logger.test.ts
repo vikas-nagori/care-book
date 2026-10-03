@@ -1,7 +1,30 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { AuthRetryableFetchError } from '@supabase/supabase-js'
 
 import { logger, redactLogMeta } from './logger.ts'
+
+test('code-less network and runtime failures retain safe technical classification', (t) => {
+  const calls: unknown[][] = []
+  t.mock.method(console, 'error', (...args: unknown[]) => calls.push(args))
+  logger.error('runtime/test', new AuthRetryableFetchError('Synthetic Patient detail', 503))
+  logger.error('runtime/test', new TypeError('Synthetic Patient detail'))
+  const [network, runtime] = calls.map(args => JSON.parse(args[0] as string))
+  assert.equal(network.errorType, 'AuthRetryableFetchError')
+  assert.equal(network.statusCode, 503)
+  assert.equal(runtime.errorType, 'TypeError')
+  assert.equal(JSON.stringify(calls).includes('Synthetic Patient'), false)
+})
+
+test('provider warning objects omit free-text details but preserve error codes', (t) => {
+  const calls: unknown[][] = []
+  t.mock.method(console, 'warn', (...args: unknown[]) => calls.push(args))
+  logger.warn('auth/changePassword/upsertProfile', { code: '23514', message: 'Invalid full_name: Synthetic Patient' })
+  const event = JSON.parse(calls[0][0] as string)
+  assert.equal(event.errorCode, '23514')
+  assert.equal(event.level, 'warn')
+  assert.equal(JSON.stringify(calls).includes('Synthetic Patient'), false)
+})
 
 test('redactLogMeta recursively removes sensitive patient and credential fields', () => {
   const redacted = redactLogMeta({

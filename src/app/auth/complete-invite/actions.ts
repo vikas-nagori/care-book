@@ -114,7 +114,7 @@ export async function completeInvitedSignup(
         app_metadata: { [MUST_CHANGE_PASSWORD_FLAG]: false },
       })
       if (flagClearError) {
-        logger.warn('auth/completeInvite/clearFlag', flagClearError.message, { userId: user.id })
+        logger.warn('auth/completeInvite/clearFlag', flagClearError, { userId: user.id })
       }
     }
 
@@ -200,7 +200,7 @@ export async function completeInvitedSignup(
 
     const { error: signOutError } = await supabase.auth.signOut()
     if (signOutError) {
-      logger.warn('auth/completeInvite/signOut', signOutError.message, {
+      logger.warn('auth/completeInvite/signOut', signOutError, {
         userId: user.id,
       })
     }
