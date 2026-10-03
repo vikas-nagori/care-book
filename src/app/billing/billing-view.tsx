@@ -750,6 +750,7 @@ export function BillingView({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingAction?.label ? <><span className="font-medium">{pendingAction.label}</span><br /></> : null}
+              {pendingAction?.kind === 'cancel_package' && <>Any payment recorded for this package will also be cancelled, and sessions it covered go back to their normal fee.<br /></>}
               This records an immutable audited ledger event and then reconciles balances. No history is deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>

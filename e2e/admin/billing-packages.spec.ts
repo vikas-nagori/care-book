@@ -169,7 +169,7 @@ test('voids a created payment through the audited correction UI', async ({ page,
   await guards.assertClean()
 })
 
-test('cancels a created package without deleting its payment history', async ({ page, factory }) => {
+test('cancelling a package cancels its payment too, keeping both rows for the audit trail', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient()
   const packageName = factory.uniqueName('delete-package')
@@ -183,7 +183,7 @@ test('cancels a created package without deleting its payment history', async ({ 
 
   const db = adminClient()
   await expect.poll(async () => (await db.from('packages').select('status, cancellation_reason').eq('id', pkg.id).single()).data).toMatchObject({ status: 'cancelled', cancellation_reason: 'E2E package correction' })
-  await expect.poll(async () => (await db.from('payments').select('id').eq('id', payment.id).maybeSingle()).data?.id).toBe(payment.id)
+  await expect.poll(async () => (await db.from('payments').select('status, void_reason').eq('id', payment.id).maybeSingle()).data).toMatchObject({ status: 'voided', void_reason: 'E2E package correction' })
   await guards.assertClean()
 })
 

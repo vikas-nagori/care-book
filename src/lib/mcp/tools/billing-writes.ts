@@ -240,7 +240,7 @@ export const billingWriteTools: McpToolDefinition[] = [
   },
   {
     name: 'carebook_cancel_package',
-    description: 'Cancel one selected package with an audited reason. Package lists and balances are not exposed.',
+    description: 'Cancel one selected package with an audited reason. Its payments are voided with it (refused while a refund on them is unreversed). Package lists and balances are not exposed.',
     scope: 'write:billing',
     adminOnly: true,
     inputSchema: billingInputSchema({ patient_name: stringProp('Patient name unless a package token is supplied'), patient_selection_token: stringProp('Opaque patient token'), package_name: stringProp('Package name selector'), package_selection_token: stringProp('Opaque package token'), reason: stringProp('Audited reason') }, ['reason']),

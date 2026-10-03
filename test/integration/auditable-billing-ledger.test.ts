@@ -481,7 +481,7 @@ test('refunds, voids, package cancellation, and fee adjustments require reasons 
   )
 })
 
-test('package cancellation is audited, releases reservations, and retains receipts', { skip }, () => {
+test('package cancellation is audited, releases reservations, and voids its receipts', { skip }, () => {
   const patientId = patient('Cancelled Package')
   const apptId = appointment(patientId, '2026-08-10')
   const entry = createPackage(patientId, 'Cancelled package', 1, 100, clinicTypeId, '2026-08-01')
@@ -489,11 +489,61 @@ test('package cancellation is audited, releases reservations, and retains receip
   const paymentId = entry.paymentId as string
 
   assert.equal(rpc(adminId, `public.cancel_package('${packageId}', '')`).success, false)
+  assert.equal(query(DB, `select status from payments where id = '${paymentId}'`), 'posted')
   assert.equal(rpc(adminId, `public.cancel_package('${packageId}', 'created in error')`).success, true)
   assert.equal(query(DB, `select status from packages where id = '${packageId}'`), 'cancelled')
-  assert.equal(query(DB, `select count(*) from payments where id = '${paymentId}'`), '1')
+  // Voided, not deleted: the receipt row and its audit trail survive the cancellation.
+  assert.equal(query(DB, `select status || '/' || void_reason || '/' || (voided_by = '${adminId}') from payments where id = '${paymentId}'`), 'voided/created in error/true')
   assert.equal(query(DB, `select lifecycle from package_session_allocations where appointment_id = '${apptId}' order by created_at desc limit 1`), 'released')
   assert.equal(query(DB, `select count(*) from billing_events where entity_id = '${packageId}' and event_type = 'package_cancelled'`), '1')
+  assert.equal(query(DB, `select count(*) from billing_events where entity_id = '${paymentId}' and event_type = 'payment_voided' and reason = 'created in error'`), '1')
+  assert.equal(
+    query(DB, `select net_received || '/' || refundable_credit from patient_billing_balances_v2 where patient_id = '${patientId}'`),
+    '0.00/0.00',
+  )
+})
+
+test('sessions a cancelled package had used fall back to their own fee', { skip }, () => {
+  const patientId = patient('Cancelled Used Package')
+  const usedId = appointment(patientId, '2026-08-10', clinicTypeId, 'completed', 100)
+  const entry = createPackage(patientId, 'Used package', 2, 100, clinicTypeId, '2026-08-01')
+  assert.equal(query(DB, `select payment_status from appointments where id = '${usedId}'`), 'prepaid')
+
+  assert.equal(rpc(adminId, `public.cancel_package('${entry.packageId}', 'package entered by mistake')`).success, true)
+  assert.equal(query(DB, `select payment_status from appointments where id = '${usedId}'`), 'unpaid')
+  assert.equal(
+    query(DB, `select net_received || '/' || due_amount || '/' || refundable_credit from patient_billing_balances_v2 where patient_id = '${patientId}'`),
+    '0.00/100.00/0.00',
+  )
+})
+
+test('a package whose receipt is partly refunded cannot be cancelled until the refund is reversed', { skip }, () => {
+  const patientId = patient('Refunded Package')
+  const entry = createPackage(patientId, 'Refunded package', 2, 100, clinicTypeId, '2026-08-01')
+  const refund = rpc(adminId, `public.record_refund('${entry.paymentId}', 50, 'cash', date '2026-08-02', 'partial refund')`)
+  assert.equal(refund.success, true)
+
+  const blocked = rpc(adminId, `public.cancel_package('${entry.packageId}', 'cancel refunded package')`)
+  assert.equal(blocked.success, false)
+  assert.match(String(blocked.message), /refund/i)
+  // All-or-nothing: neither the package nor its receipt changed.
+  assert.equal(query(DB, `select status from packages where id = '${entry.packageId}'`), 'active')
+  assert.equal(query(DB, `select status from payments where id = '${entry.paymentId}'`), 'posted')
+  assert.equal(query(DB, `select count(*) from billing_events where entity_id = '${entry.packageId}' and event_type = 'package_cancelled'`), '0')
+
+  assert.equal(rpc(adminId, `public.void_refund('${refund.refundId}', 'refund entered in error')`).success, true)
+  assert.equal(rpc(adminId, `public.cancel_package('${entry.packageId}', 'cancel refunded package')`).success, true)
+  assert.equal(query(DB, `select status from payments where id = '${entry.paymentId}'`), 'voided')
+})
+
+test('cancelling a package leaves an already-voided receipt and its original reason untouched', { skip }, () => {
+  const patientId = patient('Prevoided Package')
+  const entry = createPackage(patientId, 'Prevoided package', 1, 100, clinicTypeId, '2026-08-01')
+  assert.equal(rpc(adminId, `public.void_payment('${entry.paymentId}', 'Wrong entry')`).success, true)
+
+  assert.equal(rpc(adminId, `public.cancel_package('${entry.packageId}', 'Duplicate package')`).success, true)
+  assert.equal(query(DB, `select void_reason from payments where id = '${entry.paymentId}'`), 'Wrong entry')
+  assert.equal(query(DB, `select count(*) from billing_events where entity_id = '${entry.paymentId}' and event_type = 'payment_voided'`), '1')
 })
 
 test('cancelling the older of two overlapping packages reassigns the earliest appointment', { skip }, () => {
@@ -910,7 +960,10 @@ test('soft-deleting an auth actor preserves immutable package, payment, and even
   assert.equal(query(DB, `select voided_by from payments where id = '${ordinaryPayment.paymentId}'`), actorId)
   assert.equal(query(DB, `select created_by from packages where id = '${packageResult.packageId}'`), actorId)
   assert.equal(query(DB, `select created_by from payments where id in ('${packageResult.paymentId}','${ordinaryPayment.paymentId}') group by created_by`), actorId)
-  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '5')
+  assert.equal(query(DB, `select voided_by from payments where id = '${packageResult.paymentId}'`), actorId)
+  // package_created + 2 × payment_recorded + package_cancelled + the package receipt's
+  // payment_voided (cancelling voids it) + the ordinary payment_voided.
+  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '6')
   assert.throws(
     () => query(
       DB,
@@ -927,7 +980,7 @@ test('soft-deleting an auth actor preserves immutable package, payment, and even
   )
   assert.equal(query(DB, `select cancelled_by from packages where id = '${packageResult.packageId}'`), actorId)
   assert.equal(query(DB, `select voided_by from payments where id = '${ordinaryPayment.paymentId}'`), actorId)
-  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '5')
+  assert.equal(query(DB, `select count(*) from billing_events where patient_id = '${patientId}' and actor_id = '${actorId}'`), '6')
 })
 
 test('billing ledger RLS and RPCs isolate clinics and block staff', { skip }, () => {

@@ -87,6 +87,7 @@ export class BillingEntryForm {
       exact: true,
     }).click()
     const dialog = this.page.getByRole('alertdialog', { name: 'Cancel package' })
+    await expect(dialog.getByText(/payment recorded for this package will also be cancelled/i)).toBeVisible()
     await dialog.getByLabel('Reason *', { exact: true }).fill('E2E package correction')
     await dialog.getByRole('button', { name: 'Save audited change', exact: true }).click()
     await expect(this.page.getByText('Audited change saved', { exact: true })).toBeVisible()

@@ -74,7 +74,7 @@ test('legacy payment deletion voids the receipt and leaves the newest completed 
   )
 })
 
-test('legacy package deletion cancels it, releases its session, and retains refundable funds', { skip }, () => {
+test('legacy package deletion cancels it, releases its session, and voids its payment', { skip }, () => {
   const patient = newPatient('Delete Package')
   const session = query(
     DB,
@@ -98,9 +98,9 @@ test('legacy package deletion cancels it, releases its session, and retains refu
 
   assert.equal(query(DB, `select status from packages where id = '${packageId}'`), 'cancelled', 'package is retained as cancelled')
   assert.equal(
-    query(DB, `select count(*) from payments where patient_id = '${patient}' and status = 'posted'`),
-    '1',
-    'the linked payment remains available for an explicit refund or void'
+    query(DB, `select status || '/' || void_reason from payments where id = '${entry.paymentId}'`),
+    'voided/Legacy delete request converted to audited cancellation',
+    'the linked payment is voided with the package, its row retained'
   )
   assert.equal(paymentStatus(session), 'unpaid', 'the session reverts to unpaid once the money is gone')
 })
