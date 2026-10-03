@@ -42,7 +42,7 @@ export const patientReadTools: McpToolDefinition[] = [
       if (match.kind === 'ambiguous') return patientChoiceResult(ctx, match)
       const { data: patient, error } = await ctx.supabase
         .from('patients')
-        .select('name, phone, email, dob, gender, address, medical_history, notes, referral_source, treatment_plans(diagnosis, goals, start_date, expected_end_date, status)')
+        .select('name, phone, email, dob, gender, address, medical_history, notes, referral_source, referral_other, treatment_plans(diagnosis, goals, start_date, expected_end_date, status)')
         .eq('id', match.patient.id)
         .maybeSingle()
       if (error) throw error

@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { ReferralFields, useReferralSelection } from '@/components/referral/referral-fields'
+import { ReferralFields, useReferralSelection, type ReferralPatientOption } from '@/components/referral/referral-fields'
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
 import type { Doctor, Patient } from '@/lib/supabase/types'
@@ -36,9 +36,20 @@ type PatientFormValues = {
   notes: string | null
   referral_source: string | null
   referred_by_doctor_id: string | null
+  referred_by_patient_id: string | null
+  referral_other: string | null
 }
 
-export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doctors?: Doctor[] }) {
+export function PatientForm({
+  patient,
+  doctors = [],
+  referralPatients = [],
+}: {
+  patient?: Patient
+  doctors?: Doctor[]
+  /** Existing patients offered as referrers. */
+  referralPatients?: ReferralPatientOption[]
+}) {
   const router = useRouter()
   const supabase = createClient()
   const { toast } = useToast()
@@ -55,6 +66,8 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
   const referral = useReferralSelection({
     source: patient?.referral_source,
     doctorId: patient?.referred_by_doctor_id,
+    referrerPatientId: patient?.referred_by_patient_id,
+    other: patient?.referral_other,
   })
 
   // Persist the patient (insert on create, update on edit) and navigate on success.
@@ -98,8 +111,8 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
     setLoading(true)
 
     try {
-      const resolvedDoctor = await referral.resolveReferredDoctorId()
-      if (!resolvedDoctor) {
+      const resolvedReferral = await referral.resolveReferral()
+      if (!resolvedReferral) {
         setLoading(false)
         return
       }
@@ -114,7 +127,7 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
         medical_history: (formData.get('medical_history') as string) || null,
         notes: (formData.get('notes') as string) || null,
         referral_source: referral.referralSource || null,
-        referred_by_doctor_id: resolvedDoctor.doctorId,
+        ...resolvedReferral,
       }
 
       // On create, warn if an existing patient in this clinic already has this phone.
@@ -199,7 +212,12 @@ export function PatientForm({ patient, doctors = [] }: { patient?: Patient; doct
             </div>
           </div>
 
-          <ReferralFields referral={referral} doctors={doctors} />
+          <ReferralFields
+            referral={referral}
+            doctors={doctors}
+            patients={referralPatients}
+            excludePatientId={patient?.id}
+          />
 
           <div className="space-y-2">
             <Label htmlFor="address">Address</Label>

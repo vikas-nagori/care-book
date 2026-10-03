@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   toast: vi.fn(),
   loggerError: vi.fn(),
-  referralSource: '' as '' | 'walk_in' | 'doctor' | 'other',
-  resolveReferredDoctorId: vi.fn(),
+  referralSource: '' as '' | 'walk_in' | 'doctor' | 'google' | 'patient' | 'other',
+  resolveReferral: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -38,16 +38,18 @@ vi.mock('@/components/referral/referral-fields', () => ({
   ReferralFields: () => null,
   useReferralSelection: () => ({
     referralSource: mocks.referralSource,
-    resolveReferredDoctorId: mocks.resolveReferredDoctorId,
+    resolveReferral: mocks.resolveReferral,
   }),
 }))
 
 import { PatientForm } from './patient-form'
 
+const noReferral = { referred_by_doctor_id: null, referred_by_patient_id: null, referral_other: null }
+
 describe('PatientForm submission', () => {
   beforeEach(() => {
     mocks.referralSource = ''
-    mocks.resolveReferredDoctorId.mockResolvedValue({ doctorId: null })
+    mocks.resolveReferral.mockResolvedValue(noReferral)
     mocks.insert.mockResolvedValue({ error: null })
     mocks.from.mockImplementation((table: string) => {
       if (table !== 'patients') throw new Error(`Unexpected table: ${table}`)
@@ -77,6 +79,8 @@ describe('PatientForm submission', () => {
       phone: null,
       referral_source: null,
       referred_by_doctor_id: null,
+      referred_by_patient_id: null,
+      referral_other: null,
     }))
     expect(mocks.push).toHaveBeenCalledWith('/patients')
     expect(mocks.refresh).toHaveBeenCalledOnce()
@@ -107,7 +111,7 @@ describe('PatientForm submission', () => {
 
   it('saves the resolved referring doctor', async () => {
     mocks.referralSource = 'doctor'
-    mocks.resolveReferredDoctorId.mockResolvedValueOnce({ doctorId: 'doctor-1' })
+    mocks.resolveReferral.mockResolvedValueOnce({ ...noReferral, referred_by_doctor_id: 'doctor-1' })
     render(<PatientForm />)
     const nameInput = screen.getByLabelText('Name *')
     fireEvent.change(nameInput, { target: { value: 'Referred Patient' } })
@@ -119,6 +123,50 @@ describe('PatientForm submission', () => {
       referral_source: 'doctor',
       referred_by_doctor_id: 'doctor-1',
     }))
+  })
+
+  it('saves the existing patient who referred them', async () => {
+    mocks.referralSource = 'patient'
+    mocks.resolveReferral.mockResolvedValueOnce({ ...noReferral, referred_by_patient_id: 'patient-9' })
+    render(<PatientForm />)
+    const nameInput = screen.getByLabelText('Name *')
+    fireEvent.change(nameInput, { target: { value: 'Friend Of Asha' } })
+    fireEvent.submit(nameInput.closest('form')!)
+
+    await waitFor(() => expect(mocks.insert).toHaveBeenCalledOnce())
+    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({
+      referral_source: 'patient',
+      referred_by_doctor_id: null,
+      referred_by_patient_id: 'patient-9',
+      referral_other: null,
+    }))
+  })
+
+  it('saves the typed source of an Other referral', async () => {
+    mocks.referralSource = 'other'
+    mocks.resolveReferral.mockResolvedValueOnce({ ...noReferral, referral_other: 'Instagram ad' })
+    render(<PatientForm />)
+    const nameInput = screen.getByLabelText('Name *')
+    fireEvent.change(nameInput, { target: { value: 'Saw An Ad' } })
+    fireEvent.submit(nameInput.closest('form')!)
+
+    await waitFor(() => expect(mocks.insert).toHaveBeenCalledOnce())
+    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({
+      referral_source: 'other',
+      referral_other: 'Instagram ad',
+    }))
+  })
+
+  it('does not save while the referral is incomplete', async () => {
+    mocks.referralSource = 'patient'
+    mocks.resolveReferral.mockResolvedValueOnce(null)
+    render(<PatientForm />)
+    const nameInput = screen.getByLabelText('Name *')
+    fireEvent.change(nameInput, { target: { value: 'No Referrer Picked' } })
+    fireEvent.submit(nameInput.closest('form')!)
+
+    await waitFor(() => expect(mocks.resolveReferral).toHaveBeenCalledOnce())
+    expect(mocks.insert).not.toHaveBeenCalled()
   })
 
   it('restores the form when Supabase returns an insert error', async () => {
@@ -147,7 +195,7 @@ describe('PatientForm submission', () => {
   })
 
   it('restores the form when referral resolution fails before saving', async () => {
-    mocks.resolveReferredDoctorId.mockRejectedValueOnce(new Error('referral unavailable'))
+    mocks.resolveReferral.mockRejectedValueOnce(new Error('referral unavailable'))
     render(<PatientForm />)
     const nameInput = screen.getByLabelText('Name *')
     fireEvent.change(nameInput, { target: { value: 'Test Patient' } })

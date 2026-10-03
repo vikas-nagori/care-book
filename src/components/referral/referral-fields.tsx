@@ -15,20 +15,35 @@ import type { Doctor, ReferralSource } from '@/lib/supabase/types'
 export const REFERRAL_SOURCE_LABEL: Record<ReferralSource, string> = {
   walk_in: 'Walk-in',
   doctor: 'Referred by doctor',
+  google: 'Google page',
+  patient: 'Referred by existing patient',
   other: 'Other',
+}
+
+/** An existing patient offered as a referrer. */
+export type ReferralPatientOption = { id: string; name: string; phone?: string | null }
+
+/** The referral detail columns written to `patients`; each is null unless its source is chosen. */
+export type ResolvedReferral = {
+  referred_by_doctor_id: string | null
+  referred_by_patient_id: string | null
+  referral_other: string | null
 }
 
 export type ReferralSelection = ReturnType<typeof useReferralSelection>
 
 /**
- * Owns the referral-tracking state for a patient form: the referral source and,
- * when "doctor" is chosen, the referring-doctor selection (including creating a
- * new doctor record). `resolveReferredDoctorId` is called at submit time to turn
- * the selection into a doctor id, creating the doctor row if needed.
+ * Owns the referral-tracking state for a patient form: the referral source and the
+ * detail that goes with it: the referring doctor (including creating a new doctor
+ * record), the referring existing patient, or the typed "Other" source.
+ * `resolveReferral` is called at submit time to turn the selection into the
+ * referral columns, creating the doctor row if needed.
  */
 export function useReferralSelection(initial?: {
   source?: ReferralSource | null
   doctorId?: string | null
+  referrerPatientId?: string | null
+  other?: string | null
 }) {
   const supabase = createClient()
   const { toast } = useToast()
@@ -39,7 +54,11 @@ export function useReferralSelection(initial?: {
   const [newDoctorName, setNewDoctorName] = useState('')
   const [newDoctorSpecialty, setNewDoctorSpecialty] = useState('')
   const [newDoctorAddress, setNewDoctorAddress] = useState('')
+  const [referrerPatientId, setReferrerPatientId] = useState<string | null>(initial?.referrerPatientId ?? null)
+  const [referralOther, setReferralOther] = useState(initial?.other ?? '')
 
+  // Detail only belongs to its own source (the database enforces this too), so
+  // switching away from a source drops what was entered for it.
   function handleReferralSourceChange(value: string) {
     const next = value as ReferralSource
     setReferralSource(next)
@@ -47,6 +66,8 @@ export function useReferralSelection(initial?: {
       setSelectedDoctorId(null)
       setIsCreatingDoctor(false)
     }
+    if (next !== 'patient') setReferrerPatientId(null)
+    if (next !== 'other') setReferralOther('')
   }
 
   function selectDoctor(doctorId: string) {
@@ -62,11 +83,28 @@ export function useReferralSelection(initial?: {
     setNewDoctorAddress('')
   }
 
+  // Resolve the selection to the referral columns, creating a new doctor record if
+  // needed. Returns null after surfacing an error toast when the selection is incomplete.
+  async function resolveReferral(): Promise<ResolvedReferral | null> {
+    const none: ResolvedReferral = { referred_by_doctor_id: null, referred_by_patient_id: null, referral_other: null }
+
+    if (referralSource === 'patient') {
+      if (!referrerPatientId) {
+        toast({ title: 'Referring patient required', description: 'Search for and select the patient who referred them.', variant: 'destructive' })
+        return null
+      }
+      return { ...none, referred_by_patient_id: referrerPatientId }
+    }
+    if (referralSource === 'other') return { ...none, referral_other: referralOther.trim() || null }
+    if (referralSource !== 'doctor') return none
+
+    const doctor = await resolveReferredDoctorId()
+    return doctor && { ...none, referred_by_doctor_id: doctor.doctorId }
+  }
+
   // Resolve the referring doctor to an id, creating a new doctor record if needed.
   // Returns { doctorId } on success, or null after surfacing an error toast.
   async function resolveReferredDoctorId(): Promise<{ doctorId: string | null } | null> {
-    if (referralSource !== 'doctor') return { doctorId: null }
-
     if (isCreatingDoctor) {
       const name = newDoctorName.trim()
       if (!name) {
@@ -119,10 +157,14 @@ export function useReferralSelection(initial?: {
     setNewDoctorName,
     setNewDoctorSpecialty,
     setNewDoctorAddress,
+    referrerPatientId,
+    referralOther,
+    setReferrerPatientId,
+    setReferralOther,
     handleReferralSourceChange,
     selectDoctor,
     startCreatingDoctor,
-    resolveReferredDoctorId,
+    resolveReferral,
   }
 }
 
@@ -130,9 +172,15 @@ export function useReferralSelection(initial?: {
 export function ReferralFields({
   referral,
   doctors,
+  patients,
+  excludePatientId,
 }: {
   referral: ReferralSelection
   doctors: Doctor[]
+  /** Existing patients offered when "Referred by existing patient" is chosen. */
+  patients: ReferralPatientOption[]
+  /** The patient being edited, who cannot be their own referrer. */
+  excludePatientId?: string
 }) {
   const {
     referralSource,
@@ -144,6 +192,10 @@ export function ReferralFields({
     setNewDoctorName,
     setNewDoctorSpecialty,
     setNewDoctorAddress,
+    referrerPatientId,
+    referralOther,
+    setReferrerPatientId,
+    setReferralOther,
     handleReferralSourceChange,
     selectDoctor,
     startCreatingDoctor,
@@ -219,6 +271,36 @@ export function ReferralFields({
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {referralSource === 'patient' && (
+        <div className="space-y-2">
+          <Label htmlFor="referring_patient">Referring Patient</Label>
+          <SearchableSelect
+            id="referring_patient"
+            options={patients
+              .filter((p) => p.id !== excludePatientId)
+              .map((p) => ({ value: p.id, label: p.name, hint: p.phone ?? undefined }))}
+            value={referrerPatientId}
+            onChange={setReferrerPatientId}
+            placeholder="Search existing patients"
+            searchPlaceholder="Search patient name…"
+            emptyText="No matching patient."
+          />
+        </div>
+      )}
+
+      {referralSource === 'other' && (
+        <div className="space-y-2">
+          <Label htmlFor="referral_other">Please specify</Label>
+          <Input
+            id="referral_other"
+            maxLength={200}
+            placeholder="e.g. Instagram, newspaper, health camp"
+            value={referralOther}
+            onChange={(e) => setReferralOther(e.target.value)}
+          />
         </div>
       )}
     </>

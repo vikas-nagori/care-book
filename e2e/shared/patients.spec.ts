@@ -26,6 +26,7 @@ function patientData(factory: E2EFactory, kind: string): PatientFormData {
 test('creates a representative patient and finds the exact row through list search', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const data = patientData(factory, 'created-patient')
+  data.referralSource = 'Google page'
   factory.watchUiPatient(data.name)
 
   await page.goto('/patients/new')
@@ -48,7 +49,9 @@ test('creates a representative patient and finds the exact row through list sear
     address: data.address,
     medical_history: data.medicalHistory,
     notes: data.notes,
-    referral_source: 'walk_in',
+    referral_source: 'google',
+    referred_by_patient_id: null,
+    referral_other: null,
   })
   await guards.assertClean()
 })
@@ -64,6 +67,7 @@ test('edits a factory-owned patient and shows the persisted fields on detail and
   updated.dob = '1991-05-15'
   updated.gender = 'Other'
   updated.referralSource = 'Other'
+  updated.referralOther = `${updated.name} health camp`
 
   await page.goto(`/patients/${original.id}/edit`)
   const form = new PatientForm(page)
@@ -81,6 +85,7 @@ test('edits a factory-owned patient and shows the persisted fields on detail and
   await expect(page.getByText(updated.address, { exact: true })).toBeVisible()
   await expect(page.getByText('15 May 1991', { exact: true })).toBeVisible()
   await expect(page.getByText('Other', { exact: true }).filter({ visible: true })).toBeVisible()
+  await expect(page.getByText(updated.referralOther, { exact: true })).toBeVisible()
   await expect(page.getByText(updated.medicalHistory, { exact: true })).toBeVisible()
   await expect(page.getByText(updated.notes, { exact: true })).toBeVisible()
 
@@ -95,7 +100,32 @@ test('edits a factory-owned patient and shows the persisted fields on detail and
     medical_history: updated.medicalHistory,
     notes: updated.notes,
     referral_source: 'other',
+    referral_other: updated.referralOther,
   })
+  await guards.assertClean()
+})
+
+test('records an existing-patient referral and links the detail page to the referrer', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const referrer = await factory.createPatient()
+  const data = patientData(factory, 'referred-patient')
+  data.referralSource = 'Referred by existing patient'
+  data.referrerPatientName = referrer.name as string
+  factory.watchUiPatient(data.name)
+
+  await page.goto('/patients/new')
+  const form = new PatientForm(page)
+  await form.fill(data)
+  await form.submitCreate()
+
+  await expect.poll(async () => (await factory.findPatientByName(data.name))?.referred_by_patient_id).toBe(referrer.id)
+  const created = await factory.findPatientByName(data.name)
+  expect(created).toMatchObject({ referral_source: 'patient', referred_by_doctor_id: null, referral_other: null })
+
+  await page.goto(`/patients/${created!.id}`)
+  await expect(page.getByText('Referred by existing patient', { exact: true })).toBeVisible()
+  await page.getByRole('link', { name: referrer.name as string, exact: true }).click()
+  await expect(page).toHaveURL(`/patients/${referrer.id}`)
   await guards.assertClean()
 })
 
