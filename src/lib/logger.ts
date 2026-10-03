@@ -1,9 +1,7 @@
-const TAG = '[CareBook]'
-
 const REDACTED = '[REDACTED]'
 
 const SENSITIVE_KEY_PATTERN =
-  /(^|_)(email|phone|mobile|address|note|notes|medical_history|full_name|token|secret|password|cookie|authorization|apikey|api_key|service_role|session|jwt)($|_)/i
+  /(^|_)(email|phone|mobile|address|note|notes|medical_history|name|amount|diagnostic|payload|body|details|hint|message|token|secret|password|cookie|authorization|apikey|api_key|service_role|session|jwt)($|_)/i
 const RAW_OBJECT_KEY_PATTERN = /^(input|values)$/i
 
 // The sensitive-key pattern is anchored on `_` boundaries, but every input type in this
@@ -22,10 +20,12 @@ const TOKEN_PATTERN = /\b(?:bearer\s+)?(?:eyJ[A-Za-z0-9_-]+|sb_[A-Za-z0-9_-]+|[A
 function redactValue(value: unknown, seen: WeakSet<object>): unknown {
   if (value instanceof Error) {
     return {
-      name: value.name,
-      message: redactString(value.message),
+      name: 'Error',
+      message: REDACTED,
     }
   }
+
+  if (typeof value === 'bigint') return value.toString()
 
   if (typeof value === 'string') {
     return redactString(value)
@@ -55,22 +55,41 @@ function redactValue(value: unknown, seen: WeakSet<object>): unknown {
 }
 
 function redactString(value: string): string {
-  return value.replace(EMAIL_PATTERN, REDACTED).replace(TOKEN_PATTERN, REDACTED)
+  return value
+    .replace(/\b(?:authorization|cookie|set-cookie|x-api-key)\s*:\s*[^\r\n]+/gi, REDACTED)
+    .replace(/\bbearer\s+\S+/gi, REDACTED)
+    .replace(EMAIL_PATTERN, REDACTED).replace(TOKEN_PATTERN, REDACTED)
 }
 
 export function redactLogMeta(meta: unknown): unknown {
   return redactValue(meta, new WeakSet<object>())
 }
 
-export const logger = {
-  error: (context: string, error: unknown, meta?: Record<string, unknown>) =>
-    console.error(
-      `${TAG} [${context}]`,
-      error instanceof Error ? redactString(error.message) : redactLogMeta(error),
-      meta ? redactLogMeta(meta) : ''
-    ),
-  warn: (context: string, message: string, meta?: Record<string, unknown>) =>
-    console.warn(`${TAG} [${context}]`, redactString(message), meta ? redactLogMeta(meta) : ''),
-  info: (context: string, message: string, meta?: Record<string, unknown>) =>
-    console.log(`${TAG} [${context}]`, redactString(message), meta ? redactLogMeta(meta) : ''),
+function errorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) return undefined
+  const code = error.code
+  return typeof code === 'string' && /^[A-Za-z0-9_]{2,48}$/.test(code) ? redactString(code) : undefined
 }
+
+function emit(level: 'info' | 'warn' | 'error', context: string, message: string, meta?: Record<string, unknown>, code?: string) {
+  const line = JSON.stringify({
+    timestamp: new Date().toISOString(), level, context: redactString(context),
+    message: redactString(message), errorCode: code,
+    ...(meta ? { meta: redactLogMeta(meta) } : {}),
+  })
+  if (level === 'error') console.error(line)
+  else if (level === 'warn') console.warn(line)
+  else console.log(line)
+}
+
+export const logger = {
+  // Arbitrary provider messages can contain patient data (e.g. constraint details).
+  // Stable context + code identify the operation without exporting those payloads.
+  error: (context: string, error: unknown, meta?: Record<string, unknown>) => {
+    emit('error', context, 'Operation failed', meta, errorCode(error))
+    reportClientError(context)
+  },
+  warn: (context: string, message: string, meta?: Record<string, unknown>) => emit('warn', context, message, meta),
+  info: (context: string, message: string, meta?: Record<string, unknown>) => emit('info', context, message, meta),
+}
+import { reportClientError } from './observability/report-client-error.ts'

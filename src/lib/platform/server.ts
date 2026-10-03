@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
+import { shouldLogAuthError } from '@/lib/auth-error-classification'
 import { isPlatformAdminEmail } from './access'
 
 export type PlatformAdminUser = {
@@ -15,7 +16,7 @@ export async function getPlatformAdminUser(): Promise<PlatformAdminUser | null> 
     error,
   } = await supabase.auth.getUser()
 
-  if (error) {
+  if (shouldLogAuthError(error)) {
     logger.error('platform/getPlatformAdminUser/getUser', error)
   }
 

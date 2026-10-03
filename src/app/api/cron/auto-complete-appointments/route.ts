@@ -9,9 +9,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const startedAt = Date.now()
+  const runId = crypto.randomUUID()
+  const context = 'cron/auto-complete-appointments'
+  const istToday = formatInTimeZone(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')
+  const runMeta = { runId, beforeDate: istToday }
+  logger.info(context, 'Run started', { ...runMeta, phase: 'start' })
   try {
     const supabase = createAdminClient()
-    const istToday = formatInTimeZone(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')
 
     const { data, error } = await supabase
       .from('appointments')
@@ -21,19 +26,18 @@ export async function GET(request: NextRequest) {
       .select('id')
 
     if (error) {
-      logger.error('cron/auto-complete-appointments', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      logger.error(context, error, { ...runMeta, phase: 'failed', durationMs: Date.now() - startedAt })
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
     }
 
     const updatedCount = data?.length ?? 0
-    logger.info('cron/auto-complete-appointments', `Auto-completed ${updatedCount} appointments`, {
-      updatedIds: data?.map((a) => a.id) ?? [],
-      beforeDate: istToday,
+    logger.info(context, 'Run completed', {
+      ...runMeta, phase: 'complete', updatedCount, durationMs: Date.now() - startedAt,
     })
 
     return NextResponse.json({ success: true, updatedCount, beforeDate: istToday })
   } catch (error) {
-    logger.error('cron/auto-complete-appointments/unexpected', error)
+    logger.error(`${context}/unexpected`, error, { ...runMeta, phase: 'failed', durationMs: Date.now() - startedAt })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

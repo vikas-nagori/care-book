@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { redactLogMeta } from './logger.ts'
+import { logger, redactLogMeta } from './logger.ts'
 
 test('redactLogMeta recursively removes sensitive patient and credential fields', () => {
   const redacted = redactLogMeta({
@@ -71,9 +71,46 @@ test('redactLogMeta redacts camelCase keys, not just snake_case ones', () => {
       accessToken: '[REDACTED]',
       apiKey: '[REDACTED]',
       role: 'staff',
-      clinicName: 'Sunrise Physio',
+      clinicName: '[REDACTED]',
     }
   )
+})
+
+test('structured errors omit arbitrary diagnostic text and patient names', (t) => {
+  const calls: unknown[][] = []
+  t.mock.method(console, 'error', (...args: unknown[]) => calls.push(args))
+  const circular: Record<string, unknown> = { name: 'Sample Patient', amount: 500, diagnostic: 'clinical free text' }
+  circular.self = circular
+  logger.error('Dashboard/test', {
+    code: '23505', message: 'Duplicate Sample Patient', details: 'private billing detail', hint: 'raw body',
+  }, { nested: circular, failure: new Error('Sample Patient diagnosis'), durationMs: 12 })
+  assert.equal(calls[0].length, 1)
+  const raw = calls[0][0] as string
+  const event = JSON.parse(raw)
+  assert.equal(event.level, 'error')
+  assert.equal(event.context, 'Dashboard/test')
+  assert.equal(event.errorCode, '23505')
+  assert.equal(event.meta.durationMs, 12)
+  assert.ok(!Number.isNaN(Date.parse(event.timestamp)))
+  assert.equal(event.meta.nested.amount, '[REDACTED]')
+  for (const sensitive of ['Sample Patient', 'clinical free text', 'private billing detail', 'raw body']) {
+    assert.equal(raw.includes(sensitive), false)
+  }
+  assert.equal(event.meta.nested.self, '[Circular]')
+})
+
+test('structured info and warnings redact header credentials and survive bigint metadata', (t) => {
+  const calls: unknown[][] = []
+  t.mock.method(console, 'log', (...args: unknown[]) => calls.push(args))
+  t.mock.method(console, 'warn', (...args: unknown[]) => calls.push(args))
+  logger.info('cron/test', 'Run completed', { count: BigInt(2) })
+  logger.warn('auth/test', 'Authorization: Bearer short-secret', { 'x-api-key': 'short-key' })
+  for (const args of calls) {
+    assert.equal(args.length, 1)
+    assert.doesNotThrow(() => JSON.parse(args[0] as string))
+    assert.equal((args[0] as string).includes('short-secret'), false)
+    assert.equal((args[0] as string).includes('short-key'), false)
+  }
 })
 
 test('redactLogMeta redacts kebab-case and header-style keys', () => {
