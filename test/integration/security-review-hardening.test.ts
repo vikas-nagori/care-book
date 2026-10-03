@@ -41,6 +41,29 @@ function patient(label: string): string {
   )
 }
 
+test('legacy onboarding mutations are service-only and cannot be invoked by API roles', { skip }, () => {
+  const requestId = query(DB, `insert into clinic_onboarding_requests
+    (clinic_name, owner_full_name, owner_email, owner_mobile_number)
+    values ('Restricted RPC clinic', 'Test Owner', 'rpc-owner@test.local', '1234567890') returning id`)
+  const beforeCounts = query(DB, `select json_build_array(
+    (select count(*) from clinics), (select count(*) from user_invites))::text`)
+  for (const [signature, call] of [
+    ['public.approve_clinic_onboarding_request(uuid,uuid)', `public.approve_clinic_onboarding_request('${requestId}', '${adminId}')`],
+    ['public.reject_clinic_onboarding_request(uuid,uuid,text)', `public.reject_clinic_onboarding_request('${requestId}', '${adminId}', 'test')`],
+  ]) {
+    for (const role of ['anon', 'authenticated']) {
+      assert.equal(query(DB, `select has_function_privilege('${role}', '${signature}', 'execute')::text`), 'false')
+      assert.throws(() => run(DB, `set role ${role}; select ${call}`), /permission denied for function/)
+    }
+    assert.equal(query(DB, `select has_function_privilege('service_role', '${signature}', 'execute')::text`), 'true')
+  }
+  assert.equal(query(DB, `select status from clinic_onboarding_requests where id = '${requestId}'`), 'pending')
+  assert.equal(query(DB, `select json_build_array(
+    (select count(*) from clinics), (select count(*) from user_invites))::text`), beforeCounts)
+  run(DB, `set role service_role; select public.reject_clinic_onboarding_request('${requestId}', '${adminId}', 'test')`)
+  assert.equal(query(DB, `select status from clinic_onboarding_requests where id = '${requestId}'`), 'rejected')
+})
+
 function createPackage(patientId: string, name: string, sessions: number, rate: number): string {
   const result = rpc(
     adminId,
