@@ -3,6 +3,7 @@ const REDACTED = '[REDACTED]'
 const SENSITIVE_KEY_PATTERN =
   /(^|_)(email|phone|mobile|address|note|notes|medical_history|name|amount|diagnostic|payload|body|details|hint|message|token|secret|password|cookie|authorization|apikey|api_key|service_role|session|jwt)($|_)/i
 const RAW_OBJECT_KEY_PATTERN = /^(input|values)$/i
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 // The sensitive-key pattern is anchored on `_` boundaries, but every input type in this
 // codebase is camelCase and HTTP headers are kebab-case — so `passwordConfirmation` and
@@ -49,7 +50,9 @@ function redactValue(value: unknown, seen: WeakSet<object>): unknown {
       key,
       RAW_OBJECT_KEY_PATTERN.test(key) || SENSITIVE_KEY_PATTERN.test(normalizeKey(key))
         ? REDACTED
-        : redactValue(entry, seen),
+        : (key === 'runId' || key === 'correlationId') && typeof entry === 'string' && UUID_PATTERN.test(entry)
+          ? entry
+          : redactValue(entry, seen),
     ])
   )
 }

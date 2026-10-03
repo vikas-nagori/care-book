@@ -33,6 +33,7 @@ it('logs correlated start and completion with counts but no appointment identifi
   const lines = vi.mocked(console.log).mock.calls.map(call => JSON.parse(String(call[0])))
   expect(lines.map(line => line.meta.phase)).toEqual(['start', 'complete'])
   expect(lines[1].meta.runId).toBe(lines[0].meta.runId)
+  expect(lines[1].meta.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f-]{27}$/)
   expect(lines[1].meta.updatedCount).toBe(1)
   expect(lines[1].meta.durationMs).toBeGreaterThanOrEqual(0)
   expect(JSON.stringify(lines)).not.toContain('private-appointment-id')
