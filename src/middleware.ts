@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { logger } from '@/lib/logger'
+import { shouldLogAuthError } from '@/lib/auth-error-classification'
 import { isPlatformAdminEmail } from '@/lib/platform/access'
 import { resolveSuperadminRedirect } from '@/lib/platform/routing'
 import { buildContentSecurityPolicy, createCspNonce } from '@/lib/security/csp'
@@ -62,7 +63,7 @@ export async function middleware(request: NextRequest) {
   )
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError) logger.error('middleware/getUser', authError, { path })
+  if (shouldLogAuthError(authError)) logger.error('middleware/getUser', authError, { path })
 
   const isPublicRoute =
     path.startsWith('/login') ||

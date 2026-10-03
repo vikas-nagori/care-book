@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import type { Profile, UserRole } from '@/lib/supabase/types'
 import { logger } from '@/lib/logger'
+import { shouldLogAuthError } from '@/lib/auth-error-classification'
 import { evaluateRoleAccess, type ProfileAccessShape } from '@/lib/auth-access'
 
 type CurrentProfileLookup = {
@@ -23,7 +24,7 @@ async function loadCurrentProfile(): Promise<CurrentProfileLookup> {
     error: authError,
   } = await supabase.auth.getUser()
 
-  if (authError) {
+  if (shouldLogAuthError(authError)) {
     logger.error('auth/getCurrentProfile/getUser', authError)
   }
 
