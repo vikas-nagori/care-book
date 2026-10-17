@@ -62,7 +62,9 @@ async function assertExpectedLocation(
  * Attach before navigation and assert after the route landmark is visible. This catches errors
  * emitted during both the document request and client hydration.
  */
-export function attachErrorGuards(page: Page) {
+export function attachErrorGuards(page: Page, options: {
+  expectedHttpErrors?: readonly { pathname: string; status: number }[]
+} = {}) {
   const pageErrors: string[] = []
   const consoleErrors: string[] = []
   const observabilityRedirectTargets = new Set<string>()
@@ -80,6 +82,16 @@ export function attachErrorGuards(page: Page) {
   })
   page.on('console', (message) => {
     if (message.type() !== 'error') return
+    // Opt-in only: a tested HTTP refusal is expected browser resource noise. Keep
+    // errors from every other origin, route and status visible to the guard.
+    const expectedHttpError = options.expectedHttpErrors?.some(({ pathname, status }) => {
+      try {
+        const source = new URL(message.location().url)
+        return source.origin === new URL(page.url()).origin && source.pathname === pathname
+          && message.text().startsWith(`Failed to load resource: the server responded with a status of ${status} (`)
+      } catch { return false }
+    })
+    if (expectedHttpError) return
     if (!isKnownNonAppConsoleError(message, observabilityRedirectTargets)) consoleErrors.push(message.text())
   })
 
