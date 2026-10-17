@@ -1,12 +1,21 @@
 import { format, getDay, parseISO } from 'date-fns'
+import type { Page } from '@playwright/test'
 import { AppointmentForm } from '../pages/appointment-form'
 import { SessionNoteForm, type SessionNoteFormData } from '../pages/session-note-form'
 import { STAFF, STAFF2 } from '../support/accounts'
-import { attachErrorGuards } from '../support/assertions'
+import { attachErrorGuards as attachAppErrorGuards } from '../support/assertions'
 import { clinicDate } from '../support/clinic-date'
 import { test, expect } from '../support/factories'
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+function attachErrorGuards(page: Page, expectedConflict = false) {
+  return attachAppErrorGuards(page, { expectedHttpErrors: [
+    // Rapid matrix runs share a user across devices and can reach the intentional stage budget.
+    { pathname: '/api/telemetry', status: 429 },
+    ...(expectedConflict ? [{ pathname: '/api/appointments/bookings', status: 409 }] : []),
+  ] })
+}
 
 test('books a shared appointment through the real appointment form', async ({ page, factory }, testInfo) => {
   const guards = attachErrorGuards(page)
@@ -100,7 +109,7 @@ test('books a restricted appointment assigned to role-appropriate internal staff
 })
 
 test('reports a deterministic recurring conflict and creates none of the requested series', async ({ page, factory }) => {
-  const guards = attachErrorGuards(page)
+  const guards = attachErrorGuards(page, true)
   const patient = await factory.createPatient()
   const sharedType = await factory.findAppointmentType(true)
   const firstDate = clinicDate(84)

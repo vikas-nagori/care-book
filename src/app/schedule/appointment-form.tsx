@@ -30,8 +30,9 @@ import { generateRecurringAppointmentDates } from '@/lib/appointments/recurrence
 import { resolveAppointmentStatus } from '@/lib/appointments/appointment-creation'
 import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
 import type { DashboardAppointmentTypeOption } from '@/lib/dashboard/appointment-options'
-import { createAppointment } from './actions'
-import type { NewPatientInput } from './actions'
+import { BookingTransportError, requestBooking, withBookingDeadline } from '@/lib/appointments/booking-client'
+import type { BookingRequest, CreateAppointmentResult, NewPatientInput } from '@/lib/appointments/booking-contract'
+import { reportBookingEvent } from '@/lib/observability/report-booking-event'
 
 const UNASSIGNED_ASSIGNEE_VALUE = '__unassigned__'
 const WEEKDAYS = [
@@ -100,9 +101,22 @@ export function AppointmentForm({
   const { toast } = useToast()
   const searchContainerRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(false)
+  const inFlight = useRef(false)
+  const alive = useRef(true)
+  const operation = useRef(0)
+  const pendingRequest = useRef<BookingRequest | null>(null)
+  const [pendingBooking, setPendingBooking] = useState<{ request: BookingRequest; canRetry: boolean } | null>(null)
+  useEffect(() => {
+    alive.current = true
+    // This ref counts requests, so cleanup must invalidate the current value rather than capture it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { alive.current = false; operation.current++ }
+  }, [])
   const [appointmentTypes, setAppointmentTypes] = useState<DashboardAppointmentTypeOption[]>(
     () => initialAppointmentTypes ?? [],
   )
+  const [optionsError, setOptionsError] = useState(false)
+  const [optionsReload, setOptionsReload] = useState(0)
   const [appointmentTypeId, setAppointmentTypeId] = useState<string>(appointment?.appointment_type_id ?? '')
   const [assignedTo, setAssignedTo] = useState(appointment?.assigned_to ?? '')
   const initialStaffAssignment = appointment?.external_staff_id
@@ -180,29 +194,38 @@ export function AppointmentForm({
       return
     }
 
-    const appointmentTypesQuery = canViewPaymentSignals
-      ? supabase.from('appointment_types').select('*')
-      : supabase
-          .from('appointment_types')
-          .select('id, clinic_id, name, is_shared, is_default, sort_order, created_at')
-
-    appointmentTypesQuery.order('sort_order').then(({ data }) => {
-      if (!data) return
-      const types = data as DashboardAppointmentTypeOption[]
-      setAppointmentTypes(types)
-      // For new appointments, default to a sensible type and auto-fill its rate.
-      if (!appointment) {
-        const def = defaultAppointmentType(types)
-        if (def) {
-          setAppointmentTypeId(def.id)
-          if (canViewPaymentSignals) {
-            const rate = getAppointmentTypeSessionRate(def)
-            setFee((current) => current || (rate === null ? '' : String(rate)))
+    let cancelled = false
+    const correlationId = crypto.randomUUID()
+    setOptionsError(false)
+    async function loadTypes() {
+      try {
+        const query = canViewPaymentSignals
+          ? supabase.from('appointment_types').select('*')
+          : supabase.from('appointment_types').select('id, clinic_id, name, is_shared, is_default, sort_order, created_at')
+        const { data, error } = await withBookingDeadline(query.order('sort_order'))
+        if (cancelled) return
+        if (error || !data) throw new Error('BOOKING_OPTIONS_FAILED')
+        const types = data as DashboardAppointmentTypeOption[]
+        setAppointmentTypes(types)
+        if (!appointment) {
+          const def = defaultAppointmentType(types)
+          if (def) {
+            setAppointmentTypeId(def.id)
+            if (canViewPaymentSignals) {
+              const rate = getAppointmentTypeSessionRate(def)
+              setFee((current) => current || (rate === null ? '' : String(rate)))
+            }
           }
         }
+      } catch {
+        if (cancelled) return
+        setOptionsError(true)
+        reportBookingEvent({ correlationId, phase: 'options_failed', errorCode: 'BOOKING_OPTIONS_FAILED' })
       }
-    })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    }
+    void loadTypes()
+    return () => { cancelled = true }
+  }, [optionsReload]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (appointment) {
@@ -303,153 +326,47 @@ export function AppointmentForm({
     )
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setLoading(true)
+  function elapsed(startedAt: number) {
+    return Math.min(600_000, Math.max(0, Date.now() - startedAt))
+  }
 
-    const formData = new FormData(e.currentTarget)
-    const patientId = selectedPatientId
-    const parsedFee = fee.trim() === '' ? null : Number(fee)
-    const normalizedFee = Number.isFinite(parsedFee) ? parsedFee : null
-    let newPatient: NewPatientInput | null = null
+  function notifySuccess() {
+    try { onSuccess?.() }
+    catch { logger.warn('AppointmentForm/refresh', 'Booking saved but the view could not refresh.') }
+  }
 
-    if (!appointmentTypeId) {
-      toast({
-        title: 'Appointment type required',
-        description: 'Choose an appointment type before saving.',
-        variant: 'destructive',
-      })
-      setLoading(false)
+  function showUnconfirmed(request: BookingRequest) {
+    pendingRequest.current = request
+    setPendingBooking({ request, canRetry: false })
+  }
+
+  function handleBookingResult(result: CreateAppointmentResult, request: BookingRequest, startedAt: number, checking = false) {
+    if (!result.success && (result.errorCode === 'BOOKING_UNCONFIRMED' || result.errorCode === 'BOOKING_INTENT_MISMATCH')) {
+      showUnconfirmed(request)
+      reportBookingEvent({ correlationId: request.correlationId, phase: 'unconfirmed', errorCode: result.errorCode, durationMs: elapsed(startedAt) })
       return
     }
-
-    if (!appointment && canViewPaymentSignals && normalizedFee === null) {
-      toast({
-        title: 'Session fee required',
-        description: 'Choose a type with a default rate or enter a session fee before booking.',
-        variant: 'destructive',
-      })
-      setLoading(false)
+    if (!result.success && checking && result.errorCode === 'BOOKING_NOT_FOUND') {
+      setPendingBooking({ request, canRetry: true })
+      reportBookingEvent({ correlationId: request.correlationId, phase: 'unconfirmed', errorCode: result.errorCode })
       return
     }
-
-    if (!appointment && repeatAppointment && recurringSchedule.error) {
-      toast({
-        title: 'Repeat schedule required',
-        description: recurringSchedule.error,
-        variant: 'destructive',
-      })
-      setLoading(false)
+    if (!result.success && checking) {
+      showUnconfirmed(request)
+      reportBookingEvent({ correlationId: request.correlationId, phase: 'unconfirmed', errorCode: result.errorCode })
+      toast({ title: 'Unable to check booking', description: result.message, variant: 'destructive' })
       return
     }
-
-    if (!appointment && isCreatingPatient) {
-      const basePatientData = buildPatientInsertData(patientDraft)
-
-      if (!basePatientData.name || !basePatientData.phone) {
-        toast({
-          title: 'Patient details required',
-          description: 'Please enter at least the patient name and phone number.',
-          variant: 'destructive',
-        })
-        setLoading(false)
-        return
-      }
-
-      const resolvedReferral = await referral.resolveReferral()
-      if (!resolvedReferral) {
-        setLoading(false)
-        return
-      }
-
-      newPatient = {
-        ...basePatientData,
-        referral_source: referral.referralSource || null,
-        ...resolvedReferral,
-      }
-    }
-
-    if (!patientId && !newPatient) {
-      toast({
-        title: 'Patient required',
-        description: 'Select an existing patient or create a new patient before booking.',
-        variant: 'destructive',
-      })
-      setLoading(false)
-      return
-    }
-
-    const selectedAssignment = parseStaffAssignmentValue(staffAssignment)
-
-    const assignment = normalizeAppointmentAssignment({
-      isShared: isSharedType,
-      assignedTo: canManageExternalStaff
-        ? selectedAssignment.assignedTo
-        : (appointment?.external_staff_id ? null : assignedTo),
-      externalStaffId: canManageExternalStaff
-        ? selectedAssignment.externalStaffId
-        : (appointment?.external_staff_id ?? null),
-    })
-
-    const time = formData.get('time') as string
-    const durationMinutes = parseInt(formData.get('duration_minutes') as string) || 45
-    const notes = (formData.get('notes') as string) || null
-
-    if (appointment) {
-      const { error } = await supabase
-        .from('appointments')
-        .update({
-          patient_id: patientId,
-          date: appointmentDate,
-          time,
-          duration_minutes: durationMinutes,
-          appointment_type_id: appointmentTypeId,
-          status: (formData.get('status') as string) || 'scheduled',
-          ...(canViewPaymentSignals ? { fee: normalizedFee } : {}),
-          assigned_to: assignment.assigned_to,
-          external_staff_id: assignment.external_staff_id,
-          notes,
-        })
-        .eq('id', appointment.id)
-
-      if (error) {
-        logger.error('AppointmentForm/save', error, { appointmentId: appointment.id, patientId })
-        toast({ title: 'Error', description: error.message, variant: 'destructive' })
-        setLoading(false)
-        return
-      }
-
-      toast({
-        title: 'Appointment updated',
-      })
-      setLoading(false)
-      onSuccess?.()
-      return
-    }
-
-    const result = await createAppointment({
-      patientId: patientId || undefined,
-      newPatient,
-      date: appointmentDate,
-      time,
-      durationMinutes,
-      appointmentTypeId,
-      fee: normalizedFee,
-      assignedTo: assignment.assigned_to,
-      externalStaffId: assignment.external_staff_id,
-      notes,
-      recurrence: repeatAppointment
-        ? { weekdays: selectedWeekdays, totalSessions: Number(totalSessions) }
-        : null,
-    })
-
+    pendingRequest.current = null
+    setPendingBooking(null)
     if (!result.success) {
+      reportBookingEvent({ correlationId: request.correlationId, phase: 'rejected', errorCode: result.errorCode, durationMs: elapsed(startedAt) })
       const conflictDetails = result.conflictingDates?.length
         ? ` Conflicting dates: ${result.conflictingDates.map((date) => format(parseISO(date), 'dd MMM yyyy')).join(', ')}.`
         : ''
-      if (result.createdPatientId && newPatient) {
+      if (result.createdPatientId && request.input.newPatient) {
         setSelectedPatientId(result.createdPatientId)
-        setPatientSearchQuery(newPatient.name)
+        setPatientSearchQuery(request.input.newPatient.name)
         setIsCreatingPatient(false)
         setPatientDraft(createPatientDraftFromName(''))
       }
@@ -460,23 +377,222 @@ export function AppointmentForm({
           : `${result.message}${conflictDetails}`,
         variant: 'destructive',
       })
-      setLoading(false)
       return
     }
+    reportBookingEvent({ correlationId: request.correlationId, phase: 'confirmed', durationMs: elapsed(startedAt) })
+    toast({ title: result.appointmentIds.length > 1
+      ? `${result.appointmentIds.length} appointments booked`
+      : request.input.newPatient ? 'Patient added and appointment booked' : 'Appointment booked' })
+    notifySuccess()
+  }
 
-    toast({
-      title: result.appointmentIds.length > 1
-        ? `${result.appointmentIds.length} appointments booked`
-        : newPatient
-          ? 'Patient added and appointment booked'
-          : 'Appointment booked',
-    })
-    setLoading(false)
-    onSuccess?.()
+  async function recoverBooking(mode: 'status' | 'create') {
+    const request = pendingRequest.current
+    if (inFlight.current || !request || (mode === 'create' && !pendingBooking?.canRetry)) return
+    inFlight.current = true
+    const run = ++operation.current
+    const startedAt = Date.now()
+    setLoading(true)
+    reportBookingEvent({ correlationId: request.correlationId, phase: mode === 'status' ? 'status_check' : 'retry' })
+    try {
+      const result = await requestBooking(request, mode)
+      if (!alive.current || operation.current !== run) return
+      // A rejected retry cannot establish the outcome of the original request, which may still commit.
+      if (mode === 'create' && !result.success) {
+        showUnconfirmed(request)
+        reportBookingEvent({ correlationId: request.correlationId, phase: 'unconfirmed', errorCode: result.errorCode, durationMs: elapsed(startedAt) })
+        toast({ title: 'Booking still not confirmed', description: result.message, variant: 'destructive' })
+        return
+      }
+      handleBookingResult(result, request, startedAt, mode === 'status')
+    } catch (error) {
+      if (!alive.current || operation.current !== run) return
+      showUnconfirmed(request)
+      reportBookingEvent({ correlationId: request.correlationId, phase: error instanceof BookingTransportError && error.code === 'BOOKING_TIMEOUT' ? 'timeout' : 'unconfirmed',
+        errorCode: error instanceof BookingTransportError ? error.code : 'BOOKING_REQUEST_FAILED', durationMs: elapsed(startedAt) })
+    } finally {
+      if (alive.current && operation.current === run) { inFlight.current = false; setLoading(false) }
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    // React state updates are asynchronous; a ref also prevents two same-tick submissions.
+    if (inFlight.current || pendingRequest.current) return
+    inFlight.current = true
+    const run = ++operation.current
+    const correlationId = crypto.randomUUID()
+    const startedAt = Date.now()
+    setLoading(true)
+    reportBookingEvent({ correlationId, phase: 'submit' })
+    try {
+      const formData = new FormData(e.currentTarget)
+      const patientId = selectedPatientId
+      const parsedFee = fee.trim() === '' ? null : Number(fee)
+      const normalizedFee = Number.isFinite(parsedFee) ? parsedFee : null
+      let newPatient: NewPatientInput | null = null
+
+      if (!appointmentTypeId) {
+        reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'SCHEDULE_MISSING_FIELDS' })
+        toast({
+          title: 'Appointment type required',
+          description: 'Choose an appointment type before saving.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (!appointment && canViewPaymentSignals && normalizedFee === null) {
+        reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'SCHEDULE_MISSING_FIELDS' })
+        toast({
+          title: 'Session fee required',
+          description: 'Choose a type with a default rate or enter a session fee before booking.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (!appointment && repeatAppointment && recurringSchedule.error) {
+        reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'SCHEDULE_INVALID_RECURRENCE' })
+        toast({
+          title: 'Repeat schedule required',
+          description: recurringSchedule.error,
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (!appointment && isCreatingPatient) {
+        const basePatientData = buildPatientInsertData(patientDraft)
+
+        if (!basePatientData.name || !basePatientData.phone) {
+          reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'PATIENT_MISSING_FIELDS' })
+          toast({
+            title: 'Patient details required',
+            description: 'Please enter at least the patient name and phone number.',
+            variant: 'destructive',
+          })
+          return
+        }
+
+        const resolvedReferral = await withBookingDeadline(referral.resolveReferral())
+        if (!alive.current || operation.current !== run) return
+        if (!resolvedReferral) {
+          reportBookingEvent({ correlationId, phase: 'preparation_failed', errorCode: 'BOOKING_PREPARATION_FAILED' })
+          return
+        }
+
+        newPatient = {
+          ...basePatientData,
+          referral_source: referral.referralSource || null,
+          ...resolvedReferral,
+        }
+      }
+
+      if (!patientId && !newPatient) {
+        reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'SCHEDULE_MISSING_PATIENT' })
+        toast({
+          title: 'Patient required',
+          description: 'Select an existing patient or create a new patient before booking.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      const selectedAssignment = parseStaffAssignmentValue(staffAssignment)
+
+      const assignment = normalizeAppointmentAssignment({
+        isShared: isSharedType,
+        assignedTo: canManageExternalStaff
+          ? selectedAssignment.assignedTo
+          : (appointment?.external_staff_id ? null : assignedTo),
+        externalStaffId: canManageExternalStaff
+          ? selectedAssignment.externalStaffId
+          : (appointment?.external_staff_id ?? null),
+      })
+
+      const time = formData.get('time') as string
+      const durationMinutes = parseInt(formData.get('duration_minutes') as string) || 45
+      const notes = (formData.get('notes') as string) || null
+
+      if (appointment) {
+        const { error } = await withBookingDeadline(supabase
+          .from('appointments')
+          .update({
+            patient_id: patientId,
+            date: appointmentDate,
+            time,
+            duration_minutes: durationMinutes,
+            appointment_type_id: appointmentTypeId,
+            status: (formData.get('status') as string) || 'scheduled',
+            ...(canViewPaymentSignals ? { fee: normalizedFee } : {}),
+            assigned_to: assignment.assigned_to,
+            external_staff_id: assignment.external_staff_id,
+            notes,
+          })
+          .eq('id', appointment.id))
+
+        if (!alive.current || operation.current !== run) return
+
+        if (error) {
+          logger.error('AppointmentForm/save', error, { appointmentId: appointment.id, patientId })
+          reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'APPOINTMENT_CREATE_FAILED' })
+          toast({ title: 'Appointment not updated', description: 'Please check the appointment and try again.', variant: 'destructive' })
+          return
+        }
+
+        toast({
+          title: 'Appointment updated',
+        })
+        reportBookingEvent({ correlationId, phase: 'confirmed', durationMs: elapsed(startedAt) })
+        notifySuccess()
+        return
+      }
+
+      const request: BookingRequest = { correlationId, input: {
+        patientId: patientId || undefined,
+        newPatient,
+        date: appointmentDate,
+        time,
+        durationMinutes,
+        appointmentTypeId,
+        fee: normalizedFee,
+        assignedTo: assignment.assigned_to,
+        externalStaffId: assignment.external_staff_id,
+        notes,
+        recurrence: repeatAppointment
+          ? { weekdays: [...selectedWeekdays], totalSessions: Number(totalSessions) }
+          : null,
+      } }
+      // Retain one immutable intent until its outcome is known. Recovery never reads edited fields.
+      pendingRequest.current = request
+      reportBookingEvent({ correlationId, phase: 'request', durationMs: elapsed(startedAt) })
+      const result = await requestBooking(request)
+      if (alive.current && operation.current === run) handleBookingResult(result, request, startedAt)
+    } catch (error) {
+      if (!alive.current || operation.current !== run) return
+      const request = pendingRequest.current
+      const errorCode = error instanceof BookingTransportError ? error.code : 'BOOKING_PREPARATION_FAILED'
+      if (request) {
+        showUnconfirmed(request)
+        reportBookingEvent({ correlationId, phase: errorCode === 'BOOKING_TIMEOUT' ? 'timeout' : 'unconfirmed', errorCode, durationMs: elapsed(startedAt) })
+      } else {
+        reportBookingEvent({ correlationId, phase: 'preparation_failed', errorCode, durationMs: elapsed(startedAt) })
+        toast({ title: appointment ? 'Update not confirmed' : 'Unable to prepare appointment',
+          description: appointment ? 'Please check the appointment before trying again.' : 'Your details are preserved. Please check the patient and referral details and try again.', variant: 'destructive' })
+      }
+    } finally {
+      if (alive.current && operation.current === run) { inFlight.current = false; setLoading(false) }
+    }
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {optionsError && <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-3 text-sm">
+        <p>Appointment types couldn’t be loaded. Reload them to continue.</p>
+        <Button type="button" variant="outline" onClick={() => setOptionsReload(value => value + 1)}>Reload appointment types</Button>
+      </div>}
+      <fieldset disabled={loading || pendingBooking !== null} className="min-w-0 space-y-4">
       {appointment ? (
         <div className="space-y-2">
           <Label htmlFor="patient_id">Patient *</Label>
@@ -860,7 +976,23 @@ export function AppointmentForm({
         </Card>
       )}
 
-      <Button type="submit" className="w-full" disabled={loading}>
+      </fieldset>
+      {pendingBooking && (
+        <div role="alert" className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-medium">Booking not confirmed</p>
+          <p>{pendingBooking.canRetry
+            ? 'No saved appointment found. You can retry this same booking safely.'
+            : 'We couldn’t confirm whether this appointment saved. Check the booking before trying again. Your details are preserved.'}</p>
+          <p className="text-xs">Support reference: {pendingBooking.request.correlationId}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" disabled={loading} onClick={() => void recoverBooking('status')}>
+              {loading ? 'Checking…' : 'Check booking'}
+            </Button>
+            {pendingBooking.canRetry && <Button type="button" disabled={loading} onClick={() => void recoverBooking('create')}>Retry same booking</Button>}
+          </div>
+        </div>
+      )}
+      {!pendingBooking && <Button type="submit" className="w-full" disabled={loading}>
         {loading ? (
           <><Loader2 className="animate-spin" size={14} /> Saving…</>
         ) : appointment ? (
@@ -870,7 +1002,7 @@ export function AppointmentForm({
         ) : (
           'Book Appointment'
         )}
-      </Button>
+      </Button>}
     </form>
   )
 }

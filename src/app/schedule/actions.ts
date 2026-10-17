@@ -2,49 +2,12 @@
 
 import { revalidatePath } from 'next/cache'
 import { getCurrentProfile } from '@/lib/auth'
-import {
-  buildAppointmentInsertRows,
-  type AppointmentRecurrence,
-} from '@/lib/appointments/appointment-creation'
 import { logger } from '@/lib/logger'
 import { createClient } from '@/lib/supabase/server'
-import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
-import type { ReferralSource } from '@/lib/supabase/types'
 
 // --- Types ---
 
-export type NewPatientInput = {
-  name: string
-  phone: string
-  email: string | null
-  dob: string | null
-  gender: string | null
-  address: string | null
-  medical_history: string | null
-  notes: string | null
-  referral_source: ReferralSource | null
-  referred_by_doctor_id: string | null
-  referred_by_patient_id: string | null
-  referral_other: string | null
-}
-
-export type CreateAppointmentInput = {
-  patientId?: string
-  newPatient?: NewPatientInput | null
-  date: string
-  time: string
-  durationMinutes: number
-  appointmentTypeId: string
-  fee: number | null
-  assignedTo?: string | null
-  externalStaffId?: string | null
-  notes: string | null
-  recurrence?: AppointmentRecurrence | null
-}
-
-export type CreateAppointmentResult =
-  | { success: true; appointmentIds: string[]; createdPatientId?: string }
-  | { success: false; errorCode: string; message: string; conflictingDates?: string[]; createdPatientId?: string }
+export type { NewPatientInput, CreateAppointmentInput, CreateAppointmentResult } from '@/lib/appointments/booking-contract'
 
 export type UpdateAppointmentInput = {
   appointmentId: string
@@ -109,141 +72,6 @@ function revalidateScheduleViews(patientId?: string) {
 }
 
 // --- Actions ---
-
-export async function createAppointment(input: CreateAppointmentInput): Promise<CreateAppointmentResult> {
-  try {
-    const profile = await requireStaffOrAdmin()
-    if (!profile) {
-      return { success: false, errorCode: 'SCHEDULE_UNAUTHORIZED', message: 'You are not allowed to manage appointments.' }
-    }
-
-    if (!input.date || !input.time || !input.appointmentTypeId) {
-      return { success: false, errorCode: 'SCHEDULE_MISSING_FIELDS', message: 'Date, time, and appointment type are required.' }
-    }
-
-    let appointmentRows
-    try {
-      appointmentRows = buildAppointmentInsertRows({
-        patientId: input.patientId || 'pending-patient',
-        date: input.date,
-        time: input.time,
-        durationMinutes: input.durationMinutes,
-        appointmentTypeId: input.appointmentTypeId,
-        fee: input.fee,
-        assignedTo: input.assignedTo,
-        externalStaffId: input.externalStaffId,
-        notes: input.notes,
-        recurrence: input.recurrence,
-        // The clinic's own calendar day, not the server's — a booking made from another timezone
-        // must not be back- or forward-dated by the host's clock.
-        today: getZonedDate(new Date(), CLINIC_TIME_ZONE),
-      })
-    } catch (error) {
-      return {
-        success: false,
-        errorCode: 'SCHEDULE_INVALID_RECURRENCE',
-        message: error instanceof Error ? error.message : 'The repeat schedule is invalid.',
-      }
-    }
-
-    const supabase = await createClient()
-    let patientId = input.patientId
-    let createdPatientId: string | undefined
-
-    if (input.newPatient) {
-      const { name, phone } = input.newPatient
-      if (!name?.trim() || !phone?.trim()) {
-        return { success: false, errorCode: 'PATIENT_MISSING_FIELDS', message: 'Patient name and phone are required.' }
-      }
-      const { data: insertedPatient, error: patientError } = await supabase
-        .from('patients')
-        .insert({
-          name: name.trim(),
-          phone: phone.trim(),
-          email: input.newPatient.email || null,
-          dob: input.newPatient.dob || null,
-          gender: input.newPatient.gender || null,
-          address: input.newPatient.address || null,
-          medical_history: input.newPatient.medical_history || null,
-          notes: input.newPatient.notes || null,
-          referral_source: input.newPatient.referral_source || null,
-          referred_by_doctor_id: input.newPatient.referred_by_doctor_id || null,
-          referred_by_patient_id: input.newPatient.referred_by_patient_id || null,
-          referral_other: input.newPatient.referral_other?.trim() || null,
-        })
-        .select('id')
-        .single()
-
-      if (patientError || !insertedPatient) {
-        logger.error('schedule/createAppointment/createPatient', patientError, { name })
-        return { success: false, errorCode: 'PATIENT_CREATE_FAILED', message: patientError?.message ?? 'Unable to create patient.' }
-      }
-      patientId = insertedPatient.id
-      createdPatientId = insertedPatient.id
-    }
-
-    if (!patientId) {
-      return { success: false, errorCode: 'SCHEDULE_MISSING_PATIENT', message: 'Select or create a patient.' }
-    }
-
-    appointmentRows = appointmentRows.map((appointment) => ({
-      ...appointment,
-      patient_id: patientId,
-    }))
-
-    const generatedDates = appointmentRows.map((appointment) => appointment.date)
-    const { data: conflicts, error: conflictsError } = await supabase
-      .from('appointments')
-      .select('date')
-      .eq('patient_id', patientId)
-      .eq('time', input.time)
-      .in('date', generatedDates)
-
-    if (conflictsError) {
-      logger.error('schedule/createAppointment/checkConflicts', conflictsError, { patientId })
-      return {
-        success: false,
-        errorCode: 'APPOINTMENT_CREATE_FAILED',
-        message: 'Unable to check the appointment schedule.',
-        createdPatientId,
-      }
-    }
-
-    const conflictingDates = Array.from(new Set((conflicts ?? []).map((appointment) => appointment.date))).sort()
-    if (conflictingDates.length > 0) {
-      return {
-        success: false,
-        errorCode: 'APPOINTMENT_CONFLICT',
-        message: 'This patient already has an appointment at the selected time on one or more dates.',
-        conflictingDates,
-        createdPatientId,
-      }
-    }
-
-    // This is one multi-row INSERT statement: either every generated appointment
-    // is written or PostgreSQL rejects the full series.
-    const { data, error } = await supabase
-      .from('appointments')
-      .insert(appointmentRows)
-      .select('id')
-
-    if (error || !data || data.length !== appointmentRows.length) {
-      logger.error('schedule/createAppointment', error, { patientId })
-      return {
-        success: false,
-        errorCode: 'APPOINTMENT_CREATE_FAILED',
-        message: error?.message ?? 'Unable to create appointment.',
-        createdPatientId,
-      }
-    }
-
-    revalidateScheduleViews(patientId)
-    return { success: true, appointmentIds: data.map((appointment) => appointment.id), createdPatientId }
-  } catch (error) {
-    logger.error('schedule/createAppointment/unexpected', error)
-    return { success: false, errorCode: 'APPOINTMENT_CREATE_FAILED', message: 'Unable to create appointment right now.' }
-  }
-}
 
 export async function updateAppointment(input: UpdateAppointmentInput): Promise<UpdateAppointmentResult> {
   try {
