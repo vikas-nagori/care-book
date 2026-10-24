@@ -192,15 +192,18 @@ jobs:
         if: always()
         run: npx supabase stop --no-backup || true
 
+      # Only a failing shard needs its report. Uploading every shard on every push exhausts the
+      # account's artifact storage quota, which then fails otherwise green runs.
       - name: Upload Playwright report
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-shard-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/
-          if-no-files-found: error
+          # A shard that failed before Playwright ran (Supabase start, build) has no report.
+          if-no-files-found: warn
           retention-days: 7
 
   # Single check that gates on every shard. Branch protection requires the `e2e` check by name

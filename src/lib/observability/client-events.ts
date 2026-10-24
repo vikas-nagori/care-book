@@ -2,7 +2,7 @@ const OPERATIONS = ['PatientForm/save', 'PatientForm/submit', 'AppointmentForm/s
 export type ClientOperation = typeof OPERATIONS[number]
 const BOOKING_PHASES = [
   'submit', 'request', 'confirmed', 'rejected', 'timeout', 'unconfirmed',
-  'status_check', 'retry', 'preparation_failed', 'options_failed',
+  'status_check', 'retry', 'auto_retry', 'preparation_failed', 'options_failed',
 ] as const
 const BOOKING_ERROR_CODES = new Set([
   'BOOKING_TIMEOUT', 'BOOKING_REQUEST_FAILED', 'BOOKING_INVALID_RESPONSE',

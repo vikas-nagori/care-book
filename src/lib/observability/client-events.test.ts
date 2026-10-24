@@ -36,7 +36,7 @@ test('booking event validation rejects unapproved phases and invalid durations',
 })
 
 test('booking phases remain distinct and unsafe error text never reaches telemetry', () => {
-  for (const phase of ['submit', 'request', 'confirmed', 'rejected', 'timeout', 'unconfirmed', 'status_check', 'retry', 'preparation_failed', 'options_failed']) {
+  for (const phase of ['submit', 'request', 'confirmed', 'rejected', 'timeout', 'unconfirmed', 'status_check', 'retry', 'auto_retry', 'preparation_failed', 'options_failed']) {
     assert.deepEqual(parseClientEvent({ operation: 'AppointmentForm/booking', correlationId, phase, errorCode: 'Private Patient' }), {
       operation: 'AppointmentForm/booking', correlationId, phase,
     })

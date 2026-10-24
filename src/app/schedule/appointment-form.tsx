@@ -30,7 +30,7 @@ import { generateRecurringAppointmentDates } from '@/lib/appointments/recurrence
 import { resolveAppointmentStatus } from '@/lib/appointments/appointment-creation'
 import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
 import type { DashboardAppointmentTypeOption } from '@/lib/dashboard/appointment-options'
-import { BookingTransportError, requestBooking, withBookingDeadline } from '@/lib/appointments/booking-client'
+import { BookingTransportError, createBookingWithRetry, requestBooking, withBookingDeadline } from '@/lib/appointments/booking-client'
 import type { BookingRequest, CreateAppointmentResult, NewPatientInput } from '@/lib/appointments/booking-contract'
 import { reportBookingEvent } from '@/lib/observability/report-booking-event'
 
@@ -567,7 +567,11 @@ export function AppointmentForm({
       // Retain one immutable intent until its outcome is known. Recovery never reads edited fields.
       pendingRequest.current = request
       reportBookingEvent({ correlationId, phase: 'request', durationMs: elapsed(startedAt) })
-      const result = await requestBooking(request)
+      // A dead mobile connection is resent automatically; closing the form stops further resends.
+      const result = await createBookingWithRetry(request, {
+        shouldRetry: () => alive.current && operation.current === run,
+        onRetry: (errorCode) => reportBookingEvent({ correlationId, phase: 'auto_retry', errorCode, durationMs: elapsed(startedAt) }),
+      })
       if (alive.current && operation.current === run) handleBookingResult(result, request, startedAt)
     } catch (error) {
       if (!alive.current || operation.current !== run) return
