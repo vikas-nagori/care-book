@@ -100,22 +100,54 @@ test('concurrent retries and replay create one inline patient and one recurring 
   expect(await factory.findAppointments({ patientId: patient!.id, notes })).toHaveLength(3)
 })
 
-test('a lost response after commit is recovered by Check booking without another creation request', async ({ page, factory }, testInfo) => {
+test('a booking stuck on a dead connection is resent automatically without the recovery popup', async ({ page, factory }) => {
+  // iOS Safari can hold a POST on a silently dropped idle connection; the form abandons it and resends.
+  const patient = await factory.createPatient()
+  const type = await factory.findAppointmentType(true)
+  const date = clinicDate(109)
+  const notes = factory.uniqueName('dead-connection-booking')
+  factory.watchUiAppointments({ patientId: patient.id, notes })
+  const writes: BookingRequest[] = []
+  let held: Route | undefined
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
+  await page.clock.install()
+  await page.route(`**${BOOKINGS}`, async route => {
+    writes.push(route.request().postDataJSON() as BookingRequest)
+    if (writes.length === 1) { held = route; return }
+    await route.continue()
+  })
+  await page.goto('/schedule/new')
+  await fillBooking(page, type.name, patient.name as string, date, '17:10', notes)
+  await page.getByRole('button', { name: 'Book Appointment', exact: true }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  await expect(page.getByRole('button', { name: 'Saving…', exact: true })).toBeDisabled()
+  await page.clock.fastForward(6_001)
+  await expect(page).toHaveURL(/\/schedule(?:\?.*)?$/)
+  await expect(page.getByRole('alert').filter({ hasText: 'Booking not confirmed' })).toHaveCount(0)
+  await held!.abort('timedout').catch(() => {})
+  expect(writes).toHaveLength(2)
+  expect(writes[1]).toEqual(writes[0])
+  const rows = await factory.findAppointments({ patientId: patient.id, notes })
+  expect(rows).toHaveLength(1)
+  expect(rows[0]).toMatchObject({ date, time: '17:10:00', notes })
+  expect(pageErrors).toEqual([])
+})
+
+test('a reply lost on every attempt is recovered by Check booking without another creation request', async ({ page, factory }, testInfo) => {
   const patient = await factory.createPatient()
   const type = await factory.findAppointmentType(true)
   const date = clinicDate(107)
   const notes = factory.uniqueName('lost-response')
   factory.watchUiAppointments({ patientId: patient.id, notes })
-  let committed: CreateAppointmentResult | undefined
-  let creationRequests = 0
-  let captured: BookingRequest | undefined
+  const committed: CreateAppointmentResult[] = []
+  const writes: BookingRequest[] = []
   const pageErrors: string[] = []
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.route(`**${BOOKINGS}`, async route => {
-    creationRequests += 1
-    captured = route.request().postDataJSON() as BookingRequest
+    writes.push(route.request().postDataJSON() as BookingRequest)
     const response = await route.fetch()
-    committed = await response.json() as CreateAppointmentResult
+    committed.push(await response.json() as CreateAppointmentResult)
     await route.abort('failed')
   })
   await page.goto('/schedule/new')
@@ -123,8 +155,11 @@ test('a lost response after commit is recovered by Check booking without another
   await page.getByRole('button', { name: 'Book Appointment', exact: true }).click()
   const recovery = page.getByRole('alert').filter({ hasText: 'Booking not confirmed' })
   await expect(recovery).toBeVisible()
-  expect(committed?.success).toBe(true)
-  await expect(recovery).toContainText(captured!.correlationId)
+  // Every automatic resend reached the server with the same booking and found the one saved copy.
+  expect(writes).toHaveLength(4)
+  for (const write of writes) expect(write).toEqual(writes[0])
+  expect(committed.every(result => result.success)).toBe(true)
+  await expect(recovery).toContainText(writes[0].correlationId)
   await expect(page.getByLabel('Notes', { exact: true })).toHaveValue(notes)
   await expect(page.getByLabel('Notes', { exact: true })).toBeDisabled()
   await expect(recovery.getByRole('button', { name: 'Retry same booking', exact: true })).toHaveCount(0)
@@ -138,40 +173,36 @@ test('a lost response after commit is recovered by Check booking without another
 
   const checked = page.waitForRequest(request => new URL(request.url()).pathname === `${BOOKINGS}/status`)
   await recovery.getByRole('button', { name: 'Check booking', exact: true }).click()
-  expect((await checked).postDataJSON()).toEqual(captured)
+  expect((await checked).postDataJSON()).toEqual(writes[0])
   await expect(page).toHaveURL(/\/schedule(?:\?.*)?$/)
-  expect(creationRequests).toBe(1)
+  expect(writes).toHaveLength(4)
   const after = await factory.findAppointments({ patientId: patient.id, notes })
   expect(after.map(row => row.id)).toEqual(before.map(row => row.id))
   expect(pageErrors).toEqual([])
 })
 
-test('timeout unlocks recovery and Retry same booking reuses the exact original request', async ({ page, factory }) => {
+test('an outage that outlasts automatic resends unlocks Retry same booking with the exact original request', async ({ page, factory }) => {
   const patient = await factory.createPatient()
   const type = await factory.findAppointmentType(true)
   const date = clinicDate(108)
-  const notes = factory.uniqueName('timed-out-booking')
+  const notes = factory.uniqueName('outage-booking')
   factory.watchUiAppointments({ patientId: patient.id, notes })
   const writes: BookingRequest[] = []
-  let held: Route | undefined
+  let offline = true
   const pageErrors: string[] = []
   page.on('pageerror', error => pageErrors.push(error.message))
-  await page.clock.install()
   await page.route(`**${BOOKINGS}`, async route => {
     writes.push(route.request().postDataJSON() as BookingRequest)
-    if (writes.length === 1) { held = route; return }
+    if (offline) { await route.abort('internetdisconnected'); return }
     await route.continue()
   })
   await page.goto('/schedule/new')
   await fillBooking(page, type.name, patient.name as string, date, '16:45', notes)
   await page.getByRole('button', { name: 'Book Appointment', exact: true }).click()
-  await expect.poll(() => writes.length).toBe(1)
-  await expect(page.getByRole('button', { name: 'Saving…', exact: true })).toBeDisabled()
-  await page.clock.fastForward(30_001)
   const recovery = page.getByRole('alert').filter({ hasText: 'Booking not confirmed' })
   await expect(recovery).toBeVisible()
   await expect(page.getByRole('button', { name: 'Saving…', exact: true })).toHaveCount(0)
-  await held!.abort('timedout').catch(() => {})
+  expect(writes).toHaveLength(4)
   expect(await factory.findAppointments({ patientId: patient.id, notes })).toEqual([])
 
   const status = page.waitForRequest(request => new URL(request.url()).pathname === `${BOOKINGS}/status`)
@@ -180,10 +211,11 @@ test('timeout unlocks recovery and Retry same booking reuses the exact original 
   await expect(recovery).toContainText('No saved appointment found')
   await expect(page.getByLabel('Time *', { exact: true })).toHaveValue('16:45')
   await expect(page.getByLabel('Time *', { exact: true })).toBeDisabled()
+  offline = false
   await recovery.getByRole('button', { name: 'Retry same booking', exact: true }).click()
   await expect(page).toHaveURL(/\/schedule(?:\?.*)?$/)
-  expect(writes).toHaveLength(2)
-  expect(writes[1]).toEqual(writes[0])
+  expect(writes).toHaveLength(5)
+  for (const write of writes) expect(write).toEqual(writes[0])
   const rows = await factory.findAppointments({ patientId: patient.id, notes })
   expect(rows).toHaveLength(1)
   expect(rows[0]).toMatchObject({ date, time: '16:45:00', notes })
