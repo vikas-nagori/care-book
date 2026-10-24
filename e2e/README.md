@@ -76,7 +76,7 @@ E2E-environment build. Its `e2e` check gates the `e2e-shard` matrix, where each 
 own isolated local Supabase stack (in the background, while Chromium installs and `next build`
 runs) and then serves that build with `E2E_PREBUILT=1` for its slice of the complete project
 matrix. The HTML report plus failure traces/screenshots in `test-results/` are uploaded as the
-`playwright-report-shard-<n>` artifacts even when the suite fails. Both checks must remain
+`playwright-report-shard-<n>` artifacts only when that shard fails, and kept for 7 days. Both checks must remain
 required for `main`; see `.github/BRANCH_PROTECTION.md`.
 
 The normal test command never resets the database. It starts the local stack if necessary and
