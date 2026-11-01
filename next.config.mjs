@@ -75,6 +75,11 @@ const securityHeaders = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // PDFKit loads standard fonts through createRequire and package import maps.
+  // Webpack's trace finds the ESM variants but misses the CommonJS runtime files.
+  outputFileTracingIncludes: {
+    '/api/billing/payment-due/*/pdf': ['./node_modules/pdfkit/js/standard-fonts/**/*.cjs'],
+  },
   async headers() {
     return [
       {

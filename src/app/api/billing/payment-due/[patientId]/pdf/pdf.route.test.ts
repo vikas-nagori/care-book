@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getCurrentProfile: vi.fn(),
@@ -20,7 +20,50 @@ beforeEach(() => {
   mocks.getPaymentDueStatementSource.mockReset()
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('payment due PDF route', () => {
+  it.each([
+    { regularScope: 'all_due', periodMonth: undefined, filenameSuffix: '-all-regular.pdf' },
+    { regularScope: 'previous_month', periodMonth: '2026-10', filenameSuffix: '-regular-2026-10.pdf' },
+  ])('downloads a real PDF for $regularScope', async ({ regularScope, periodMonth, filenameSuffix }) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-01T12:00:00Z'))
+    mocks.getCurrentProfile.mockResolvedValueOnce({ role: 'admin' })
+    mocks.getPaymentDueStatementSource.mockResolvedValueOnce({
+      snapshotAt: '2026-11-01T12:00:00Z',
+      clinic: { name: 'Sample Clinic' },
+      patient: { id: patientId, name: 'Sample Patient' },
+      appointments: [{
+        id: 'session-1', date: '2026-10-15', time: '09:00:00', type: 'Clinic',
+        status: 'completed', chargeId: 'charge-1', chargeAmount: '800.00', chargeStatus: 'posted',
+        packageId: null, packageLifecycle: null,
+        applications: [{ amount: '300.00', status: 'active' }],
+      }],
+      packages: [],
+    })
+
+    const response = await POST(
+      new Request(`http://localhost/api/billing/payment-due/${patientId}/pdf`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ regularScope, periodMonth }),
+      }),
+      { params: Promise.resolve({ patientId }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/pdf')
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(response.headers.get('content-disposition')).toBe(
+      `attachment; filename="payment-summary-Sample-Patient-2026-11-01${filenameSuffix}"`,
+    )
+    const buffer = Buffer.from(await response.arrayBuffer())
+    expect(buffer.subarray(0, 5).toString()).toBe('%PDF-')
+    expect(buffer.length).toBeGreaterThan(500)
+  })
+
   it('rejects a malformed request before reading billing data', async () => {
     const response = await POST(
       new Request('http://localhost/api/billing/payment-due/not-a-uuid/pdf', {
