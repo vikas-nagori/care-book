@@ -1,5 +1,6 @@
-import { test, expect, type Page, type TestInfo } from '@playwright/test'
+import type { Page, TestInfo } from '@playwright/test'
 
+import { test, expect } from '../support/factories'
 import { expandAllDateGroups } from '../support/date-groups'
 import { attachErrorGuards } from '../support/assertions'
 import { ADMIN } from '../support/accounts'
@@ -261,15 +262,20 @@ test('billing switches balance and payment tables at md and changes package grid
   await guards.assertClean()
 })
 
-test('metric and payment-due pages expose responsive titles, content, and exact Back links', async ({ page }, testInfo) => {
+test('metric and payment-due pages expose responsive titles, content, and exact Back links', async ({ page, factory }, testInfo) => {
   const guards = attachErrorGuards(page)
+  // The shared receipt is two days old and falls outside this month on days 1–2.
+  // Own a current-month receipt so this layout check also works at month rollover.
+  const patientName = factory.uniqueName('responsive-billing')
+  const patient = await factory.createPatient({ name: patientName })
+  await factory.createPayment({ patientId: patient.id, amount: 8000 })
 
   for (const detail of [
     {
       route: '/billing/metrics/received-this-month',
       mobileTitle: 'Received',
       desktopTitle: 'Received',
-      content: ['Asha Rao', 'UPI', '₹8,000'],
+      content: [patientName, 'UPI', '₹8,000'],
       hasDateGroups: true,
     },
     {
