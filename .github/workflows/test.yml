@@ -102,6 +102,8 @@ jobs:
         # Use the committed loopback-only E2E environment so the build never depends on hosted
         # Supabase credentials. Next builds route code but does not need the stack to be running.
         run: npm run build:e2e
+      - name: Render payment PDF from deployment files
+        run: node scripts/check-payment-pdf-build.mjs
 
   # Single check that gates on every fast suite. Branch protection requires `test` by name.
   test:
