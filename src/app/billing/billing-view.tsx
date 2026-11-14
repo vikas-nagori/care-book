@@ -190,12 +190,14 @@ export function BillingView({
     }
   }
 
+  // No router.refresh() after billing mutations: each server action calls revalidatePath('/billing'),
+  // which already ships the re-rendered page in the action response. A refresh on top re-ran the
+  // whole page query fan-out (balance views included) a second time after every save.
   function handleEntrySuccess() {
     setEntryOpen(false)
     if (initialEntryOpen) {
       router.replace(cleanBillingUrl, { scroll: false })
     }
-    router.refresh()
   }
 
   async function confirmAuditedAction() {
@@ -226,7 +228,6 @@ export function BillingView({
       title: 'Audited change saved',
       description: 'The ledger and balances have been reconciled.',
     })
-    router.refresh()
   }
 
   async function loadMorePayments() {
