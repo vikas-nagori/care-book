@@ -3,35 +3,39 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-type FetchEvent = { request: Request; respondWith: (response: Promise<Response | undefined>) => void }
 function loadWorker() {
-  const listeners = new Map<string, (event: FetchEvent) => void>()
+  const listeners = new Map<string, (event: unknown) => void>()
+  let skippedWaiting = false
+  let claimed = false
   const context = {
-    self: { addEventListener: (type: string, listener: (event: FetchEvent) => void) => listeners.set(type, listener), skipWaiting() {} },
-    clients: { claim: async () => {} },
-    caches: { match: async () => undefined },
-    fetch: async () => new Response('network'),
-    URL,
+    self: {
+      addEventListener: (type: string, listener: (event: unknown) => void) => listeners.set(type, listener),
+      skipWaiting() { skippedWaiting = true },
+    },
+    clients: { claim: async () => { claimed = true } },
   }
   vm.runInNewContext(readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf8'), context)
-  return (request: Request) => {
-    let intercepted = false
-    listeners.get('fetch')!({ request, respondWith: () => { intercepted = true } })
-    return intercepted
-  }
+  return { listeners, skippedWaiting: () => skippedWaiting, claimed: () => claimed }
 }
 
-test('the service worker never sits between the app and its saves or API calls', () => {
-  const intercepts = loadWorker()
-  const origin = 'https://care-book.co'
-  assert.equal(intercepts(new Request(`${origin}/api/appointments/bookings`, { method: 'POST', body: '{}' })), false)
-  assert.equal(intercepts(new Request(`${origin}/api/telemetry`, { method: 'POST', body: '{}' })), false)
-  assert.equal(intercepts(new Request(`${origin}/schedule`, { method: 'POST', body: '{}' })), false)
-  assert.equal(intercepts(new Request(`${origin}/api/appointments/bookings/status`)), false)
+test('the service worker never sits between the app and the network', () => {
+  // No fetch handler means no request — page, RSC payload, asset, save or API call — is routed
+  // through the worker, so a suspended iOS worker can never delay or lose one.
+  const worker = loadWorker()
+  assert.equal(worker.listeners.has('fetch'), false)
 })
 
-test('the service worker still handles page and asset loads', () => {
-  const intercepts = loadWorker()
-  assert.equal(intercepts(new Request('https://care-book.co/schedule')), true)
-  assert.equal(intercepts(new Request('https://care-book.co/icons/icon-192.png')), true)
+test('the service worker still installs and takes control immediately', async () => {
+  const worker = loadWorker()
+  worker.listeners.get('install')!({})
+  assert.equal(worker.skippedWaiting(), true)
+  let pending: Promise<unknown> | undefined
+  worker.listeners.get('activate')!({ waitUntil: (promise: Promise<unknown>) => { pending = promise } })
+  await pending
+  assert.equal(worker.claimed(), true)
+})
+
+test('the service worker is still registered by the app shell', () => {
+  const registration = readFileSync(new URL('../components/layout/service-worker-registration.tsx', import.meta.url), 'utf8')
+  assert.match(registration, /navigator\.serviceWorker\.register\('\/sw\.js'\)/)
 })
