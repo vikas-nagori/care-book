@@ -188,3 +188,33 @@ test('Monthly billed trend drills into one month by appointment type', async ({ 
 
   await guards.assertClean()
 })
+
+/** The "Total billed · this month" tile on the billing overview, as a number. */
+async function overviewBilledThisMonth(page: import('@playwright/test').Page): Promise<number> {
+  await page.goto('/billing')
+  const tile = page.getByRole('link', { name: /Total billed/ })
+  await expect(tile).toBeVisible()
+  const text = await tile.locator('.ph-stat-value').innerText()
+  return Number(text.replace(/[^\d.]/g, ''))
+}
+
+test('Overview "Total billed" counts exactly this month\'s completed session fees', async ({ page, factory }) => {
+  // The tile is aggregated by Postgres (get_billed_month_totals_v1) rather than summed from every
+  // appointment in the app, so assert its arithmetic end to end: a completed session this month
+  // adds its fee, while scheduled, cancelled and previous-month sessions add nothing.
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const before = await overviewBilledThisMonth(page)
+
+  await factory.createAppointment({ patientId: patient.id, date: clinicDate(), time: '07:05', fee: 1234, status: 'completed' })
+  await factory.createAppointment({ patientId: patient.id, date: clinicDate(), time: '07:55', fee: 5000, status: 'scheduled' })
+  await factory.createAppointment({ patientId: patient.id, date: clinicDate(), time: '08:45', fee: 7000, status: 'cancelled' })
+  const [year, month] = clinicDate().split('-').map(Number)
+  const lastMonth = new Date(Date.UTC(year, month - 2, 15)).toISOString().slice(0, 10)
+  await factory.createAppointment({ patientId: patient.id, date: lastMonth, time: '09:35', fee: 9000, status: 'completed' })
+
+  const after = await overviewBilledThisMonth(page)
+  expect(after - before).toBe(1234)
+
+  await guards.assertClean()
+})

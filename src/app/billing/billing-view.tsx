@@ -32,6 +32,8 @@ import { getPackageProgress } from '@/lib/billing/package-progress'
 import type { V2PaymentBalanceRow } from '@/lib/billing/v2-balances'
 import type { PackageBillingBalanceV2, PackageTemplate } from '@/lib/supabase/types'
 import { PaginationNav } from '@/components/pagination-nav'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
+import { countLinkedSessions } from '@/lib/billing/billing-overview-totals'
 import { BillingEntryForm } from './billing-entry-form'
 import { cancelPackage, recordRefund, voidPayment, voidRefund } from './actions'
 
@@ -143,7 +145,7 @@ export function BillingView({
   paymentsTotalCount,
   pageSize,
   patients,
-  linkedSessionCounts,
+  linkedSessionCounts: initialLinkedSessionCounts,
   packageBalances,
   paymentDueRows,
   refunds = [],
@@ -164,6 +166,7 @@ export function BillingView({
   const [packages, setPackages] = useState(initialPackages)
   const [payments, setPayments] = useState(initialPayments)
   const [refundRows, setRefundRows] = useState(refunds)
+  const [linkedSessionCounts, setLinkedSessionCounts] = useState(initialLinkedSessionCounts)
   const [loadingMorePayments, setLoadingMorePayments] = useState(false)
   const [loadingMorePackages, setLoadingMorePackages] = useState(false)
   const [duePage, setDuePage] = useState(1)
@@ -182,6 +185,7 @@ export function BillingView({
   useEffect(() => setPackages(initialPackages), [initialPackages])
   useEffect(() => setPayments(initialPayments), [initialPayments])
   useEffect(() => setRefundRows(refunds), [refunds])
+  useEffect(() => setLinkedSessionCounts(initialLinkedSessionCounts), [initialLinkedSessionCounts])
 
   function handleEntryOpenChange(open: boolean) {
     setEntryOpen(open)
@@ -243,6 +247,12 @@ export function BillingView({
       setPayments((prev) => [...prev, ...nextPayments])
       const paymentIds = nextPayments.map((payment) => payment.id)
       if (paymentIds.length > 0) {
+        // The server sends linked-session counts only for the first page; fetch this page's too.
+        const { data: applications } = await fetchAllRows<{ payment_id: string }>((from, to) =>
+          supabase.from('payment_applications').select('payment_id').eq('status', 'active')
+            .in('payment_id', paymentIds).order('id').range(from, to),
+        )
+        setLinkedSessionCounts((prev) => ({ ...prev, ...Object.fromEntries(paymentIds.map((id) => [id, 0])), ...countLinkedSessions(applications) }))
         const { data: nextRefunds } = await supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason').in('payment_id', paymentIds)
         const refundIds = (nextRefunds ?? []).map((refund) => refund.id)
         const { data: reversals } = refundIds.length > 0
