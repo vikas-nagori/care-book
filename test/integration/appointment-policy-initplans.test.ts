@@ -13,7 +13,7 @@ import {
 } from './db.ts'
 
 // The appointments and session_notes policies used to call can_access_appointment(...) per row.
-// 20261115100000_appointment_policy_initplans rewrites them so the caller-only helpers run once per
+// 20261115100648_appointment_policy_initplans rewrites them so the caller-only helpers run once per
 // statement. The rewrite must admit exactly the same rows for every kind of caller and every
 // command, or it silently hides (or leaks) clinical data — and applying it must not touch data.
 //
