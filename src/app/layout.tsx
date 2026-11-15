@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter, JetBrains_Mono } from 'next/font/google'
+// Self-hosted (see fonts/fonts.css): the build must never depend on fetching from Google.
+import './fonts/fonts.css'
 import './globals.css'
 import { getCurrentProfile } from '@/lib/auth'
 import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
@@ -11,17 +12,6 @@ import { TimezoneSync } from '@/components/layout/timezone-sync'
 import { GuidedTourProvider } from '@/components/tour/guided-tour-provider'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-sans',
-})
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-mono',
-  weight: ['400', '500'],
-})
 
 export const metadata: Metadata = {
   title: 'Care-Book',
@@ -59,7 +49,7 @@ export default async function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
-      <body className={`${inter.variable} ${jetbrainsMono.variable} overflow-hidden font-sans`}>
+      <body className="overflow-hidden font-sans">
         <TimezoneSync />
         <div className="flex h-dvh overflow-hidden">
           <Sidebar canViewBilling={access.canViewBilling} />
