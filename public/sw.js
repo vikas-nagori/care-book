@@ -1,20 +1,17 @@
-const CACHE_NAME = 'care-book-v1';
+// Care-Book service worker.
+//
+// It exists so the app installs and launches as a standalone PWA. It deliberately has no fetch
+// handler: the previous "network-first" handler re-issued every page, RSC and asset request through
+// the worker yet never stored anything, so its offline fallback (caches.match) always came back
+// empty. All it added was a worker hop on every request — and on iOS, where the worker is suspended
+// aggressively, a cold worker start before navigations and data loads. Without a fetch handler the
+// browser goes straight to the network (and its HTTP cache), which is exactly what the old handler
+// ended up doing, minus the overhead. Saves and API calls were already exempt; now everything is.
 
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(clients.claim());
-});
-
-self.addEventListener('fetch', (event) => {
-  // Saves and API calls go straight to the network. Nothing here caches them, and routing a POST
-  // through the worker only adds a way to lose it when iOS suspends the worker mid-request.
-  const url = new URL(event.request.url);
-  if (event.request.method !== 'GET' || url.pathname.startsWith('/api/')) return;
-  // Network-first strategy
-  event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
-  );
 });

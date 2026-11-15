@@ -5,6 +5,8 @@ import { BillingView } from './billing-view'
 import { buildV2PaymentBalanceRows } from '@/lib/billing/v2-balances'
 import { CLINIC_TIME_ZONE, getZonedCalendarContext, getZonedDate } from '@/lib/timezone'
 import { getUserTimeZone } from '@/lib/timezone/server'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
+import { billedTotalForMonth, countLinkedSessions, monthKeyOf, type BilledMonthTotalsRow } from '@/lib/billing/billing-overview-totals'
 
 const PAGE_SIZE = 50
 
@@ -29,8 +31,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     { data: packages, error: packagesError, count: packagesCount },
     { data: payments, error: paymentsError, count: paymentsCount },
     { data: patients, error: patientsError },
-    { data: appointments, error: appointmentsError },
-    { data: paymentApplications, error: paymentApplicationsError },
+    { data: billedMonthTotals, error: billedMonthTotalsError },
     { data: patientBalances, error: patientBalancesError },
     { data: packageBalances, error: packageBalancesError },
     { data: monthPayments, error: monthPaymentsError },
@@ -46,11 +47,12 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       .order('date', { ascending: false })
       .range(0, PAGE_SIZE - 1),
     supabase.from('patients').select('id, name').order('name'),
-    supabase.from('appointments')
-      .select('id, patient_id, date, time, status, payment_status, fee, type, patient:patients(id, name)')
-      .in('status', ['completed', 'scheduled'])
-      .order('date', { ascending: true }),
-    supabase.from('payment_applications').select('payment_id').eq('status', 'active'),
+    // Billed = completed sessions' fees, aggregated per month × type by Postgres (a few dozen rows),
+    // instead of pulling every appointment the clinic has ever had — which PostgREST would
+    // silently truncate at max-rows once the clinic passed 1000 of them.
+    fetchAllRows<BilledMonthTotalsRow>((from, to) =>
+      supabase.rpc('get_billed_month_totals_v1', { p_till_day: null }).range(from, to),
+    ),
     supabase.from('patient_billing_balances_v2').select('*'),
     supabase.from('package_billing_balances_v2').select('*'),
     // This-month payments — unpaginated — for the "Received (this month)" tile.
@@ -64,8 +66,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   if (packagesError) logger.error('BillingPage/packages', packagesError)
   if (paymentsError) logger.error('BillingPage/payments', paymentsError)
   if (patientsError) logger.error('BillingPage/patients', patientsError)
-  if (appointmentsError) logger.error('BillingPage/appointments', appointmentsError)
-  if (paymentApplicationsError) logger.error('BillingPage/paymentApplications', paymentApplicationsError)
+  if (billedMonthTotalsError) logger.error('BillingPage/billedMonthTotals', billedMonthTotalsError)
   if (patientBalancesError) logger.error('BillingPage/patientBalances', patientBalancesError)
   if (packageBalancesError) logger.error('BillingPage/packageBalances', packageBalancesError)
   if (monthPaymentsError) logger.error('BillingPage/monthPayments', monthPaymentsError)
@@ -77,6 +78,14 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   // The recent history is capped for display, but every visible payment must include all of its
   // refunds so remaining refundable capacity and correction actions are exact.
   const visiblePaymentIds = (payments ?? []).map((payment) => payment.id)
+  // Linked-session counts are needed only for the payments on screen (load-more fetches the rest).
+  const { data: paymentApplications, error: paymentApplicationsError } = visiblePaymentIds.length > 0
+    ? await fetchAllRows<{ payment_id: string }>((from, to) =>
+        supabase.from('payment_applications').select('payment_id').eq('status', 'active')
+          .in('payment_id', visiblePaymentIds).order('id').range(from, to),
+      )
+    : { data: [], error: null }
+  if (paymentApplicationsError) logger.error('BillingPage/paymentApplications', paymentApplicationsError)
   const { data: visiblePaymentRefunds, error: visiblePaymentRefundsError } = visiblePaymentIds.length > 0
     ? await supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason').in('payment_id', visiblePaymentIds)
     : { data: [], error: null }
@@ -88,26 +97,15 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     : { data: [], error: null }
   if (reversedRefundsError) logger.error('BillingPage/reversedRefunds', reversedRefundsError)
 
-  // Billed (completed sessions' fees) per period — captures package + standalone sessions
+  // Billed (completed sessions' fees) per calendar month — captures package + standalone sessions
   // without double-counting, since every session is an appointment carrying its own fee.
-  const sumCompletedFees = (from: string, to: string) =>
-    (appointments ?? []).reduce(
-      (total, a) =>
-        a.status === 'completed' && a.date >= from && a.date <= to
-          ? total + Number(a.fee ?? 0)
-          : total,
-      0,
-    )
-  const billedThisMonth = sumCompletedFees(calendar.monthStart, calendar.monthEnd)
-  const billedLastMonth = sumCompletedFees(calendar.previousMonthStart, calendar.previousMonthEnd)
+  const billedThisMonth = billedTotalForMonth(billedMonthTotals, monthKeyOf(calendar.monthStart))
+  const billedLastMonth = billedTotalForMonth(billedMonthTotals, monthKeyOf(calendar.previousMonthStart))
   const reversedRefundIds = new Set((reversedRefunds ?? []).map((row) => row.refund_id))
   const receivedThisMonth = (monthPayments ?? []).reduce((s, p) => s + Number(p.amount), 0)
     - (monthRefunds ?? []).reduce((sum, refund) => sum + (refund.refund_date >= calendar.monthStart && refund.refund_date <= calendar.monthEnd && !reversedRefundIds.has(refund.id) ? Number(refund.amount) : 0), 0)
 
-  const linkedSessionCounts = (paymentApplications ?? []).reduce<Record<string, number>>((counts, row) => {
-    counts[row.payment_id] = (counts[row.payment_id] ?? 0) + 1
-    return counts
-  }, {})
+  const linkedSessionCounts = countLinkedSessions(paymentApplications)
 
   const paymentDueRows = buildV2PaymentBalanceRows({ patients: patients ?? [], patientBalances: patientBalances ?? [], packageBalances: packageBalances ?? [] })
   const packageBalanceMap = Object.fromEntries((packageBalances ?? []).map((balance) => [balance.package_id, balance]))
