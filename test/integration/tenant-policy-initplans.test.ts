@@ -12,7 +12,7 @@ const DB = 'carebook_it_policy_initplans'
 const hasPostgres = postgresAvailable()
 const skip = hasPostgres ? false : 'no local Postgres reachable'
 
-const HELPER = /\b(?:has_role|is_same_clinic|current_clinic_id)\s*\(/
+const HELPER = /\b(?:has_role|is_same_clinic|current_clinic_id|can_access_appointment)\s*\(/
 
 before(() => { if (hasPostgres) buildDatabase(DB) })
 after(() => { if (hasPostgres) dropDatabase(DB) })
