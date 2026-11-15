@@ -7,6 +7,7 @@ import { formatDateOnly, getZonedCalendarContext } from '@/lib/timezone'
 import { getUserTimeZone } from '@/lib/timezone/server'
 import { buildAppointmentTypeBreakdown, type AppointmentTypeBreakdownRow } from '@/lib/billing/appointment-type-breakdown'
 import { buildMonthlyBilledSeries, type BilledMonthBucket } from '@/lib/billing/monthly-billed-series'
+import { completedDaysInMonth } from '@/lib/billing/billed-month-comparison'
 import { buildNetReceivedMetric } from '@/lib/billing/received-metric'
 import { groupMetricRowsByDate, paginateDateGroups } from '@/lib/billing/date-grouped-records'
 import { parsePageParam } from '@/lib/pagination'
@@ -69,17 +70,21 @@ export default async function BillingMetricPage({
 
   // Trend view — month-by-month total billed, aggregated by Postgres so the payload stays a few
   // dozen rows however long the clinic has been running. The second call re-counts every month up
-  // to today's day of the month, which powers the "billed till date" pace comparison.
+  // to the last *finished* day of this month (yesterday), which powers the "billed till date" pace
+  // comparison: today is still being billed, so counting it would compare a part-day against whole
+  // days. On the 1st no day has finished, so there is nothing to re-count.
   if (config.view === 'trend') {
-    const tillDay = Number(calendar.date.slice(8, 10))
+    const tillDay = completedDaysInMonth(calendar.date)
 
     const [fullTotals, tillDateTotals] = await Promise.all([
       fetchAllRows<MonthTotalsRow>((from, to) =>
         supabase.rpc('get_billed_month_totals_v1', { p_till_day: null }).range(from, to),
       ),
-      fetchAllRows<MonthTotalsRow>((from, to) =>
-        supabase.rpc('get_billed_month_totals_v1', { p_till_day: tillDay }).range(from, to),
-      ),
+      tillDay > 0
+        ? fetchAllRows<MonthTotalsRow>((from, to) =>
+            supabase.rpc('get_billed_month_totals_v1', { p_till_day: tillDay }).range(from, to),
+          )
+        : Promise.resolve({ data: [] as MonthTotalsRow[], error: null }),
     ])
     if (fullTotals.error) logger.error('BillingMetric/trend/full', fullTotals.error, { metric })
     if (tillDateTotals.error) logger.error('BillingMetric/trend/tillDate', tillDateTotals.error, { metric })

@@ -34,7 +34,7 @@ test('Billed last month opens a monthly trendline chart, not a record list', asy
   await page.goto('/billing/metrics/billed-last-month')
 
   // The trendline chart replaces the list; its all-time total tile is the tell.
-  await expect(page.getByRole('img', { name: 'Monthly total billed trend' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Monthly total billed trend' })).toBeVisible()
   await expect(page.getByText('Total billed · all time', { exact: true })).toBeVisible()
   // No paginated record list on the trend view.
   await expect(page.getByRole('navigation', { name: /pages$/ })).toHaveCount(0)
@@ -65,7 +65,7 @@ test('Received drill-down paginates over whole dates, not individual records', a
   await expect(nav).toBeVisible()
   await nav.getByRole('link', { name: 'Next' }).click()
   await expect(page).toHaveURL('/billing/metrics/received-this-month?page=2')
-  await expect(page.getByRole('img', { name: 'Monthly total billed trend' })).toHaveCount(0) // a list, not the chart
+  await expect(page.getByRole('group', { name: 'Monthly total billed trend' })).toHaveCount(0) // a list, not the chart
   await guards.assertClean()
 })
 

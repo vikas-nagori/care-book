@@ -130,10 +130,17 @@ test('Monthly billed trend switches between the full month and billed till date'
   await expect(page.getByText('Total billed · all time', { exact: true })).toBeVisible()
 
   await range.click()
+  // On the 1st no day of the month has finished, so the till-date view is switched off.
+  if (clinicDate().endsWith('-01')) {
+    await expect(page.getByRole('option', { name: 'Billed till date (from the 2nd)' })).toHaveAttribute('aria-disabled', 'true')
+    await page.keyboard.press('Escape')
+    await guards.assertClean()
+    return
+  }
   await page.getByRole('option', { name: 'Billed till date' }).click()
 
   await expect(range).toContainText('Billed till date')
-  await expect(page.getByText(/^Total billed · first \d+ days of each month$/)).toBeVisible()
+  await expect(page.getByText(/^Total billed · first \d+ days? of each month$/)).toBeVisible()
 
   await range.click()
   await page.getByRole('option', { name: 'Full month' }).click()
@@ -170,7 +177,7 @@ test('Monthly billed trend drills into one month by appointment type', async ({ 
   await expect(page.getByLabel('Billed by appointment type')).toContainText(clinicType.name)
 
   // The chart marks the month the picker is sitting on.
-  const chart = page.getByRole('img', { name: 'Monthly total billed trend' })
+  const chart = page.getByRole('group', { name: 'Monthly total billed trend' })
   await expect(chart.locator('circle[data-selected="true"]')).toHaveCount(1)
 
   // Picking another month moves the panel with it.
@@ -185,6 +192,148 @@ test('Monthly billed trend drills into one month by appointment type', async ({ 
   } else {
     await page.keyboard.press('Escape')
   }
+
+  await guards.assertClean()
+})
+
+test('Monthly billed trend stacks types and reads out a month on tap (mobile) or hover (desktop)', async ({ page, factory, isMobile }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const clinicType = await factory.findAppointmentType(true)
+  const homeType = await factory.findAppointmentType(false)
+  for (const [type, fee, time] of [[clinicType, 650, '14:10'], [homeType, 900, '15:10']] as const) {
+    await factory.createAppointment({
+      patientId: patient.id,
+      appointmentTypeId: type.id,
+      type: type.name,
+      date: clinicDate(),
+      time,
+      fee,
+      status: 'completed',
+      payment_status: 'unpaid',
+    })
+  }
+
+  await page.goto('/billing/metrics/billed-last-month')
+
+  const chart = page.getByRole('group', { name: 'Monthly total billed trend' })
+  await expect(chart).toBeVisible()
+  const legend = page.getByRole('list', { name: 'Chart legend' })
+  await expect(legend).toContainText(clinicType.name)
+  await expect(legend).toContainText(homeType.name)
+  await expect(legend).toContainText('Total')
+
+  // The current month is selected on open; its column carries both types as stacked parts.
+  const picker = page.getByRole('combobox', { name: 'Month' })
+  const currentLabel = (await picker.textContent())?.trim() ?? ''
+  const currentBars = chart.locator('[data-bar-month]').last()
+  await expect(currentBars.locator(`[data-segment="${clinicType.name}"]`)).toHaveCount(1)
+  await expect(currentBars.locator(`[data-segment="${homeType.name}"]`)).toHaveCount(1)
+
+  const readout = page.locator('[data-chart-readout]')
+  await expect(readout).toHaveCount(0)
+
+  const currentMonth = chart.getByRole('button', { name: `${currentLabel}: total` })
+  if (isMobile) await currentMonth.tap()
+  else await currentMonth.hover()
+
+  await expect(readout).toBeVisible()
+  await expect(readout).toContainText(currentLabel)
+  await expect(readout).toContainText('Total')
+  await expect(readout).toContainText(clinicType.name)
+  await expect(readout).toContainText(homeType.name)
+
+  // The readout sits inside the viewport, not pushed off the side of a phone screen.
+  const box = await readout.boundingBox()
+  const viewport = page.viewportSize()
+  expect(box && viewport && box.x >= 0 && box.x + box.width <= viewport.width).toBeTruthy()
+
+  // Dismiss: a tap elsewhere on mobile, moving the mouse away on desktop.
+  if (isMobile) await page.getByText(/^Total billed · all time$/).tap()
+  else await page.mouse.move(0, 0)
+  await expect(readout).toHaveCount(0)
+
+  await guards.assertClean()
+})
+
+/** First day of the month `monthsBack` before the clinic's current month, plus offset days. */
+function monthDate(monthsBack: number, day: number): string {
+  const [year, month] = clinicDate().split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1 - monthsBack, day)).toISOString().slice(0, 10)
+}
+
+async function panelAmount(page: import('@playwright/test').Page): Promise<number> {
+  const text = await page.getByLabel('Selected month total').locator('.ph-stat-value').innerText()
+  return Number(text.replace(/[^\d.]/g, ''))
+}
+
+test('Monthly billed trend compares a month with the one before, per appointment type', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const clinicType = await factory.findAppointmentType(true)
+  for (const [monthsBack, fee] of [[2, 1100], [1, 1300]] as const) {
+    await factory.createAppointment({
+      patientId: patient.id,
+      appointmentTypeId: clinicType.id,
+      type: clinicType.name,
+      date: monthDate(monthsBack, 10),
+      time: '09:40',
+      fee,
+      status: 'completed',
+      payment_status: 'unpaid',
+    })
+  }
+
+  await page.goto('/billing/metrics/billed-last-month')
+  const panel = page.getByLabel('Selected month total')
+
+  // The current month is still being billed: no percentage, a pointer to the like-for-like view.
+  await expect(panel).toContainText('month in progress')
+  await expect(panel.locator('[data-delta]')).toHaveCount(0)
+
+  // Last month against the month before it.
+  const picker = page.getByRole('combobox', { name: 'Month' })
+  await picker.click()
+  const options = page.getByRole('option')
+  const lastMonth = (await options.nth(1).textContent())?.trim() ?? ''
+  const monthBefore = (await options.nth(2).textContent())?.trim() ?? ''
+  await options.nth(1).click()
+
+  await expect(panel).toContainText(`vs ${monthBefore}`)
+  await expect(panel.locator('[data-delta]')).toHaveCount(1)
+  const table = page.getByLabel('Billed by appointment type')
+  await expect(table).toContainText(`vs ${monthBefore}`)
+  await expect(table.locator(`[data-type-row="${clinicType.name}"] [data-delta]`)).toHaveCount(1)
+  expect(lastMonth).not.toBe(monthBefore)
+
+  await guards.assertClean()
+})
+
+test('Billed till date leaves out today, counting finished days only', async ({ page, factory }) => {
+  test.skip(clinicDate().endsWith('-01'), 'no finished day on the 1st')
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const todaysFee = 777
+  await factory.createAppointment({
+    patientId: patient.id,
+    date: clinicDate(),
+    time: '08:05',
+    fee: todaysFee,
+    status: 'completed',
+    payment_status: 'unpaid',
+  })
+
+  await page.goto('/billing/metrics/billed-last-month')
+  // Full month: the current month includes today's session.
+  const fullCurrent = await panelAmount(page)
+
+  await page.getByRole('button', { name: 'Compare billed till date' }).click()
+  await expect(page.getByRole('combobox', { name: 'Trend range' })).toContainText('Billed till date')
+  const tillDateCurrent = await panelAmount(page)
+
+  // Every session dated today is excluded, so at least our own fee drops out.
+  expect(fullCurrent - tillDateCurrent).toBeGreaterThanOrEqual(todaysFee)
+  await expect(page.getByText(/the last finished day, so months compare like for like\.$/)).toBeVisible()
 
   await guards.assertClean()
 })
