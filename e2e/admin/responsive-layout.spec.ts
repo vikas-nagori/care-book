@@ -54,11 +54,11 @@ test('admin settings switch between persistent panels and focus-restoring mobile
       },
     },
     {
-      title: 'External Staff',
-      triggerName: /^External Staff\s*\d+ (?:person|people)$/,
+      title: 'Temporary Staff',
+      triggerName: /^Temporary Staff\s*\d+ (?:person|people)$/,
       assertContent: async () => {
-        await expect(page.getByRole('dialog', { name: 'External Staff' }).getByRole('button', {
-          name: 'Add External Staff',
+        await expect(page.getByRole('dialog', { name: 'Temporary Staff' }).getByRole('button', {
+          name: 'Add Temporary Staff',
           exact: true,
         })).toBeVisible()
       },
@@ -112,8 +112,8 @@ test('admin settings switch between persistent panels and focus-restoring mobile
     expect(templateText).toContain('₹750/session')
     expect(templateText).toContain('₹4,500 total')
 
-    await expect(page.getByRole('button', { name: 'Add External Staff', exact: true })).toBeVisible()
-    await expect(page.getByLabel('External staff email', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Add Temporary Staff', exact: true })).toBeVisible()
+    await expect(page.getByLabel('Temporary staff email', { exact: true })).toBeVisible()
 
     const invitesTitle = page.getByText('Invites', { exact: true }).filter({ visible: true })
     const invitesPanelText = await invitesTitle.evaluate((title) => {

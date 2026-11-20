@@ -49,3 +49,24 @@ test('public appointment views omit identifiers and billing signals', () => {
   assert.equal('fee' in view, false)
   assert.equal('payment_status' in view, false)
 })
+
+test('a shared-type appointment can expose an external assignee name without account identifiers', () => {
+  const view = appointmentPublicView({
+    id: 'appointment-secret',
+    patient_id: 'patient-secret',
+    date: '2026-08-22',
+    time: '09:30:00',
+    duration_minutes: 45,
+    type: 'Clinic',
+    type_is_shared: true,
+    status: 'scheduled',
+    notes: null,
+    patient: { name: 'Ada Lovelace', phone: '9999999999' },
+    assignee: null,
+    external_staff: null,
+    external_profile: { full_name: 'Alex External', email: 'alex@example.test' },
+  }, 'selection-token')
+
+  assert.equal(view.assigned_staff_name, 'Alex External')
+  assert.doesNotMatch(JSON.stringify(view), /alex@example.test|appointment-secret|patient-secret/)
+})

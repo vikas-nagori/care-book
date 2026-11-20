@@ -18,8 +18,8 @@ const adminProfile: Pick<Profile, 'id' | 'role'> = {
 }
 
 function appointment(
-  overrides: Partial<Pick<Appointment, 'type_is_shared' | 'created_by' | 'assigned_to'>> = {},
-): Pick<Appointment, 'type_is_shared' | 'created_by' | 'assigned_to'> {
+  overrides: Partial<Pick<Appointment, 'type_is_shared' | 'created_by' | 'assigned_to' | 'external_profile_id'>> = {},
+): Pick<Appointment, 'type_is_shared' | 'created_by' | 'assigned_to' | 'external_profile_id'> {
   return {
     type_is_shared: false,
     created_by: null,
@@ -73,10 +73,26 @@ test('staff cannot view unrelated restricted appointments', () => {
 test('appointment visibility filter limits staff to shared and owned appointments', () => {
   assert.equal(
     getAppointmentVisibilityFilter(staffProfile),
-    `type_is_shared.eq.true,created_by.eq.${staffProfile.id},assigned_to.eq.${staffProfile.id}`,
+    `and(external_profile_id.is.null,or(type_is_shared.eq.true,created_by.eq.${staffProfile.id},assigned_to.eq.${staffProfile.id}))`,
   )
 })
 
 test('appointment visibility filter does not restrict admins', () => {
   assert.equal(getAppointmentVisibilityFilter(adminProfile), null)
+})
+
+test('staff cannot view external bookings even when shared or previously created by them', () => {
+  assert.equal(canViewAppointmentForProfile(appointment({
+    type_is_shared: true, created_by: staffProfile.id, external_profile_id: 'external-1',
+  }), staffProfile), false)
+})
+
+test('admins retain visibility of external bookings', () => {
+  assert.equal(canViewAppointmentForProfile(appointment({ external_profile_id: 'external-1' }), adminProfile), true)
+})
+
+test('external profiles cannot access general appointment records through clinical visibility helpers', () => {
+  const external = { id: 'external-1', role: 'external_staff' } as const
+  assert.equal(canViewAppointmentForProfile(appointment({ type_is_shared: true, created_by: external.id }), external), false)
+  assert.equal(getAppointmentVisibilityFilter(external), 'id.eq.00000000-0000-0000-0000-000000000000')
 })

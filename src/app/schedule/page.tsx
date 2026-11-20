@@ -1,4 +1,5 @@
 import { getCurrentProfile } from '@/lib/auth'
+import type { ExternalProfileOption } from '@/lib/appointments/assignment'
 import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { getAppointmentVisibilityFilter } from '@/lib/access/appointment-visibility'
 import { createClient } from '@/lib/supabase/server'
@@ -15,6 +16,8 @@ type ScheduleAppointmentRow = Pick<
   payment_status?: Appointment['payment_status']
   assigned_to?: string | null
   external_staff_id?: string | null
+  external_profile_id?: string | null
+  external_profile?: ExternalProfileOption | ExternalProfileOption[] | null
   patient: { id: string; name: string; phone: string }[] | { id: string; name: string; phone: string } | null
   external_staff?: Pick<ExternalStaff, 'id' | 'name' | 'phone' | 'status' | 'linked_profile_id'>[] | Pick<ExternalStaff, 'id' | 'name' | 'phone' | 'status' | 'linked_profile_id'> | null
 }
@@ -37,7 +40,7 @@ export default async function SchedulePage({
   let appointmentsQuery = access.canViewPaymentSignals
     ? supabase
         .from('appointments')
-        .select('id, patient_id, date, time, duration_minutes, type, type_is_shared, status, payment_status, assigned_to, external_staff_id, patient:patients(id, name, phone), external_staff:external_staff(id, clinic_id, name, phone, status, linked_profile_id)')
+        .select('id, patient_id, date, time, duration_minutes, type, type_is_shared, status, payment_status, assigned_to, external_staff_id, external_profile_id, external_profile:profiles!appointments_external_profile_id_fkey(id, full_name, email), patient:patients(id, name, phone), external_staff:external_staff(id, clinic_id, name, phone, status, linked_profile_id)')
         .gte('date', rangeStart)
         .lte('date', rangeEnd)
         .order('date')
@@ -78,6 +81,7 @@ export default async function SchedulePage({
       .from('profiles')
       .select('id, full_name, email, role')
       .eq('status', 'active')
+      .in('role', ['admin', 'staff'])
       .order('full_name'),
     supabase
       .from('external_staff')
@@ -94,6 +98,9 @@ export default async function SchedulePage({
 
   const normalizedAppointments = ((appointments ?? []) as ScheduleAppointmentRow[]).map((appointment) => ({
     ...appointment,
+    external_profile: Array.isArray(appointment.external_profile)
+      ? (appointment.external_profile[0] ?? null)
+      : (appointment.external_profile ?? null),
     patient: Array.isArray(appointment.patient)
       ? (appointment.patient[0] ?? null)
       : (appointment.patient ?? null),

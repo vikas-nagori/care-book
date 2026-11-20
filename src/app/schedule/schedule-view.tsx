@@ -12,6 +12,7 @@ import { ReminderList } from './reminder-list'
 import { ReminderDialog } from './reminder-dialog'
 import type { Appointment, AppointmentAssigneeOption, Doctor, ExternalStaff, CalendarReminder } from '@/lib/supabase/types'
 import Link from 'next/link'
+import type { ExternalProfileOption } from '@/lib/appointments/assignment'
 import { formatTime12 } from '@/lib/format-time'
 import {
   buildScheduleRailDates,
@@ -39,6 +40,8 @@ interface ScheduleViewProps {
     payment_status?: Appointment['payment_status']
     assigned_to?: string | null
     external_staff_id?: string | null
+    external_profile_id?: string | null
+    external_profile?: ExternalProfileOption | null
     fee?: number | null
     patient: { id: string; name: string; phone: string } | null
     external_staff?: Pick<ExternalStaff, 'id' | 'name' | 'phone' | 'status' | 'linked_profile_id'> | null
@@ -131,6 +134,12 @@ export function ScheduleView({
   canManageExternalStaff,
   canViewPaymentSignals,
 }: ScheduleViewProps) {
+  function externalAssigneeLabel(appointment: ScheduleViewProps['initialAppointments'][number]) {
+    if (!canManageExternalStaff || !appointment.external_profile_id) return null
+    const name = appointment.external_profile?.full_name || appointment.external_profile?.email
+    return name ? `${name} · External Staff` : 'External Staff'
+  }
+
   const selectedDate = useMemo(() => parseISO(initialSelectedDate), [initialSelectedDate])
   const mobileRailDates = useMemo(
     () => buildScheduleRailDates(initialSelectedDate),
@@ -588,11 +597,18 @@ export function ScheduleView({
                     //  - tall     (>= 62px): three lines incl. duration · type · assignee
                     const compact = height < 40
                     const showMeta = height >= 62
+                    const externalAssignee = externalAssigneeLabel(a)
+                    const internalAssignee = !a.type_is_shared && canViewPaymentSignals
+                      ? assigneeOptions.find((option) => option.id === a.assigned_to)?.full_name
+                      : null
+                    const temporaryAssignee = !a.type_is_shared && canViewPaymentSignals ? a.external_staff?.name : null
+                    const assignee = temporaryAssignee || internalAssignee
                     return (
                       <Link
                         key={a.id}
                         href={`/schedule/${a.id}`}
                         className="ph-appt-chip"
+                        title={externalAssignee ?? undefined}
                         style={{
                           ...chipStyle(a),
                           position: 'absolute',
@@ -616,22 +632,15 @@ export function ScheduleView({
                         </span>
                         <span style={{ fontSize: compact ? 11 : 12.5, lineHeight: 1.2, fontWeight: 500, color: 'var(--ph-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', minWidth: 0 }}>
                           {a.patient?.name ?? 'Unknown'}
+                          {!showMeta && externalAssignee && ` · ${externalAssignee}`}
                         </span>
-                        {showMeta && (() => {
-                          const internalAssigneeName = !a.type_is_shared && canViewPaymentSignals && a.assigned_to
-                            ? (assigneeOptions.find((o) => o.id === a.assigned_to)?.full_name ?? null)
-                            : null
-                          const externalAssigneeName = !a.type_is_shared && canViewPaymentSignals
-                            ? (a.external_staff?.name ?? null)
-                            : null
-                          const assigneeName = externalAssigneeName ?? internalAssigneeName
-                          return (
-                            <span style={{ fontSize: 10.5, lineHeight: 1.2, color: 'var(--ph-ink-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
-                              {a.duration_minutes}m · {a.type}
-                              {assigneeName && ` · ${assigneeName}`}
-                            </span>
-                          )
-                        })()}
+                        {showMeta && (
+                          <span style={{ fontSize: 10.5, lineHeight: 1.2, color: 'var(--ph-ink-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
+                            {externalAssignee
+                              ? `${externalAssignee} · ${a.type} · ${a.duration_minutes}m`
+                              : `${a.duration_minutes}m · ${a.type}${assignee ? ` · ${assignee}` : ''}`}
+                          </span>
+                        )}
                       </Link>
                     )
                   })}
@@ -745,18 +754,22 @@ export function ScheduleView({
                       borderLeft: '1px solid var(--ph-line)', borderBottom: '1px solid var(--ph-line)',
                       minHeight: 44, padding: 4, fontSize: 10.5,
                     }}>
-                      {slotAppts.map((a) => (
-                        <Link key={a.id} href={`/schedule/${a.id}`} style={{
-                          display: 'block',
-                          background: typeColorTokens(a.type_is_shared).bg,
-                          color: typeColorTokens(a.type_is_shared).fg,
-                          borderRadius: 3, padding: '2px 4px', marginBottom: 2,
-                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                          textDecoration: 'none', fontSize: 10,
-                        }}>
-                          {formatTime12(a.time)} {a.patient?.name?.split(' ')[0] ?? '?'}
-                        </Link>
-                      ))}
+                      {slotAppts.map((a) => {
+                        const externalAssignee = externalAssigneeLabel(a)
+                        return (
+                          <Link key={a.id} href={`/schedule/${a.id}`} title={externalAssignee ?? undefined} style={{
+                            display: 'block',
+                            background: typeColorTokens(a.type_is_shared).bg,
+                            color: typeColorTokens(a.type_is_shared).fg,
+                            borderRadius: 3, padding: '2px 4px', marginBottom: 2,
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                            textDecoration: 'none', fontSize: 10,
+                          }}>
+                            {formatTime12(a.time)} {a.patient?.name?.split(' ')[0] ?? '?'}
+                            {externalAssignee && <span className="block truncate">{externalAssignee}</span>}
+                          </Link>
+                        )
+                      })}
                     </div>
                   )
                 })}

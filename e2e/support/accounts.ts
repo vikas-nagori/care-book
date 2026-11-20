@@ -25,7 +25,7 @@ export const CLINIC_B = {
   name: 'Care-Book E2E Clinic B',
 }
 
-export type Role = 'admin' | 'staff'
+export type Role = 'admin' | 'staff' | 'external_staff'
 
 export type Account = {
   /** Short slug used for the storageState filename and Playwright project name. */
@@ -48,6 +48,10 @@ export const ADMIN = account({ slug: 'admin', email: 'admin@carebook.test', role
 export const STAFF = account({ slug: 'staff', email: 'staff@carebook.test', role: 'staff', clinicId: CLINIC_A.id })
 /** Second Clinic A staff — used to assert one staff can't see another's private appointments. */
 export const STAFF2 = account({ slug: 'staff2', email: 'staff2@carebook.test', role: 'staff', clinicId: CLINIC_A.id })
+/** External practitioner with explicitly shared patient access. */
+export const EXTERNAL = account({ slug: 'external', email: 'external@carebook.test', role: 'external_staff', clinicId: CLINIC_A.id })
+/** External practitioner with no patients shared by default. */
+export const EXTERNAL_EMPTY = account({ slug: 'external-empty', email: 'external-empty@carebook.test', role: 'external_staff', clinicId: CLINIC_A.id })
 /** Platform super-admin — gated by email allowlist, not clinic role. */
 export const PLATFORM = account({ slug: 'platform', email: 'platform-admin@carebook.test', role: 'admin', clinicId: CLINIC_A.id, platformAdmin: true })
 /** Dedicated platform identity whose session may be globally revoked by the sign-out test. */
@@ -56,7 +60,7 @@ export const PLATFORM_SIGNOUT = account({ slug: 'platform-signout', email: 'plat
 export const CLINIC_B_ADMIN = account({ slug: 'clinic-b-admin', email: 'admin-b@carebook.test', role: 'admin', clinicId: CLINIC_B.id })
 
 /** Every account seeded into auth + profiles. */
-export const ALL_ACCOUNTS: Account[] = [ADMIN, STAFF, STAFF2, PLATFORM, PLATFORM_SIGNOUT, CLINIC_B_ADMIN]
+export const ALL_ACCOUNTS: Account[] = [ADMIN, STAFF, STAFF2, EXTERNAL, EXTERNAL_EMPTY, PLATFORM, PLATFORM_SIGNOUT, CLINIC_B_ADMIN]
 
 /** Accounts whose storageState is reused across specs; excludes the destructive sign-out identity. */
-export const AUTHENTICATED_ACCOUNTS: Account[] = [ADMIN, STAFF, STAFF2, PLATFORM, CLINIC_B_ADMIN]
+export const AUTHENTICATED_ACCOUNTS: Account[] = [ADMIN, STAFF, STAFF2, EXTERNAL, EXTERNAL_EMPTY, PLATFORM, CLINIC_B_ADMIN]

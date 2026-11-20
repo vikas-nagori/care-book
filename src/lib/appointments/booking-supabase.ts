@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BookingStore } from './booking-service'
 
-const APPOINTMENT_FIELDS = 'id,clinic_id,created_by,patient_id,date,time,duration_minutes,appointment_type_id,status,fee,assigned_to,external_staff_id,notes'
+const APPOINTMENT_FIELDS = 'id,clinic_id,created_by,patient_id,date,time,duration_minutes,appointment_type_id,status,fee,assigned_to,external_staff_id,external_profile_id,notes'
 const PATIENT_FIELDS = 'id,clinic_id,name,phone,email,dob,gender,address,medical_history,notes,referral_source,referred_by_doctor_id,referred_by_patient_id,referral_other'
 
 /** Cookie-authenticated client retains RLS; explicit clinic filters add a second scope check. */

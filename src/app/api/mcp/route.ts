@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     }
 
     const context = await buildToolContext(grant)
-    if (!context) return NextResponse.json(rpcError(id, -32603, 'Profile unavailable'))
+    if (!context) return unauthorized()
 
     if (rpc.method === 'tools/list') {
       return NextResponse.json(rpcResult(id, {

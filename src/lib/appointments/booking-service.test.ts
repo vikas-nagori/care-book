@@ -162,3 +162,33 @@ test('definitive constraint and authorization rejections are safe to correct', a
     if (!result.success) assert.equal(result.errorCode, 'APPOINTMENT_CREATE_FAILED', code)
   }
 })
+
+test('admin external assignments survive shared-type creation and deterministic retry', async () => {
+  const memory = memoryStore()
+  const value = request()
+  value.input.externalProfileId = '55555555-5555-4555-8555-555555555555'
+  memory.loseNextResponse()
+  const context = { ...actor, store: memory.store }
+  const result = await executeBooking(value, 'create', context)
+  assert.equal(result.success, false)
+  if (!result.success) assert.equal(result.errorCode, 'BOOKING_UNCONFIRMED')
+  assert.equal([...memory.appointments.values()][0].external_profile_id, value.input.externalProfileId)
+  const recovered = await executeBooking(value, 'status', context)
+  assert.equal(recovered.success, true)
+  assert.deepEqual(await executeBooking(value, 'create', context), recovered)
+  const changed = { ...value, input: { ...value.input, externalProfileId: '66666666-6666-4666-8666-666666666666' } }
+  const mismatched = await executeBooking(changed, 'create', context)
+  assert.equal(mismatched.success, false)
+  if (!mismatched.success) assert.equal(mismatched.errorCode, 'BOOKING_INTENT_MISMATCH')
+  assert.equal(memory.writes, 1)
+})
+
+test('a forged external assignment from internal staff is denied before writes', async () => {
+  const memory = memoryStore()
+  const value = request()
+  value.input.externalProfileId = '55555555-5555-4555-8555-555555555555'
+  const result = await executeBooking(value, 'create', { ...actor, role: 'staff', store: memory.store })
+  assert.equal(result.success, false)
+  if (!result.success) assert.equal(result.errorCode, 'SCHEDULE_UNAUTHORIZED')
+  assert.equal(memory.writes, 0)
+})

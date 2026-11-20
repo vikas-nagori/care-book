@@ -1,6 +1,9 @@
 // Fixed IDs for baseline seed data so seeding is idempotent and specs can reference known rows.
 
 export const SEED = {
+  /** Disposable coordination fixture with private clinical/billing fields. */
+  patientExternal: '00000000-0000-4000-b000-000000000010',
+  appointmentExternal: '00000000-0000-4000-d000-000000000010',
   /** Patient in Clinic A with a package + payment history. */
   patientAsha: '00000000-0000-4000-b000-000000000001',
   /** Second patient in Clinic A. */

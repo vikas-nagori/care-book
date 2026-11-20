@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { ReferralFields, useReferralSelection } from '@/components/referral/referral-fields'
 import { useToast } from '@/hooks/use-toast'
@@ -25,7 +25,14 @@ import {
 } from '@/lib/schedule/patient-search'
 import type { Appointment, AppointmentAssigneeOption, AppointmentType, Doctor, ExternalStaff } from '@/lib/supabase/types'
 import { defaultAppointmentType, sortAppointmentTypes } from '@/lib/appointments/appointment-type'
-import { normalizeAppointmentAssignment, parseStaffAssignmentValue } from '@/lib/appointments/assignment'
+import {
+  EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE,
+  isExternalAssignmentAccessError,
+  normalizeAppointmentAssignment,
+  parseStaffAssignmentValue,
+  type ExternalProfileOption,
+} from '@/lib/appointments/assignment'
+import { getExternalAssigneeOptions } from './external-assignment-actions'
 import { generateRecurringAppointmentDates } from '@/lib/appointments/recurrence'
 import { resolveAppointmentStatus } from '@/lib/appointments/appointment-creation'
 import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
@@ -58,6 +65,7 @@ type AppointmentFormBaseProps = {
   defaultDate?: string
   defaultPatientId?: string
   appointment?: AppointmentFormAppointment
+  existingExternalAssignee?: ExternalProfileOption | null
   onSuccess?: () => void
 }
 
@@ -79,7 +87,7 @@ function getAppointmentTypeSessionRate(type: DashboardAppointmentTypeOption): nu
     : null
 }
 
-function getAssigneeLabel(assignee: AppointmentAssigneeOption) {
+function getAssigneeLabel(assignee: Pick<AppointmentAssigneeOption, 'full_name' | 'email'>) {
   return assignee.full_name || assignee.email
 }
 
@@ -95,6 +103,7 @@ export function AppointmentForm({
   defaultDate,
   defaultPatientId,
   appointment,
+  existingExternalAssignee,
   onSuccess,
 }: AppointmentFormProps) {
   const supabase = createClient()
@@ -119,12 +128,15 @@ export function AppointmentForm({
   const [optionsReload, setOptionsReload] = useState(0)
   const [appointmentTypeId, setAppointmentTypeId] = useState<string>(appointment?.appointment_type_id ?? '')
   const [assignedTo, setAssignedTo] = useState(appointment?.assigned_to ?? '')
-  const initialStaffAssignment = appointment?.external_staff_id
-    ? `external:${appointment.external_staff_id}`
-    : appointment?.assigned_to
-      ? `internal:${appointment.assigned_to}`
-      : UNASSIGNED_ASSIGNEE_VALUE
+  const initialStaffAssignment = appointment?.external_profile_id
+    ? `external-profile:${appointment.external_profile_id}`
+    : appointment?.external_staff_id
+      ? `external:${appointment.external_staff_id}`
+      : appointment?.assigned_to
+        ? `internal:${appointment.assigned_to}`
+        : UNASSIGNED_ASSIGNEE_VALUE
   const [staffAssignment, setStaffAssignment] = useState(initialStaffAssignment)
+  const selectedAssignment = parseStaffAssignmentValue(staffAssignment)
   const [fee, setFee] = useState<string>(
     canViewPaymentSignals ? appointment?.fee?.toString() || '' : '',
   )
@@ -143,6 +155,34 @@ export function AppointmentForm({
   const [isCreatingPatient, setIsCreatingPatient] = useState(false)
   const [patientDraft, setPatientDraft] = useState<AppointmentPatientDraft>(createPatientDraftFromName(''))
   const referral = useReferralSelection()
+
+  const [externalAssigneeAttempt, setExternalAssigneeAttempt] = useState(0)
+  const [externalAssigneeResponse, setExternalAssigneeResponse] = useState<{
+    patientId: string
+    attempt: number
+    result: Awaited<ReturnType<typeof getExternalAssigneeOptions>>
+  } | null>(null)
+  const externalAssigneeResult = externalAssigneeResponse?.patientId === selectedPatientId &&
+    externalAssigneeResponse.attempt === externalAssigneeAttempt
+    ? externalAssigneeResponse.result
+    : null
+  const externalAssignees = externalAssigneeResult?.ok ? externalAssigneeResult.profiles : []
+  const existingExternalProfileId = appointment?.patient_id === selectedPatientId
+    ? appointment?.external_profile_id
+    : null
+  const existingAssigneeUnavailable = existingExternalProfileId &&
+    !externalAssignees.some((profile) => profile.id === existingExternalProfileId)
+
+  useEffect(() => {
+    if (!canManageExternalStaff || !selectedPatientId) return
+    let cancelled = false
+    const setResult = (result: Awaited<ReturnType<typeof getExternalAssigneeOptions>>) => {
+      if (!cancelled) setExternalAssigneeResponse({ patientId: selectedPatientId, attempt: externalAssigneeAttempt, result })
+    }
+    void withBookingDeadline(getExternalAssigneeOptions(selectedPatientId))
+      .then(setResult, () => setResult({ ok: false }))
+    return () => { cancelled = true }
+  }, [canManageExternalStaff, selectedPatientId, externalAssigneeAttempt])
 
   const filteredPatients = useMemo(
     () => filterAppointmentPatientOptions(patients, patientSearchQuery).slice(0, 8),
@@ -252,7 +292,7 @@ export function AppointmentForm({
     const shared = type?.is_shared ?? false
 
     setAssignedTo((currentAssignee) => (shared ? '' : currentAssignee || currentProfileId || ''))
-    if (shared) {
+    if (shared && !selectedAssignment.externalProfileId) {
       setStaffAssignment(UNASSIGNED_ASSIGNEE_VALUE)
     } else if (staffAssignment === UNASSIGNED_ASSIGNEE_VALUE && currentProfileId) {
       setStaffAssignment(`internal:${currentProfileId}`)
@@ -271,10 +311,17 @@ export function AppointmentForm({
     setAssignedTo(parsed.assignedTo ?? '')
   }
 
+  function changePatient(patientId: string) {
+    if (patientId === selectedPatientId) return
+    if (selectedAssignment.externalProfileId) setStaffAssignment(UNASSIGNED_ASSIGNEE_VALUE)
+    setExternalAssigneeResponse(null)
+    setSelectedPatientId(patientId)
+  }
+
   function handlePatientSearchChange(value: string) {
     setPatientSearchQuery(value)
     setPatientSearchOpen(true)
-    setSelectedPatientId('')
+    changePatient('')
 
     if (isCreatingPatient) {
       setPatientDraft((currentDraft) => ({
@@ -285,7 +332,7 @@ export function AppointmentForm({
   }
 
   function selectExistingPatient(patient: AppointmentPatientOption) {
-    setSelectedPatientId(patient.id)
+    changePatient(patient.id)
     setPatientSearchQuery(patient.name)
     setPatientSearchOpen(false)
     setIsCreatingPatient(false)
@@ -295,7 +342,7 @@ export function AppointmentForm({
   function enableCreatePatientMode() {
     const patientName = patientSearchQuery.trim()
 
-    setSelectedPatientId('')
+    changePatient('')
     setIsCreatingPatient(true)
     setPatientDraft(createPatientDraftFromName(patientName))
     setPatientSearchQuery(patientName)
@@ -360,6 +407,10 @@ export function AppointmentForm({
     pendingRequest.current = null
     setPendingBooking(null)
     if (!result.success) {
+      if (result.errorCode === 'EXTERNAL_ASSIGNMENT_UNAVAILABLE') {
+        setStaffAssignment(UNASSIGNED_ASSIGNEE_VALUE)
+        setExternalAssigneeAttempt((attempt) => attempt + 1)
+      }
       reportBookingEvent({ correlationId: request.correlationId, phase: 'rejected', errorCode: result.errorCode, durationMs: elapsed(startedAt) })
       const conflictDetails = result.conflictingDates?.length
         ? ` Conflicting dates: ${result.conflictingDates.map((date) => format(parseISO(date), 'dd MMM yyyy')).join(', ')}.`
@@ -499,7 +550,14 @@ export function AppointmentForm({
         return
       }
 
-      const selectedAssignment = parseStaffAssignmentValue(staffAssignment)
+      if (canManageExternalStaff && selectedAssignment.externalProfileId &&
+        selectedAssignment.externalProfileId !== existingExternalProfileId &&
+        !externalAssignees.some((profile) => profile.id === selectedAssignment.externalProfileId)) {
+        const errorCode = 'EXTERNAL_ASSIGNMENT_UNAVAILABLE'
+        reportBookingEvent({ correlationId, phase: 'rejected', errorCode })
+        toast({ title: 'External Staff access required', description: EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE, variant: 'destructive' })
+        return
+      }
 
       const assignment = normalizeAppointmentAssignment({
         isShared: isSharedType,
@@ -509,6 +567,7 @@ export function AppointmentForm({
         externalStaffId: canManageExternalStaff
           ? selectedAssignment.externalStaffId
           : (appointment?.external_staff_id ?? null),
+        externalProfileId: canManageExternalStaff ? selectedAssignment.externalProfileId : null,
       })
 
       const time = formData.get('time') as string
@@ -526,8 +585,7 @@ export function AppointmentForm({
             appointment_type_id: appointmentTypeId,
             status: (formData.get('status') as string) || 'scheduled',
             ...(canViewPaymentSignals ? { fee: normalizedFee } : {}),
-            assigned_to: assignment.assigned_to,
-            external_staff_id: assignment.external_staff_id,
+            ...assignment,
             notes,
           })
           .eq('id', appointment.id))
@@ -536,8 +594,17 @@ export function AppointmentForm({
 
         if (error) {
           logger.error('AppointmentForm/save', error, { appointmentId: appointment.id, patientId })
-          reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'APPOINTMENT_CREATE_FAILED' })
-          toast({ title: 'Appointment not updated', description: 'Please check the appointment and try again.', variant: 'destructive' })
+          const accessError = isExternalAssignmentAccessError(error)
+          if (accessError) {
+            setStaffAssignment(UNASSIGNED_ASSIGNEE_VALUE)
+            setExternalAssigneeAttempt((attempt) => attempt + 1)
+          }
+          reportBookingEvent({ correlationId, phase: 'rejected', errorCode: accessError ? 'EXTERNAL_ASSIGNMENT_UNAVAILABLE' : 'APPOINTMENT_UPDATE_FAILED' })
+          toast({
+            title: 'Appointment not updated',
+            description: accessError ? EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE : 'Please check the appointment and try again.',
+            variant: 'destructive',
+          })
           return
         }
 
@@ -559,6 +626,7 @@ export function AppointmentForm({
         fee: normalizedFee,
         assignedTo: assignment.assigned_to,
         externalStaffId: assignment.external_staff_id,
+        externalProfileId: assignment.external_profile_id,
         notes,
         recurrence: repeatAppointment
           ? { weekdays: [...selectedWeekdays], totalSessions: Number(totalSessions) }
@@ -604,7 +672,7 @@ export function AppointmentForm({
             id="patient_id"
             options={patients.map((patient) => ({ value: patient.id, label: patient.name }))}
             value={selectedPatientId || null}
-            onChange={setSelectedPatientId}
+            onChange={changePatient}
             placeholder="Select patient"
             searchPlaceholder="Search patient…"
             emptyText="No patients found."
@@ -810,7 +878,7 @@ export function AppointmentForm({
         </div>
       </div>
 
-      {selectedType && !selectedType.is_shared && (
+      {selectedType && (!isSharedType || (canManageExternalStaff && selectedPatientId)) && (
         <div className="space-y-2">
           <Label htmlFor="assigned_to">Assigned Staff</Label>
           <Select
@@ -822,18 +890,47 @@ export function AppointmentForm({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={UNASSIGNED_ASSIGNEE_VALUE}>Unassigned</SelectItem>
-              {assigneeOptions.map((assignee) => (
+              {!isSharedType && assigneeOptions.filter((assignee) => assignee.role !== 'external_staff').map((assignee) => (
                 <SelectItem key={assignee.id} value={`internal:${assignee.id}`}>
                   {getAssigneeLabel(assignee)} · {assignee.role}
                 </SelectItem>
               ))}
-              {canManageExternalStaff && externalStaffOptions.map((staff) => (
+              {!isSharedType && canManageExternalStaff && externalStaffOptions.map((staff) => (
                 <SelectItem key={staff.id} value={`external:${staff.id}`}>
-                  {staff.name} · External Staff
+                  {staff.name} · Temporary Staff
                 </SelectItem>
               ))}
+              {canManageExternalStaff && (externalAssignees.length > 0 || existingAssigneeUnavailable) && (
+                <SelectGroup>
+                  <SelectLabel>External Staff</SelectLabel>
+                  {externalAssignees.map((staff) => (
+                    <SelectItem key={staff.id} value={`external-profile:${staff.id}`}>
+                      {getAssigneeLabel(staff)} · External Staff
+                    </SelectItem>
+                  ))}
+                  {existingAssigneeUnavailable && (
+                    <SelectItem value={`external-profile:${existingExternalProfileId}`} disabled>
+                      {existingExternalAssignee ? getAssigneeLabel(existingExternalAssignee) : 'External Staff'} · Existing assignment
+                    </SelectItem>
+                  )}
+                </SelectGroup>
+              )}
             </SelectContent>
           </Select>
+          {canManageExternalStaff && selectedPatientId && (
+            externalAssigneeResult?.ok === false ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                Unable to load External Staff.{' '}
+                <button type="button" className="underline" onClick={() => setExternalAssigneeAttempt((attempt) => attempt + 1)}>
+                  Retry
+                </button>
+              </p>
+            ) : !externalAssigneeResult ? (
+              <p className="text-xs text-muted-foreground" role="status">Loading External Staff…</p>
+            ) : externalAssignees.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Share this patient from their profile to assign External Staff.</p>
+            ) : null
+          )}
         </div>
       )}
 

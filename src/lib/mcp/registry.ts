@@ -1,3 +1,4 @@
+import { canUseMcpRole } from './access.ts'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import type { McpScope, Profile } from '../supabase/types.ts'
@@ -30,6 +31,7 @@ export function createRegistry(definitions: McpToolDefinition[]): Registry {
   const byName = new Map(definitions.map((definition) => [definition.name, definition]))
   return {
     visibleTools(grant, profile) {
+      if (!canUseMcpRole(profile.role)) return []
       return definitions.filter(
         (definition) => grant.scopes.includes(definition.scope) && (!definition.adminOnly || profile.role === 'admin')
       )

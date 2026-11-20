@@ -18,6 +18,7 @@ import { useToast } from '@/hooks/use-toast'
 import { MobilePageHeader } from '@/components/layout/mobile-page-header'
 import { PaymentBadge } from '@/components/ui/status-badges'
 import { formatTime12 } from '@/lib/format-time'
+import type { ExternalProfileOption } from '@/lib/appointments/assignment'
 import { AppointmentForm } from '../appointment-form'
 import { SessionNoteForm } from './session-note-form'
 import { deleteAppointment, updateAppointmentStatus } from '../actions'
@@ -27,6 +28,7 @@ import type { Appointment, AppointmentAssigneeOption, ExternalStaff, SessionNote
 interface Props {
   appointment: Omit<Appointment, 'fee' | 'payment_status' | 'patient'> &
     Partial<Pick<Appointment, 'fee' | 'payment_status'>> & {
+      external_profile?: ExternalProfileOption | null
       patient: { id: string; name: string; phone: string; address: string | null; medical_history: string | null; notes: string | null } | null
     }
   sessionNote: SessionNote | null
@@ -67,8 +69,11 @@ export function AppointmentDetail({
   const assignedProfile = appointment.assigned_to
     ? assigneeOptions.find((assignee) => assignee.id === appointment.assigned_to)
     : null
-  const assignedName = appointment.external_staff?.name
-    ?? (assignedProfile ? (assignedProfile.full_name || assignedProfile.email) : null)
+  const hasExternalAssignee = canManageExternalStaff && Boolean(appointment.external_profile_id)
+  const assignedName = hasExternalAssignee
+    ? appointment.external_profile?.full_name || appointment.external_profile?.email
+    : appointment.external_staff?.name ?? (assignedProfile?.full_name || assignedProfile?.email)
+  const assignmentRole = hasExternalAssignee ? 'External Staff' : appointment.external_staff ? 'Temporary Staff' : null
 
   function updateStatus(status: string) {
     if (status === appointment.status) return
@@ -168,13 +173,13 @@ export function AppointmentDetail({
               <PaymentBadge status={appointment.payment_status} />
             </div>
           )}
-          {!appointment.type_is_shared && assignedName && (
+          {(hasExternalAssignee || (!appointment.type_is_shared && assignedName)) && (
             <div className="flex items-center gap-2 text-sm">
               <UserRound className="h-4 w-4 text-muted-foreground" />
-              <span>{assignedName}</span>
-              {appointment.external_staff && (
+              <span>{assignedName ?? assignmentRole}</span>
+              {assignedName && assignmentRole && (
                 <span className="rounded-sm border px-1.5 py-0.5 text-xs text-muted-foreground">
-                  External
+                  {assignmentRole}
                 </span>
               )}
             </div>
@@ -259,6 +264,7 @@ export function AppointmentDetail({
               canManageExternalStaff={canManageExternalStaff}
               canViewPaymentSignals={canViewPaymentSignals && appointment.status !== 'completed'}
               appointment={appointment}
+              existingExternalAssignee={appointment.external_profile}
               onSuccess={() => { setEditOpen(false); router.refresh() }}
             />
           </DialogContent>

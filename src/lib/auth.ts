@@ -2,6 +2,7 @@ import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import type { Profile, UserRole } from '@/lib/supabase/types'
+import { EXTERNAL_WORKSPACE_PATH } from '@/lib/external/routing'
 import { logger } from '@/lib/logger'
 import { shouldLogAuthError } from '@/lib/auth-error-classification'
 import { evaluateRoleAccess, type ProfileAccessShape } from '@/lib/auth-access'
@@ -138,5 +139,5 @@ export async function requireRole(roles: UserRole[]): Promise<Profile> {
     )
   }
 
-  redirect('/')
+  redirect(profile?.role === 'external_staff' ? EXTERNAL_WORKSPACE_PATH : '/')
 }

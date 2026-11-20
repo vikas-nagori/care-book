@@ -3,7 +3,7 @@ export type AssigneeInputs = {
   typeIsShared: boolean
   /** Internal staff id resolved from an explicit name, if one was given. */
   explicitAssigneeId: string | null
-  /** External staff id resolved from an explicit name, if one was given. */
+  /** Temporary staff id resolved from an explicit name, if one was given. */
   explicitExternalStaffId: string | null
   /** The profile id of whoever is making the booking. */
   bookingUserId: string

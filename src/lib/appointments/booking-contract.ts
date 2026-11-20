@@ -27,6 +27,7 @@ export type CreateAppointmentInput = {
   fee: number | null
   assignedTo?: string | null
   externalStaffId?: string | null
+  externalProfileId?: string | null
   notes: string | null
   recurrence?: AppointmentRecurrence | null
 }
@@ -92,11 +93,11 @@ export function parseBookingRequest(value: unknown):
     !Number.isInteger(input.durationMinutes) || (input.durationMinutes as number) < 1 || (input.durationMinutes as number) > 1440 ||
     typeof input.appointmentTypeId !== 'string' || !UUID.test(input.appointmentTypeId) ||
     !(input.fee === null || (typeof input.fee === 'number' && Number.isFinite(input.fee) && input.fee >= 0 && input.fee <= 99999999.99 && Number(input.fee.toFixed(2)) === input.fee)) ||
-    !text(input.notes, 10000) || !id(input.patientId) || !id(input.assignedTo) || !id(input.externalStaffId) ||
-    (input.assignedTo != null && input.externalStaffId != null)) return invalid()
+    !text(input.notes, 10000) || !id(input.patientId) || !id(input.assignedTo) || !id(input.externalStaffId) || !id(input.externalProfileId) ||
+    [input.assignedTo, input.externalStaffId, input.externalProfileId].filter(value => value != null).length > 1) return invalid()
   const newPatient = input.newPatient == null ? null : parsePatient(input.newPatient)
   if (input.newPatient != null && !newPatient) return invalid()
-  if (Boolean(input.patientId) === Boolean(newPatient)) return invalid()
+  if (Boolean(input.patientId) === Boolean(newPatient) || (newPatient && input.externalProfileId)) return invalid()
   let recurrence: AppointmentRecurrence | null = null
   if (input.recurrence != null) {
     if (!object(input.recurrence) || !Array.isArray(input.recurrence.weekdays) || input.recurrence.weekdays.length > 7 ||
@@ -115,7 +116,7 @@ export function parseBookingRequest(value: unknown):
       date: input.date, time: input.time, durationMinutes: input.durationMinutes as number,
       appointmentTypeId: input.appointmentTypeId.toLowerCase(), fee: input.fee,
       assignedTo: normalizedId(input.assignedTo), externalStaffId: normalizedId(input.externalStaffId),
-      notes: input.notes || null, recurrence,
+      externalProfileId: normalizedId(input.externalProfileId), notes: input.notes || null, recurrence,
     },
   } }
 }

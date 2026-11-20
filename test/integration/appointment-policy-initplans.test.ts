@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import {
-  applyMigrationsAfter,
+  applyMigration,
   buildDatabaseThrough,
   dropDatabase,
   postgresAvailable,
@@ -199,7 +199,7 @@ before(() => {
   })
 
   beforeUpgrade = record()
-  applyMigrationsAfter(DB, PREVIOUS_MIGRATION)
+  applyMigration(DB, '20261115100648_appointment_policy_initplans.sql')
   afterUpgrade = record()
 })
 

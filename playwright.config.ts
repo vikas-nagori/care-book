@@ -5,7 +5,7 @@ import dotenv from 'dotenv'
 // the app under test. See .env.e2e — these are non-secret local-development keys.
 dotenv.config({ path: '.env.e2e', override: true })
 
-import { ADMIN, STAFF, PLATFORM } from './e2e/support/accounts'
+import { ADMIN, STAFF, PLATFORM, EXTERNAL } from './e2e/support/accounts'
 
 const CI = !!process.env.CI
 // CI builds the app while the local Supabase stack is still booting (see
@@ -58,6 +58,19 @@ export default defineConfig({
 
   projects: [
     { name: 'setup', testMatch: /global\.setup\.ts/ },
+
+    {
+      name: 'external-desktop',
+      dependencies: ['setup'],
+      testMatch: ['external/**/*.spec.ts'],
+      use: { ...devices['Desktop Chrome'], storageState: EXTERNAL.storageState },
+    },
+    {
+      name: 'external-mobile',
+      dependencies: ['setup'],
+      testMatch: ['external/**/*.spec.ts'],
+      use: { ...devices['Pixel 5'], storageState: EXTERNAL.storageState },
+    },
 
     // Clinic admin — full access incl. Billing. Runs shared + admin-only specs.
     {

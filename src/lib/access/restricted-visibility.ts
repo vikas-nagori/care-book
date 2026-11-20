@@ -33,5 +33,5 @@ export function getRestrictedUiAccess(
 ): RestrictedUiAccess {
   if (!profile) return unauthenticatedAccess
   if (profile.role === 'admin') return adminAccess
-  return staffAccess
+  return profile.role === 'staff' ? staffAccess : unauthenticatedAccess
 }

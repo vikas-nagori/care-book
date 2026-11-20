@@ -30,6 +30,7 @@ import { formatDateOnly } from '@/lib/timezone'
 import { getPaginationItems } from '@/lib/patients/appointment-pagination'
 import { getFundingScopeLabel } from '@/lib/billing/unified-billing'
 import { TreatmentPlanForm } from './treatment-plan-form'
+import { PatientExternalAccess, type PatientExternalAccessData } from './patient-external-access'
 import { deletePatient } from '../actions'
 import type { Patient, Appointment, TreatmentPlan, Package, Payment, PackageBillingBalanceV2, PatientBillingBalanceV2 } from '@/lib/supabase/types'
 import { REFERRAL_SOURCE_LABEL } from '@/components/referral/referral-fields'
@@ -40,6 +41,7 @@ interface PatientDetailProps {
   defaultDate: string
   canViewBilling: boolean
   isAdmin: boolean
+  externalAccess?: PatientExternalAccessData | null
   patient: Patient
   appointments: AppointmentSummary[]
   appointmentsTotalCount: number
@@ -68,6 +70,7 @@ export function PatientDetail({
   defaultDate,
   canViewBilling,
   isAdmin,
+  externalAccess,
   patient,
   appointments,
   appointmentsTotalCount,
@@ -174,7 +177,7 @@ export function PatientDetail({
         </TabsList>
         </div>
 
-        <TabsContent value="profile">
+        <TabsContent value="profile" className="space-y-4">
           <Card>
             <CardContent className="pt-6 space-y-3">
               <div className="flex items-center gap-2">
@@ -262,6 +265,14 @@ export function PatientDetail({
               )}
             </CardContent>
           </Card>
+          {isAdmin && externalAccess && <PatientExternalAccess
+            key={patient.id}
+            patientId={patient.id}
+            {...externalAccess}
+          />}
+          {isAdmin && externalAccess === null && (
+            <p role="alert" className="rounded-md border p-4 text-sm">Unable to load External Staff access. Refresh to try again.</p>
+          )}
         </TabsContent>
 
         <TabsContent value="appointments">

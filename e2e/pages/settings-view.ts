@@ -5,7 +5,7 @@ type SettingsSection =
   | 'Session Fees'
   | 'Package Templates'
   | 'Invite User'
-  | 'External Staff'
+  | 'Temporary Staff'
   | 'Invites'
 
 export class SettingsView {
@@ -81,12 +81,12 @@ export class SettingsView {
   }
 
   async addExternalStaff(input: { name: string; phone: string; email: string }): Promise<void> {
-    await this.openSection('External Staff')
+    await this.openSection('Temporary Staff')
     await this.page.getByLabel('Name *', { exact: true }).fill(input.name)
     await this.page.getByLabel('Phone *', { exact: true }).fill(input.phone)
-    await this.page.getByLabel('External staff email', { exact: true }).fill(input.email)
-    await this.page.getByRole('button', { name: 'Add External Staff', exact: true }).click()
-    await expect(this.page.getByText('External staff added', { exact: true })).toBeVisible()
+    await this.page.getByLabel('Temporary staff email', { exact: true }).fill(input.email)
+    await this.page.getByRole('button', { name: 'Add Temporary Staff', exact: true }).click()
+    await expect(this.page.getByText('Temporary staff added', { exact: true })).toBeVisible()
   }
 
   async inviteUser(input: { name: string; phone: string; email: string }): Promise<void> {

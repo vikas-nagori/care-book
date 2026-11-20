@@ -14,6 +14,7 @@ export type AppointmentPublicSource = {
   patient: { name: string; phone: string } | null
   assignee: { full_name: string | null; email: string } | null
   external_staff: { name: string; email: string | null } | null
+  external_profile?: { full_name: string | null; email: string } | null
 }
 
 export function normalizeAppointmentSelector(args: Record<string, unknown>) {
@@ -25,6 +26,10 @@ export function normalizeAppointmentSelector(args: Record<string, unknown>) {
 }
 
 export function appointmentPublicView(row: AppointmentPublicSource, selectionToken: string) {
+  const assignedStaffName = row.external_profile
+    ? row.external_profile.full_name || row.external_profile.email
+    : row.type_is_shared ? null : row.external_staff?.name ?? row.assignee?.full_name ?? row.assignee?.email
+
   return {
     appointment_selection_token: selectionToken,
     patient_name: row.patient?.name ?? null,
@@ -35,8 +40,6 @@ export function appointmentPublicView(row: AppointmentPublicSource, selectionTok
     appointment_type: row.type,
     status: row.status,
     notes: row.notes,
-    ...(row.type_is_shared || (!row.external_staff && !row.assignee)
-      ? {}
-      : { assigned_staff_name: row.external_staff?.name ?? row.assignee?.full_name ?? row.assignee?.email ?? null }),
+    ...(assignedStaffName == null ? {} : { assigned_staff_name: assignedStaffName }),
   }
 }

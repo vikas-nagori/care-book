@@ -93,6 +93,10 @@ function dependencies({
       return this
     }
 
+    in() {
+      return this
+    }
+
     order() {
       return this
     }
@@ -225,4 +229,15 @@ test('uses a staff-safe appointment type projection and omits payment-sensitive 
     sort_order: 1,
     created_at: '2026-01-01T00:00:00Z',
   }])
+})
+
+test('denies external accounts without querying internal appointment options', async () => {
+  const { loaderDependencies, selections } = dependencies({
+    profile: { ...activeAdmin, role: 'external_staff' },
+  })
+
+  const result = await loadDashboardAppointmentOptions(loaderDependencies)
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.equal(result.code, 'unauthorized')
+  assert.equal(selections.size, 0)
 })

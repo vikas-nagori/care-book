@@ -40,6 +40,7 @@ export default async function RootLayout({
   children: React.ReactNode
 }) {
   const currentProfile = await getCurrentProfile()
+  const isExternalStaff = currentProfile?.role === 'external_staff'
   const access = getRestrictedUiAccess(currentProfile)
 
   return (
@@ -52,16 +53,16 @@ export default async function RootLayout({
       <body className="overflow-hidden font-sans">
         <TimezoneSync />
         <div className="flex h-dvh overflow-hidden">
-          <Sidebar canViewBilling={access.canViewBilling} />
-          <main className="h-full min-w-0 flex-1 overflow-y-auto overscroll-contain pb-bottom-nav md:pb-0">
-            {currentProfile ? (
+          {!isExternalStaff && <Sidebar canViewBilling={access.canViewBilling} />}
+          <main className={`h-full min-w-0 flex-1 overflow-y-auto overscroll-contain ${isExternalStaff ? '' : 'pb-bottom-nav md:pb-0'}`}>
+            {currentProfile && !isExternalStaff ? (
               <GuidedTourProvider role={currentProfile.role}>{children}</GuidedTourProvider>
             ) : (
               children
             )}
           </main>
         </div>
-        <BottomNav canViewBilling={access.canViewBilling} />
+        {!isExternalStaff && <BottomNav canViewBilling={access.canViewBilling} />}
         <ServiceWorkerRegistration />
         <Toaster />
         <Analytics />

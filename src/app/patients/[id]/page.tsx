@@ -1,4 +1,5 @@
 import { getCurrentProfile } from '@/lib/auth'
+import { evaluateRoleAccess } from '@/lib/auth-access'
 import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { getAppointmentVisibilityFilter } from '@/lib/access/appointment-visibility'
 import { parseAppointmentPage } from '@/lib/patients/appointment-pagination'
@@ -6,6 +7,7 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import { logger } from '@/lib/logger'
 import { PatientDetail } from './patient-detail'
+import { loadActiveExternalProfiles, readExternalAccessRows } from '@/lib/appointments/external-profile-options'
 import { getZonedDate } from '@/lib/timezone'
 import { getUserTimeZone } from '@/lib/timezone/server'
 
@@ -25,6 +27,7 @@ export default async function PatientPage({
   const appointmentRangeEnd = appointmentRangeStart + APPOINTMENTS_PAGE_SIZE - 1
   const currentProfile = await getCurrentProfile()
   const access = getRestrictedUiAccess(currentProfile)
+  const adminClinicId = evaluateRoleAccess(currentProfile, ['admin']) === 'authorized' ? currentProfile?.clinic_id : null
   const appointmentVisibilityFilter = getAppointmentVisibilityFilter(currentProfile)
   const supabase = await createClient()
   const userTimeZone = await getUserTimeZone()
@@ -85,6 +88,25 @@ export default async function PatientPage({
     activeCountQuery = activeCountQuery.or(appointmentVisibilityFilter)
   }
 
+  const externalAccess = adminClinicId
+    ? Promise.all([
+        loadActiveExternalProfiles(supabase, adminClinicId),
+        readExternalAccessRows((from, to) => supabase
+          .from('patient_external_access')
+          .select('external_profile_id')
+          .eq('clinic_id', adminClinicId)
+          .eq('patient_id', id)
+          .order('external_profile_id')
+          .range(from, to)),
+      ]).then(([profiles, grants]) => ({
+        profiles,
+        grantedProfileIds: grants.map((grant) => grant.external_profile_id as string),
+      })).catch((error) => {
+        logger.error('PatientPage/externalAccess', error, { id })
+        return null
+      })
+    : undefined
+
   const [
     { data: appointments, error: appointmentsError, count: appointmentsCount },
     { error: activeCountError, count: appointmentsActiveCount },
@@ -93,6 +115,7 @@ export default async function PatientPage({
     { data: payments, error: paymentsError },
     { data: patientBalance, error: balanceError },
     { data: packageBalances, error: packageBalancesError },
+    patientExternalAccess,
   ] = await Promise.all([
     appointmentsQuery,
     activeCountQuery,
@@ -121,6 +144,7 @@ export default async function PatientPage({
     access.canViewBilling
       ? supabase.from('package_billing_balances_v2').select('*').eq('patient_id', id)
       : Promise.resolve({ data: [], error: null }),
+    externalAccess,
   ])
 
   if (appointmentsError) logger.error('PatientPage/appointments', appointmentsError, { id: id })
@@ -146,6 +170,7 @@ export default async function PatientPage({
         appointmentsTotalCount={appointmentsCount ?? 0}
         appointmentsActiveCount={appointmentsActiveCount ?? 0}
         isAdmin={currentProfile?.role === 'admin'}
+        externalAccess={patientExternalAccess}
         appointmentPage={appointmentPage}
         appointmentPageSize={APPOINTMENTS_PAGE_SIZE}
         initialTab={query.tab === 'appointments' || query.appointments_page ? 'appointments' : 'profile'}

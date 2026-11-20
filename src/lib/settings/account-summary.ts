@@ -1,5 +1,7 @@
 import type { Profile } from '../supabase/types'
 
+import { USER_ROLE_LABELS } from '../user-role.ts'
+
 type AccountSummaryItem = {
   label: 'Name' | 'Email' | 'Mobile' | 'Role'
   value: string
@@ -15,6 +17,6 @@ export function getAccountSummaryItems(profile: Profile): AccountSummaryItem[] {
     { label: 'Name', value: getDisplayValue(profile.full_name) },
     { label: 'Email', value: profile.email },
     { label: 'Mobile', value: getDisplayValue(profile.mobile_number) },
-    { label: 'Role', value: profile.role },
+    { label: 'Role', value: USER_ROLE_LABELS[profile.role] },
   ]
 }

@@ -60,10 +60,10 @@ export function getMobileSettingsSections(
       title: 'Package Templates',
       subtitle: countLabel(counts.packageTemplates, 'template'),
     },
-    { key: 'invite', title: 'Invite User', subtitle: 'Add staff or admin' },
+    { key: 'invite', title: 'Invite User', subtitle: 'Add a user to Care-Book' },
     {
       key: 'staff',
-      title: 'External Staff',
+      title: 'Temporary Staff',
       subtitle: countLabel(counts.externalStaff, 'person', 'people'),
     },
     { key: 'invites', title: 'Invites', subtitle: `${counts.invites} sent` },

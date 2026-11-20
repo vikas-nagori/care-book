@@ -50,3 +50,16 @@ test('requires one patient source and validates optional inline-patient fields',
   if (result.success) assert.equal(result.request.input.newPatient?.name, 'Patient')
   assert.equal(parseBookingRequest({ ...request(), input: { ...input, newPatient: { ...newPatient, referral_source: 'invalid' } } }).success, false)
 })
+
+test('parses a separate external profile and rejects multiple assignees or inline patient creation', () => {
+  const base = request()
+  const externalProfileId = 'AB222222-2222-4222-8222-222222222222'
+  const input = { ...base.input, externalProfileId }
+  const result = parseBookingRequest({ ...base, input })
+  assert.equal(result.success, true)
+  if (result.success) assert.equal(result.request.input.externalProfileId, externalProfileId.toLowerCase())
+  assert.equal(parseBookingRequest({ ...base, input: { ...input, externalProfileId: 'invalid' } }).success, false)
+  assert.equal(parseBookingRequest({ ...base, input: { ...input, assignedTo: base.input.patientId } }).success, false)
+  assert.equal(parseBookingRequest({ ...base, input: { ...input, externalStaffId: base.input.patientId } }).success, false)
+  assert.equal(parseBookingRequest({ ...base, input: { ...input, patientId: undefined, newPatient: { name: 'New Patient', phone: '123' } } }).success, false)
+})

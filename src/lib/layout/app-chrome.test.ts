@@ -15,3 +15,7 @@ test('shouldHideAppChrome keeps chrome visible on standard app pages', () => {
   assert.equal(shouldHideAppChrome('/'), false)
   assert.equal(shouldHideAppChrome('/settings'), false)
 })
+
+test('the External Staff workspace hides clinic navigation', () => {
+  assert.equal(shouldHideAppChrome('/external'), true)
+})

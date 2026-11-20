@@ -15,6 +15,7 @@ export type AppointmentCreationDetails = {
   fee: number | null
   assignedTo?: string | null
   externalStaffId?: string | null
+  externalProfileId?: string | null
   notes: string | null
   recurrence?: AppointmentRecurrence | null
   /**
@@ -57,6 +58,7 @@ export function buildAppointmentInsertRows(input: AppointmentCreationDetails) {
     fee: input.fee,
     assigned_to: input.assignedTo || null,
     external_staff_id: input.externalStaffId || null,
+    external_profile_id: input.externalProfileId || null,
     notes: input.notes || null,
   }))
 }

@@ -1,6 +1,6 @@
 # External Staff patient coordination
 
-Status: proposed design for review; implementation has not started.
+Status: approved by the user on 21 November 2026; implementation in progress.
 
 ## Intent
 

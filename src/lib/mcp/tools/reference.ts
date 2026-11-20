@@ -15,13 +15,13 @@ export const referenceTools: McpToolDefinition[] = [
   },
   {
     name: 'carebook_list_staff',
-    description: 'List active internal and external staff names for appointment assignment. Raw identifiers are not returned.',
+    description: 'List active internal and temporary staff names for appointment assignment. Raw identifiers are not returned.',
     scope: 'read',
     inputSchema: objectSchema({ name: stringProp('Optional name filter') }),
     handler: async (args, ctx) => {
       const filter = typeof args.name === 'string' ? args.name.trim().toLocaleLowerCase() : ''
       const [{ data: profiles, error: profilesError }, { data: external, error: externalError }] = await Promise.all([
-        ctx.supabase.from('profiles').select('full_name, email, role').eq('status', 'active').order('full_name'),
+        ctx.supabase.from('profiles').select('full_name, email, role').in('role', ['admin', 'staff']).eq('status', 'active').order('full_name'),
         ctx.supabase.from('external_staff').select('name, email, status').eq('status', 'active').order('name'),
       ])
       if (profilesError || externalError) throw profilesError ?? externalError

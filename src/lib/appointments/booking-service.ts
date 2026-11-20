@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { buildAppointmentInsertRows } from './appointment-creation.ts'
+import { EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE, isExternalAssignmentAccessError, normalizeAppointmentAssignment } from './assignment.ts'
 import { MAX_RECURRING_APPOINTMENTS } from './recurrence.ts'
 import type { BookingRequest, CreateAppointmentResult, NewPatientInput } from './booking-contract.ts'
 
@@ -70,7 +71,8 @@ function matchingAppointment(actual: BookingRow, expected: BookingRow): boolean 
     actual.patient_id === expected.patient_id && actual.date === expected.date && actual.time.slice(0, 5) === expected.time &&
     actual.duration_minutes === expected.duration_minutes && actual.appointment_type_id === expected.appointment_type_id &&
     actual.fee === expected.fee && actual.assigned_to === expected.assigned_to &&
-    actual.external_staff_id === expected.external_staff_id && actual.notes === expected.notes
+    actual.external_staff_id === expected.external_staff_id &&
+    actual.external_profile_id === expected.external_profile_id && actual.notes === expected.notes
 }
 
 /** One attempt owns deterministic primary keys. No upsert/update is ever used during replay. */
@@ -82,18 +84,24 @@ export async function executeBooking(request: BookingRequest, mode: 'create' | '
   let createdPatientId: string | undefined
   const log = (phase: BookingStage, error?: unknown) => context.log?.(phase, bookingDatabaseErrorCode(error))
   try {
+    if (input.externalProfileId && context.role !== 'admin') {
+      return failed('SCHEDULE_UNAUTHORIZED', 'Only admins can assign appointments to External Staff.')
+    }
+    if (input.externalProfileId && input.newPatient) {
+      return failed('EXTERNAL_ASSIGNMENT_UNAVAILABLE', EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE)
+    }
     if (!patientId) return failed('SCHEDULE_MISSING_PATIENT', 'Select or create a patient.')
     const typeResult = await store.getAppointmentType(input.appointmentTypeId)
     log('validation', typeResult.error)
     if (typeResult.error || !typeResult.data) return failed('APPOINTMENT_CREATE_FAILED', 'Unable to load the appointment type.')
     const appointmentType = typeResult.data
+    const assignment = normalizeAppointmentAssignment({ ...input, isShared: appointmentType.is_shared })
     let rows: BookingRow[]
     try {
       rows = buildAppointmentInsertRows({ ...input, patientId, today: context.today }).map((row, index) => ({
         ...row, id: ids.appointmentIds[index], clinic_id: context.clinicId, created_by: context.actorId,
         fee: context.role === 'staff' ? Number(appointmentType.session_rate) : row.fee,
-        assigned_to: appointmentType.is_shared ? null : row.assigned_to,
-        external_staff_id: appointmentType.is_shared ? null : row.external_staff_id,
+        ...assignment,
       }))
     } catch {
       return failed('SCHEDULE_INVALID_RECURRENCE', 'The repeat schedule is invalid.')
@@ -151,6 +159,9 @@ export async function executeBooking(request: BookingRequest, mode: 'create' | '
     const inserted = await store.insertAppointments(rows)
     log('insert', inserted.error)
     if (inserted.error?.code === '23505') return await reconcile() ?? unconfirmed(createdPatientId)
+    if (input.externalProfileId && isExternalAssignmentAccessError(inserted.error)) {
+      return failed('EXTERNAL_ASSIGNMENT_UNAVAILABLE', EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE)
+    }
     if (inserted.error || !inserted.data || inserted.data.length !== rows.length) {
       return inserted.error && statementRejected(inserted.error)
         ? failed('APPOINTMENT_CREATE_FAILED', 'Unable to create the appointment. Check the details and try again.', createdPatientId)

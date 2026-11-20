@@ -1,3 +1,4 @@
+import { isActiveMcpProfile } from '@/lib/mcp/access'
 import { getCurrentProfile } from '@/lib/auth'
 import { findClient } from '@/lib/mcp/clients'
 import { isMcpEnabled, mcpResourceUrl } from '@/lib/mcp/config'
@@ -20,6 +21,8 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Se
   if (!isMcpEnabled()) return errorPanel('MCP connections are not enabled.')
   const profile = await getCurrentProfile()
   if (!profile?.clinic_id) return errorPanel('Your Care-Book account is not connected to an active clinic.')
+
+  if (!isActiveMcpProfile(profile)) return errorPanel('This Care-Book account cannot connect apps.')
 
   const raw = await searchParams
   const clientId = first(raw.client_id)

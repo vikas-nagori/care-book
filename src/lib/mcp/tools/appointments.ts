@@ -26,12 +26,14 @@ type AppointmentRow = {
   notes: string | null
   assigned_to: string | null
   external_staff_id: string | null
+  external_profile_id: string | null
   patient: JoinedPatient
 }
 
 type AppointmentViewRow = AppointmentRow & {
   assignee: JoinedStaff
   external_staff: JoinedExternalStaff
+  external_profile: JoinedStaff
 }
 
 function joined<T>(value: T | T[] | null): T | null {
@@ -44,6 +46,7 @@ function publicAppointment(row: AppointmentViewRow): AppointmentPublicSource {
     patient: joined(row.patient),
     assignee: joined(row.assignee),
     external_staff: joined(row.external_staff),
+    external_profile: joined(row.external_profile),
   }
 }
 
@@ -83,6 +86,7 @@ async function resolveAssignee(ctx: ToolContext, name: string | undefined) {
     .from('profiles')
     .select('id, full_name, email')
     .eq('status', 'active')
+    .in('role', ['admin', 'staff'])
     .order('full_name')
   if (error) throw error
   const profiles = (data ?? []) as Array<{ id: string; full_name: string | null; email: string }>
@@ -101,7 +105,7 @@ async function resolveExternalAssignee(ctx: ToolContext, name: string | undefine
   const exact = staff.filter((person) => normalized(person.name) === normalized(name))
   if (exact.length === 1) return exact[0]
   const candidates = (exact.length ? exact : staff.filter((person) => normalized(person.name).includes(normalized(name)))).slice(0, 10)
-  if (!candidates.length) throw new ToolError('No active external staff member matched that name.')
+  if (!candidates.length) throw new ToolError('No active temporary staff member matched that name.')
   return { ambiguous: true as const, candidates: candidates.map((person) => ({ staff_name: person.name })) }
 }
 
@@ -131,11 +135,13 @@ async function lastFeeForPatientType(ctx: ToolContext, patientId: string, appoin
 }
 
 function appointmentSelect() {
-  return 'id, patient_id, date, time, duration_minutes, type, type_is_shared, status, notes, assigned_to, external_staff_id, patient:patients(name, phone)'
+  return 'id, patient_id, date, time, duration_minutes, type, type_is_shared, status, notes, assigned_to, external_staff_id, external_profile_id, patient:patients(name, phone)'
 }
 
 async function addStaffLabels(ctx: ToolContext, rows: AppointmentRow[]): Promise<AppointmentViewRow[]> {
-  const staffIds = [...new Set(rows.map((row) => row.assigned_to).filter(Boolean))] as string[]
+  const staffIds = [...new Set(rows.flatMap((row) => [
+    row.assigned_to, ctx.profile.role === 'admin' ? row.external_profile_id : null,
+  ]).filter(Boolean))] as string[]
   const externalIds = [...new Set(rows.map((row) => row.external_staff_id).filter(Boolean))] as string[]
   const [{ data: staff }, { data: externalStaff }] = await Promise.all([
     staffIds.length ? ctx.supabase.from('profiles').select('id, full_name, email').in('id', staffIds) : Promise.resolve({ data: [] }),
@@ -147,6 +153,9 @@ async function addStaffLabels(ctx: ToolContext, rows: AppointmentRow[]): Promise
     ...row,
     assignee: row.assigned_to ? staffById.get(row.assigned_to) ?? null : null,
     external_staff: row.external_staff_id ? externalById.get(row.external_staff_id) ?? null : null,
+    external_profile: ctx.profile.role === 'admin' && row.external_profile_id
+      ? staffById.get(row.external_profile_id) ?? null
+      : null,
   }))
 }
 
@@ -326,7 +335,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
       fee: numberProp('Session fee in rupees. Defaults to the appointment type session rate; required when that rate is 0 or unset'),
       notes: stringProp('Optional clinical appointment note'),
       assigned_to_name: stringProp('Optional internal staff name. Defaults to the connected user for non-shared appointment types'),
-      external_staff_name: stringProp('Optional external staff name'),
+      external_staff_name: stringProp('Optional temporary staff name'),
       recurrence_weekdays: { type: 'array', items: { type: 'integer', minimum: 0, maximum: 6 } },
       recurrence_total_sessions: numberProp('Optional number of recurring sessions'),
       patient_selection_token: stringProp('Opaque patient token returned by a previous match'),
@@ -371,7 +380,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
       if (assignee && 'ambiguous' in assignee) return { requires_staff_confirmation: true, candidates: assignee.candidates }
       const externalAssignee = await resolveExternalAssignee(ctx, typeof args.external_staff_name === 'string' ? args.external_staff_name : undefined)
       if (externalAssignee && 'ambiguous' in externalAssignee) return { requires_staff_confirmation: true, candidates: externalAssignee.candidates }
-      if (assignee && externalAssignee) throw new ToolError('Choose either internal staff or external staff, not both.')
+      if (assignee && externalAssignee) throw new ToolError('Choose one internal or Temporary Staff assignee.')
 
       const inlinePatient = args.new_patient && typeof args.new_patient === 'object' ? args.new_patient as Record<string, unknown> : null
       if (patient.kind === 'none' && !inlinePatient) return { requires_patient_confirmation: true, message: 'No patient matched. Provide new_patient with name and phone, then confirm: true to create the patient and appointment.' }
@@ -486,7 +495,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
       duration_minutes: numberProp('Optional new duration in minutes'),
       notes: stringProp('Optional replacement clinical note'),
       assigned_to_name: stringProp('Optional internal staff name'),
-      external_staff_name: stringProp('Optional external staff name'),
+      external_staff_name: stringProp('Optional temporary staff name'),
       confirm: boolProp('Set true to apply the previewed change'),
     }, ['appointment_selection_token']),
     handler: async (args, ctx) => {
@@ -512,17 +521,19 @@ export const appointmentWriteTools: McpToolDefinition[] = [
       if (assignee && 'ambiguous' in assignee) return { requires_staff_confirmation: true, candidates: assignee.candidates }
       const externalAssignee = await resolveExternalAssignee(ctx, typeof args.external_staff_name === 'string' ? args.external_staff_name : undefined)
       if (externalAssignee && 'ambiguous' in externalAssignee) return { requires_staff_confirmation: true, candidates: externalAssignee.candidates }
-      if (assignee && externalAssignee) throw new ToolError('Choose either internal staff or external staff, not both.')
-      // A shared type is visible to everyone, so it carries no assignee by design.
+      if (assignee && externalAssignee) throw new ToolError('Choose one internal or Temporary Staff assignee.')
+      // Shared types cannot carry an internal or Temporary Staff assignment.
       if (assignee) {
         if (row.type_is_shared) throw new ToolError(`"${row.type}" is a shared appointment type and cannot be assigned to one staff member.`)
         changes.assigned_to = assignee.id
         changes.external_staff_id = null
+        if (row.external_profile_id) changes.external_profile_id = null
       }
       if (externalAssignee) {
         if (row.type_is_shared) throw new ToolError(`"${row.type}" is a shared appointment type and cannot be assigned to one staff member.`)
         changes.external_staff_id = externalAssignee.id
         changes.assigned_to = null
+        if (row.external_profile_id) changes.external_profile_id = null
       }
 
       if (Object.keys(changes).length === 0) throw new ToolError('Provide at least one field to change.')

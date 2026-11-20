@@ -193,7 +193,7 @@ export async function completeInvitedSignup(
         return {
           success: false,
           errorCode: externalStaffError.code ?? 'INVITE_EXTERNAL_STAFF_LINK_FAILED',
-          message: 'Your account was created, but linking the external staff record failed.',
+          message: 'Your account was created, but linking the temporary staff record failed.',
         }
       }
     }

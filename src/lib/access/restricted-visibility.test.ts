@@ -45,3 +45,12 @@ test('getRestrictedUiAccess removes all access when no profile exists', () => {
     canUseHomeVisitFormFields: false,
   })
 })
+
+test('external staff cannot use the full clinic UI permissions', () => {
+  assert.deepEqual(getRestrictedUiAccess({ ...baseProfile, role: 'external_staff' }), {
+    canViewBilling: false,
+    canViewPaymentSignals: false,
+    canViewHomeVisits: false,
+    canUseHomeVisitFormFields: false,
+  })
+})

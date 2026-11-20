@@ -47,7 +47,7 @@ test('approves a request, issues a temp password, and walks the owner through fi
 
   await page.goto('/platform/users')
   const ownerRow = page.getByTestId(`user-row-${ownerAuthId}`)
-  await expect(ownerRow).toContainText('admin')
+  await expect(ownerRow).toContainText('Admin')
   await expect(ownerRow).toContainText(String(clinic!.name))
   await expect(ownerRow).toContainText('invite pending')
 
