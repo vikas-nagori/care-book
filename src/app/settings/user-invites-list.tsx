@@ -15,9 +15,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { TempPasswordDialog } from '@/components/onboarding/temp-password-dialog'
 import { useToast } from '@/hooks/use-toast'
-import type { UserInvite } from '@/lib/supabase/types'
-import { resendUserInvite, revokeUserInvite } from './actions'
+import type { TempPasswordCredentials, UserInvite } from '@/lib/supabase/types'
+import { issueInviteTempPassword, revokeUserInvite } from './actions'
 
 function getInviteBadgeVariant(status: UserInvite['status']) {
   if (status === 'accepted') return 'default'
@@ -44,14 +45,15 @@ export function UserInvitesList({
   const router = useRouter()
   const { toast } = useToast()
   const [busyInviteId, setBusyInviteId] = useState<string | null>(null)
+  const [credentials, setCredentials] = useState<TempPasswordCredentials | null>(null)
 
-  async function handleResend(inviteId: string) {
+  async function handleNewPassword(inviteId: string) {
     setBusyInviteId(inviteId)
-    const result = await resendUserInvite({ inviteId })
+    const result = await issueInviteTempPassword({ inviteId })
 
     if (!result.success) {
       toast({
-        title: 'Invite not resent',
+        title: 'Password not reset',
         description: result.message,
         variant: 'destructive',
       })
@@ -60,9 +62,10 @@ export function UserInvitesList({
     }
 
     toast({
-      title: 'Invite resent',
-      description: `A fresh invite email went to ${result.invite.email}.`,
+      title: 'New temporary password',
+      description: `The previous temporary password for ${result.invite.email} no longer works.`,
     })
+    setCredentials(result.credentials)
     router.refresh()
     setBusyInviteId(null)
   }
@@ -83,25 +86,29 @@ export function UserInvitesList({
 
     toast({
       title: 'Invite revoked',
-      description: `${result.invite.email} can no longer complete onboarding from the old invite link.`,
+      description: `${result.invite.email} can no longer sign in.`,
     })
     router.refresh()
     setBusyInviteId(null)
   }
 
   const emptyState = <p className="text-sm text-muted-foreground">No invites have been sent yet.</p>
+  const dialog = (
+    <TempPasswordDialog credentials={credentials} onClose={() => setCredentials(null)} />
+  )
 
   if (variant === 'sheet') {
     if (invites.length === 0) return emptyState
 
     return (
       <div className="space-y-3">
+        {dialog}
         {invites.map((invite) => {
           const isBusy = busyInviteId === invite.id
           const dateLabel = invite.status === 'accepted'
             ? `Accepted ${formatTimestamp(invite.accepted_at)}`
             : invite.status === 'pending'
-              ? `Sent ${formatTimestamp(invite.created_at)}`
+              ? `Invited ${formatTimestamp(invite.created_at)}`
               : `Revoked ${formatTimestamp(invite.revoked_at)}`
 
           return (
@@ -122,13 +129,13 @@ export function UserInvitesList({
                 <div className="grid grid-cols-2 gap-2">
                   <Button
                     type="button"
-                    aria-label={`Resend invite to ${invite.email}`}
+                    aria-label={`New temporary password for ${invite.email}`}
                     variant="outline"
                     className="h-11"
                     disabled={isBusy}
-                    onClick={() => handleResend(invite.id)}
+                    onClick={() => handleNewPassword(invite.id)}
                   >
-                    {isBusy ? 'Working...' : 'Resend'}
+                    {isBusy ? 'Working...' : 'New password'}
                   </Button>
                   <Button
                     type="button"
@@ -155,6 +162,7 @@ export function UserInvitesList({
         <CardTitle className="text-base">Invites</CardTitle>
       </CardHeader>
       <CardContent>
+        {dialog}
         {invites.length === 0 ? emptyState : (
           <div className="overflow-x-auto">
             <Table>
@@ -188,13 +196,13 @@ export function UserInvitesList({
                           <div className="flex justify-end gap-2">
                             <Button
                               type="button"
-                              aria-label={`Resend invite to ${invite.email}`}
+                              aria-label={`New temporary password for ${invite.email}`}
                               variant="outline"
                               size="sm"
                               disabled={isBusy}
-                              onClick={() => handleResend(invite.id)}
+                              onClick={() => handleNewPassword(invite.id)}
                             >
-                              {isBusy ? 'Working...' : 'Resend'}
+                              {isBusy ? 'Working...' : 'New password'}
                             </Button>
                             <Button
                               type="button"

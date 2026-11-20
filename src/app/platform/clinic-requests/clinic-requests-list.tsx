@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
-import { TempPasswordDialog } from '@/components/platform/temp-password-dialog'
+import { TempPasswordDialog } from '@/components/onboarding/temp-password-dialog'
 import type { ClinicOnboardingRequest, OwnerCredentials } from '@/lib/supabase/types'
 import {
   approveClinicOnboardingRequest,

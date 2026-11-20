@@ -65,7 +65,7 @@ test('admin settings switch between persistent panels and focus-restoring mobile
     },
     {
       title: 'Invites',
-      triggerName: /^Invites\s*\d+ sent$/,
+      triggerName: /^Invites\s*\d+ pending$/,
       assertContent: async () => {
         const dialog = page.getByRole('dialog', { name: 'Invites' })
         await expect(dialog.getByText(/No invites have been sent yet\.|@carebook\.test/).first()).toBeVisible()

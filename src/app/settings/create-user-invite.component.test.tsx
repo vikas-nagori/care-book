@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   revalidatePath: vi.fn(),
   loggerError: vi.fn(),
   inviteUserByEmail: vi.fn(),
+  createUser: vi.fn(),
+  updateUserById: vi.fn(),
   profileUpsert: vi.fn(),
   inviteInsert: vi.fn(),
   inviteInsertPayload: vi.fn(),
@@ -54,7 +56,13 @@ function adminClient() {
 
   mocks.createAdminClient.mockReturnValue({
     from: vi.fn((table: string) => tables[table]),
-    auth: { admin: { inviteUserByEmail: mocks.inviteUserByEmail } },
+    auth: {
+      admin: {
+        inviteUserByEmail: mocks.inviteUserByEmail,
+        createUser: mocks.createUser,
+        updateUserById: mocks.updateUserById,
+      },
+    },
   })
 }
 
@@ -77,10 +85,44 @@ describe('createUserInvite', () => {
     })
     mocks.existingInvite.mockResolvedValue({ data: null, error: null })
     mocks.existingProfile.mockResolvedValue({ data: null, error: null })
-    mocks.inviteUserByEmail.mockResolvedValue({ data: { user: { id: NEW_AUTH_ID } }, error: null })
+    mocks.createUser.mockResolvedValue({ data: { user: { id: NEW_AUTH_ID } }, error: null })
+    mocks.updateUserById.mockResolvedValue({ data: { user: { id: NEW_AUTH_ID } }, error: null })
     mocks.profileUpsert.mockResolvedValue({ error: null })
     mocks.inviteInsert.mockResolvedValue({ data: { id: 'invite-1' }, error: null })
     adminClient()
+  })
+
+  it('creates a confirmed login with a temp password instead of sending an invite email', async () => {
+    const result = await invite('staff')
+
+    expect(mocks.inviteUserByEmail).not.toHaveBeenCalled()
+    expect(mocks.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'new.user@example.com',
+        email_confirm: true,
+        app_metadata: { must_change_password: true },
+      })
+    )
+    const { password } = mocks.createUser.mock.calls[0][0]
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        credentials: { email: 'new.user@example.com', tempPassword: password },
+      })
+    )
+    expect(password).toMatch(/^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{14}$/)
+    expect(mocks.inviteInsertPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ auth_user_id: NEW_AUTH_ID, status: 'pending' })
+    )
+  })
+
+  it('never logs the temporary password', async () => {
+    mocks.inviteInsert.mockResolvedValue({ data: null, error: { code: 'x', message: 'boom' } })
+
+    await invite('staff')
+
+    const { password } = mocks.createUser.mock.calls[0][0]
+    expect(JSON.stringify(mocks.loggerError.mock.calls)).not.toContain(password)
   })
 
   it('attaches an invited staff member to the inviting admin clinic', async () => {
@@ -147,6 +189,29 @@ describe('createUserInvite', () => {
     const result = await invite('staff')
 
     expect(result.success).toBe(true)
+    // The auth identity already exists, so it is re-armed rather than created again — and the
+    // ban placed on revocation is lifted.
+    expect(mocks.createUser).not.toHaveBeenCalled()
+    expect(mocks.updateUserById).toHaveBeenCalledWith(
+      NEW_AUTH_ID,
+      expect.objectContaining({
+        email_confirm: true,
+        ban_duration: 'none',
+        app_metadata: { must_change_password: true },
+      })
+    )
+  })
+
+  it('reports a failure to create the login without saving an invite', async () => {
+    mocks.createUser.mockResolvedValue({
+      data: { user: null },
+      error: { code: 'email_exists', message: 'already registered' },
+    })
+
+    const result = await invite('staff')
+
+    expect(result).toEqual(expect.objectContaining({ success: false, errorCode: 'email_exists' }))
+    expect(mocks.inviteInsertPayload).not.toHaveBeenCalled()
   })
 
   it('still refuses an email that already belongs to an accepted user', async () => {
@@ -164,7 +229,7 @@ describe('createUserInvite', () => {
     expect(result).toEqual(
       expect.objectContaining({ success: false, errorCode: 'INVITE_USER_ALREADY_ACTIVE' })
     )
-    expect(mocks.inviteUserByEmail).not.toHaveBeenCalled()
+    expect(mocks.createUser).not.toHaveBeenCalled()
   })
 
   it('fails closed when the profile cannot be written', async () => {

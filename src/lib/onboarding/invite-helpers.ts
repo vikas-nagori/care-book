@@ -105,10 +105,6 @@ export function normalizeSiteOrigin(origin: string | null | undefined): string |
   }
 }
 
-export function buildInviteRedirectUrl(origin: string): string {
-  return `${origin}/auth/callback?next=${encodeURIComponent(DEFAULT_INVITE_NEXT_PATH)}`
-}
-
 export function getInviteCollisionResult({
   currentClinicId,
   existingInvite,

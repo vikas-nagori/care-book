@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
-import { TempPasswordDialog } from '@/components/platform/temp-password-dialog'
+import { TempPasswordDialog } from '@/components/onboarding/temp-password-dialog'
 import type { OwnerCredentials, PlatformUserSummary } from '@/lib/supabase/types'
 import { blockUser, issueTempPassword, sendPasswordReset, unblockUser } from './actions'
 

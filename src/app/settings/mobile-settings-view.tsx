@@ -5,7 +5,7 @@ import {
   CalendarRange,
   BadgeIndianRupee,
   ChevronRight,
-  Mail,
+  KeyRound,
   Package,
   UserPlus,
   UserRound,
@@ -53,7 +53,7 @@ const sectionIcons: Record<MobileSettingsSectionKey, LucideIcon> = {
   packages: Package,
   invite: UserPlus,
   staff: UsersRound,
-  invites: Mail,
+  invites: KeyRound,
   users: UsersRound,
   connected_apps: Link2,
 }
@@ -94,7 +94,7 @@ export function MobileSettingsView({
     appointmentTypes: appointmentTypes.length,
     packageTemplates: packageTemplates.length,
     externalStaff: externalStaff.length,
-    invites: invites.length,
+    pendingInvites: invites.filter((invite) => invite.status === 'pending').length,
     activeUsers: profiles.length,
     connectedApps: connectedApps.length,
   })

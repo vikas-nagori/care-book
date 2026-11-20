@@ -14,10 +14,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { TempPasswordDialog } from '@/components/onboarding/temp-password-dialog'
 import { useToast } from '@/hooks/use-toast'
 import { validateInviteInput } from '@/lib/onboarding/invite-helpers'
 import { USER_ROLE_LABELS } from '@/lib/user-role'
-import type { UserRole } from '@/lib/supabase/types'
+import type { TempPasswordCredentials, UserRole } from '@/lib/supabase/types'
 import { createUserInvite } from './actions'
 
 export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' }) {
@@ -29,6 +30,7 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
   const [mobileNumber, setMobileNumber] = useState('')
   const [role, setRole] = useState<UserRole>('staff')
   const [loading, setLoading] = useState(false)
+  const [credentials, setCredentials] = useState<TempPasswordCredentials | null>(null)
   const nameId = `${instanceId}-invite-name`
   const mobileId = `${instanceId}-invite-mobile`
   const emailId = `${instanceId}-invite-email`
@@ -40,7 +42,7 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
     const validation = validateInviteInput({ email, role, fullName, mobileNumber })
     if (!validation.success) {
       toast({
-        title: 'Invite not sent',
+        title: 'Login not created',
         description: validation.message,
         variant: 'destructive',
       })
@@ -52,7 +54,7 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
 
     if (!result.success) {
       toast({
-        title: 'Invite not sent',
+        title: 'Login not created',
         description: result.message,
         variant: 'destructive',
       })
@@ -61,9 +63,10 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
     }
 
     toast({
-      title: 'Invite sent',
-      description: `${result.invite.email} can finish onboarding from the email link.`,
+      title: 'User invited',
+      description: `Share the temporary password with ${result.invite.email}.`,
     })
+    setCredentials(result.credentials)
     setEmail('')
     setFullName('')
     setMobileNumber('')
@@ -125,13 +128,28 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
           </div>
           <Button type="submit" className={variant === 'sheet' ? 'h-11 w-full' : 'w-full'} disabled={loading}>
             {loading ? (
-              <><Loader2 className="animate-spin" size={14} /> Sending invite…</>
-            ) : 'Send Invite'}
+              <><Loader2 className="animate-spin" size={14} /> Creating login…</>
+            ) : 'Create Login'}
           </Button>
+          <p className="text-xs text-muted-foreground">
+            You&apos;ll get a one-time temporary password to share with them. They set their own
+            password when they first sign in.
+          </p>
     </form>
   )
 
-  if (variant === 'sheet') return formContent
+  const dialog = (
+    <TempPasswordDialog credentials={credentials} onClose={() => setCredentials(null)} />
+  )
+
+  if (variant === 'sheet') {
+    return (
+      <>
+        {formContent}
+        {dialog}
+      </>
+    )
+  }
 
   return (
     <Card>
@@ -140,6 +158,7 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
       </CardHeader>
       <CardContent>
         {formContent}
+        {dialog}
       </CardContent>
     </Card>
   )

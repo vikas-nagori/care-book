@@ -261,11 +261,11 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     group: 'Admin setup',
     roles: ['admin'],
     intro:
-      'Bring a colleague into Care-Book. They get an email link to finish setting up their own login.',
+      'Bring a colleague into Care-Book. You get a one-time temporary password to share with them.',
     steps: [
       {
         title: 'Fill in their details',
-        body: 'Enter the person’s name, mobile number and email. This is who the invitation goes to.',
+        body: 'Enter the person’s name, mobile number and email. They sign in with this email.',
         x: 50,
         y: 34,
       },
@@ -276,8 +276,8 @@ const CHAPTER_DEFS: TourChapterDef[] = [
         y: 118,
       },
       {
-        title: 'Send the invite',
-        body: 'Press Send Invite. They get an email link to create a password — no need for you to set one.',
+        title: 'Share the temporary password',
+        body: 'Press Create Login, copy the temporary password and send it to them (e.g. on WhatsApp). They set their own password when they first sign in.',
         x: 50,
         y: 160,
       },
@@ -305,7 +305,7 @@ const CHAPTER_DEFS: TourChapterDef[] = [
       },
       {
         title: 'Optionally invite them in',
-        body: 'If a visiting person should log in themselves, add their email and Send invite — that upgrades them to a full Staff login.',
+        body: 'If a visiting person should log in themselves, add their email and Create login — that upgrades them to a full Staff login.',
         x: 82,
         y: 108,
       },
@@ -367,7 +367,7 @@ const CHAPTER_DEFS: TourChapterDef[] = [
     group: 'Admin setup',
     roles: ['admin'],
     intro:
-      'After you invite someone, track it here until they accept — and fix things if an email goes astray.',
+      'After you invite someone, track it here until they first sign in — and fix things if a password goes astray.',
     steps: [
       {
         title: 'Watch the status',
@@ -376,14 +376,14 @@ const CHAPTER_DEFS: TourChapterDef[] = [
         y: 40,
       },
       {
-        title: 'Resend if needed',
-        body: 'Email lost or expired? Resend sends a fresh link to the same person.',
+        title: 'New password if needed',
+        body: 'Lost the temporary password? New password issues a fresh one and the old one stops working.',
         x: 74,
         y: 108,
       },
       {
         title: 'Revoke a mistake',
-        body: 'Invited the wrong person or picked the wrong role? Revoke cancels the link before they can use it.',
+        body: 'Invited the wrong person or picked the wrong role? Revoke blocks their login straight away.',
         x: 88,
         y: 108,
       },
