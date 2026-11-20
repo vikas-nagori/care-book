@@ -89,19 +89,42 @@ export class SettingsView {
     await expect(this.page.getByText('Temporary staff added', { exact: true })).toBeVisible()
   }
 
-  async inviteUser(input: { name: string; phone: string; email: string }): Promise<void> {
+  /** Creates the login and returns the one-time temporary password from the dialog. */
+  async inviteUser(input: { name: string; phone: string; email: string }): Promise<string> {
     await this.openSection('Invite User')
     await this.page.getByLabel('Invitee name', { exact: true }).fill(input.name)
     await this.page.getByLabel('Mobile number', { exact: true }).fill(input.phone)
     await this.page.getByLabel('Invite email', { exact: true }).fill(input.email)
-    await this.page.getByRole('button', { name: 'Send Invite', exact: true }).click()
-    await expect(this.page.getByText('Invite sent', { exact: true })).toBeVisible()
+    await this.page.getByRole('button', { name: 'Create Login', exact: true }).click()
+    return this.takeTempPassword()
   }
 
-  async resendInvite(email: string): Promise<void> {
+  /** Issues a fresh temp password for a pending invite and returns it. */
+  async issueNewTempPassword(email: string): Promise<string> {
     await this.openSection('Invites')
-    await this.page.getByRole('button', { name: `Resend invite to ${email}`, exact: true }).click()
-    await expect(this.page.getByText('Invite resent', { exact: true })).toBeVisible()
+    await this.page.getByRole('button', { name: `New temporary password for ${email}`, exact: true }).click()
+    return this.takeTempPassword()
+  }
+
+  private async takeTempPassword(): Promise<string> {
+    const dialog = this.page.getByRole('dialog', { name: 'Temporary password issued' })
+    const password = dialog.getByTestId('temp-password')
+    await expect(password).toBeVisible()
+    const value = (await password.textContent())?.trim() ?? ''
+    expect(value).toMatch(/^[A-Za-z0-9]{14}$/)
+    await expect(dialog.getByRole('button', { name: 'Copy login details', exact: true })).toBeVisible()
+
+    // Phones get a bottom sheet pinned to the screen edge (like every other settings flow
+    // there); desktop gets a centred dialog. Poll: the sheet slides in.
+    const viewport = this.page.viewportSize()!
+    const isPhone = viewport.width < 768
+    await expect.poll(async () => {
+      const box = await dialog.boundingBox()
+      return box ? Math.abs(box.y + box.height - viewport.height) <= 2 : null
+    }).toBe(isPhone)
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    return value
   }
 
   async revokeInvite(email: string): Promise<void> {

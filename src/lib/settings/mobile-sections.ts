@@ -19,7 +19,8 @@ export type MobileSettingsCounts = {
   appointmentTypes: number
   packageTemplates: number
   externalStaff: number
-  invites: number
+  /** Invites still waiting for the person's first sign-in. */
+  pendingInvites: number
   activeUsers: number
   connectedApps?: number
 }
@@ -66,7 +67,7 @@ export function getMobileSettingsSections(
       title: 'Temporary Staff',
       subtitle: countLabel(counts.externalStaff, 'person', 'people'),
     },
-    { key: 'invites', title: 'Invites', subtitle: `${counts.invites} sent` },
+    { key: 'invites', title: 'Invites', subtitle: `${counts.pendingInvites} pending` },
     {
       key: 'users',
       title: 'Active Users',

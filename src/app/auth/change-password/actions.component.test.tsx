@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   profileUpsert: vi.fn(),
   inviteUpdate: vi.fn(),
   inviteUpdatePayload: vi.fn(),
+  externalStaffUpdatePayload: vi.fn(),
+  externalStaffUpdateFilters: vi.fn(),
   loggerError: vi.fn(),
   loggerWarn: vi.fn(),
 }))
@@ -65,6 +67,19 @@ function adminClient() {
       },
     },
     profiles: { upsert: mocks.profileUpsert },
+    external_staff: {
+      update: (payload: unknown) => {
+        mocks.externalStaffUpdatePayload(payload)
+        return {
+          eq: (column1: string, value1: unknown) => ({
+            eq: async (column2: string, value2: unknown) => {
+              mocks.externalStaffUpdateFilters({ [column1]: value1, [column2]: value2 })
+              return { error: null }
+            },
+          }),
+        }
+      },
+    },
   }
   mocks.createAdminClient.mockReturnValue({
     from: vi.fn((table: string) => tables[table]),
@@ -118,6 +133,26 @@ describe('completeForcedPasswordChange', () => {
       expect.objectContaining({ success: false, errorCode: 'INVITE_PASSWORD_TOO_WEAK' })
     )
     expect(mocks.updateUser).not.toHaveBeenCalled()
+  })
+
+  it('links the external staff record an invite was created from', async () => {
+    mocks.inviteRow.mockResolvedValue({ data: { ...INVITE, external_staff_id: 'ext-1' }, error: null })
+
+    const result = await completeForcedPasswordChange(VALID_INPUT)
+
+    expect(result).toEqual({ success: true })
+    expect(mocks.externalStaffUpdatePayload).toHaveBeenCalledWith({
+      status: 'onboarded',
+      linked_profile_id: USER_ID,
+      email: 'owner@example.com',
+    })
+    expect(mocks.externalStaffUpdateFilters).toHaveBeenCalledWith({ id: 'ext-1', clinic_id: 'clinic-1' })
+  })
+
+  it('leaves external staff records alone for an ordinary invite', async () => {
+    await completeForcedPasswordChange(VALID_INPUT)
+
+    expect(mocks.externalStaffUpdatePayload).not.toHaveBeenCalled()
   })
 
   it('sets the password, clears the flag, and accepts the pending invite with name sync', async () => {

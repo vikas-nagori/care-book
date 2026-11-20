@@ -9,8 +9,9 @@ import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
-  buildInviteRedirectTo,
+  closeRevokedInviteeAccount,
   getInviteErrorMessage,
+  provisionInviteeAccount,
   syncInvitedProfile,
 } from '@/lib/onboarding/invite-server'
 import {
@@ -32,6 +33,7 @@ import type {
   CreateUserInviteResult,
   DeleteAppointmentTypeResult,
   DeletePackageTemplateResult,
+  IssueInviteTempPasswordResult,
   ManageUserInviteInput,
   ManageUserInviteResult,
   PackageTemplateResult,
@@ -564,7 +566,6 @@ export async function createUserInvite(
 
     const adminSupabase = createAdminClient()
     const email = validation.values.email
-    const redirectTo = await buildInviteRedirectTo()
     const clinicId = profile.clinic_id
     if (!clinicId) {
       return {
@@ -663,21 +664,23 @@ export async function createUserInvite(
       }
     }
 
-    const { data: inviteUserData, error: inviteUserError } =
-      await adminSupabase.auth.admin.inviteUserByEmail(email, {
-        redirectTo,
-        data: { role: validation.values.role },
-      })
+    // No invite email (they were not reliably arriving): the invitee gets a one-time temporary
+    // password that the admin shares directly, and must set their own on first login.
+    const account = await provisionInviteeAccount(adminSupabase, {
+      email,
+      existingAuthUserId:
+        collision === 'reuse_revoked_invite' ? existingInvite?.auth_user_id ?? null : null,
+    })
 
-    if (inviteUserError) {
-      logger.error('settings/createUserInvite/inviteUserByEmail', inviteUserError, {
+    if (account.error) {
+      logger.error('settings/createUserInvite/provisionAccount', account.error, {
         email,
         role: validation.values.role,
       })
       return {
         success: false,
-        errorCode: inviteUserError.code ?? 'INVITE_CREATE_FAILED',
-        message: getInviteErrorMessage(inviteUserError),
+        errorCode: account.error.code ?? 'INVITE_CREATE_FAILED',
+        message: getInviteErrorMessage(account.error),
       }
     }
 
@@ -691,7 +694,7 @@ export async function createUserInvite(
       // sources the profile's name and mobile from this record.
       full_name: validation.values.fullName,
       mobile_number: validation.values.mobileNumber,
-      auth_user_id: inviteUserData.user?.id ?? existingInvite?.auth_user_id ?? null,
+      auth_user_id: account.authUserId,
       external_staff_id: externalStaffId,
       invited_by: profile.id,
       accepted_at: null,
@@ -717,24 +720,22 @@ export async function createUserInvite(
     // Same reason as the clinic-owner path: the auth user already exists, so the
     // on_auth_user_created trigger has written a placeholder profile with no clinic. Attach it
     // to this clinic now instead of waiting for the invite to be accepted.
-    if (invitePayload.auth_user_id) {
-      const { error: profileSyncError } = await syncInvitedProfile(adminSupabase, {
-        authUserId: invitePayload.auth_user_id,
-        clinicId,
+    const { error: profileSyncError } = await syncInvitedProfile(adminSupabase, {
+      authUserId: account.authUserId,
+      clinicId,
+      email,
+      role: validation.values.role,
+    })
+
+    if (profileSyncError) {
+      logger.error('settings/createUserInvite/syncProfile', profileSyncError, {
         email,
         role: validation.values.role,
       })
-
-      if (profileSyncError) {
-        logger.error('settings/createUserInvite/syncProfile', profileSyncError, {
-          email,
-          role: validation.values.role,
-        })
-        return {
-          success: false,
-          errorCode: profileSyncError.code ?? 'INVITE_PROFILE_SYNC_FAILED',
-          message: 'Invite email was sent, but saving the user profile failed.',
-        }
+      return {
+        success: false,
+        errorCode: profileSyncError.code ?? 'INVITE_PROFILE_SYNC_FAILED',
+        message: 'The account was created, but saving the user profile failed.',
       }
     }
 
@@ -748,7 +749,7 @@ export async function createUserInvite(
       return {
         success: false,
         errorCode: inviteSaveError?.code ?? 'INVITE_CREATE_FAILED',
-        message: 'Invite email was sent, but saving the invite record failed.',
+        message: 'The account was created, but saving the invite record failed.',
       }
     }
 
@@ -773,6 +774,7 @@ export async function createUserInvite(
     return {
       success: true,
       invite: invite as UserInvite,
+      credentials: { email, tempPassword: account.tempPassword },
     }
   } catch (error) {
     logger.error('settings/createUserInvite/unexpected', error, input)
@@ -868,16 +870,16 @@ export async function createExternalStaff(
   }
 }
 
-export async function resendUserInvite(
+export async function issueInviteTempPassword(
   input: ManageUserInviteInput
-): Promise<ManageUserInviteResult> {
+): Promise<IssueInviteTempPasswordResult> {
   try {
     const profile = await requireAdminSettingsAccess()
     if (!profile) {
       return {
         success: false,
         errorCode: 'INVITE_UNAUTHORIZED',
-        message: 'Only admins can resend invites.',
+        message: 'Only admins can issue temporary passwords.',
       }
     }
 
@@ -885,7 +887,7 @@ export async function resendUserInvite(
       return {
         success: false,
         errorCode: 'INVITE_ID_REQUIRED',
-        message: 'Choose an invite to resend.',
+        message: 'Choose an invite.',
       }
     }
 
@@ -898,7 +900,7 @@ export async function resendUserInvite(
       .maybeSingle()
 
     if (inviteError) {
-      logger.error('settings/resendUserInvite/lookup', inviteError, { inviteId: input.inviteId })
+      logger.error('settings/issueInviteTempPassword/lookup', inviteError, { inviteId: input.inviteId })
       return {
         success: false,
         errorCode: inviteError.code ?? 'INVITE_LOOKUP_FAILED',
@@ -906,70 +908,76 @@ export async function resendUserInvite(
       }
     }
 
+    // Pending means the invitee has never set their own password, so re-issuing cannot clobber
+    // one. Accepted users change or reset their own password instead.
     if (!invite || invite.status !== 'pending') {
       return {
         success: false,
         errorCode: 'INVITE_NOT_PENDING',
-        message: 'Only pending invites can be resent.',
+        message: 'Only pending invites can get a new temporary password.',
       }
     }
 
-    const redirectTo = await buildInviteRedirectTo()
-    const serverAuthClient = createServerAuthClient()
-    const { error: resendError } = await serverAuthClient.auth.resend({
-      type: 'signup',
+    let authUserId: string | null = invite.auth_user_id
+    if (!authUserId) {
+      const { data: invitedProfile } = await adminSupabase
+        .from('profiles')
+        .select('id')
+        .eq('email', invite.email)
+        .maybeSingle()
+      authUserId = invitedProfile?.id ?? null
+    }
+
+    // An invite with no auth identity yet gets one created now.
+    const account = await provisionInviteeAccount(adminSupabase, {
       email: invite.email,
-      options: {
-        emailRedirectTo: redirectTo,
-      },
+      existingAuthUserId: authUserId,
     })
 
-    if (resendError) {
-      logger.warn(
-        'settings/resendUserInvite/resendFallback',
-        'Signup resend failed, retrying with inviteUserByEmail.',
-        {
-          inviteId: invite.id,
-          email: invite.email,
-          errorCode: resendError.code,
-        }
-      )
+    if (account.error) {
+      logger.error('settings/issueInviteTempPassword/provisionAccount', account.error, {
+        inviteId: invite.id,
+      })
+      return {
+        success: false,
+        errorCode: account.error.code ?? 'INVITE_TEMP_PASSWORD_FAILED',
+        message: getInviteErrorMessage(account.error),
+      }
+    }
 
-      const { error: inviteUserError } = await adminSupabase.auth.admin.inviteUserByEmail(
-        invite.email,
-        {
-          redirectTo,
-          data: { role: invite.role },
-        }
-      )
-
-      if (inviteUserError) {
-        logger.error('settings/resendUserInvite/inviteUserByEmail', inviteUserError, {
+    if (!authUserId) {
+      const { error: profileSyncError } = await syncInvitedProfile(adminSupabase, {
+        authUserId: account.authUserId,
+        clinicId: invite.clinic_id,
+        email: invite.email,
+        role: invite.role,
+      })
+      if (profileSyncError) {
+        logger.error('settings/issueInviteTempPassword/syncProfile', profileSyncError, {
           inviteId: invite.id,
-          email: invite.email,
         })
         return {
           success: false,
-          errorCode: inviteUserError.code ?? resendError.code ?? 'INVITE_RESEND_FAILED',
-          message: getInviteErrorMessage(inviteUserError),
+          errorCode: profileSyncError.code ?? 'INVITE_PROFILE_SYNC_FAILED',
+          message: 'The account was created, but saving the user profile failed.',
         }
       }
     }
 
     const { data: updatedInvite, error: updateError } = await adminSupabase
       .from('user_invites')
-      .update({ updated_at: new Date().toISOString() })
+      .update({ auth_user_id: account.authUserId, updated_at: new Date().toISOString() })
       .eq('id', invite.id)
       .eq('clinic_id', profile.clinic_id)
       .select('*')
       .single()
 
     if (updateError || !updatedInvite) {
-      logger.error('settings/resendUserInvite/update', updateError, { inviteId: invite.id })
+      logger.error('settings/issueInviteTempPassword/update', updateError, { inviteId: invite.id })
       return {
         success: false,
-        errorCode: updateError?.code ?? 'INVITE_RESEND_FAILED',
-        message: 'Invite email was sent, but the invite record could not be refreshed.',
+        errorCode: updateError?.code ?? 'INVITE_TEMP_PASSWORD_FAILED',
+        message: 'The password was reset, but the invite record could not be refreshed.',
       }
     }
 
@@ -978,12 +986,13 @@ export async function resendUserInvite(
     return {
       success: true,
       invite: updatedInvite as UserInvite,
+      credentials: { email: invite.email, tempPassword: account.tempPassword },
     }
   } catch (error) {
-    logger.error('settings/resendUserInvite/unexpected', error, input)
+    logger.error('settings/issueInviteTempPassword/unexpected', error, input)
     return {
       success: false,
-      errorCode: 'INVITE_RESEND_FAILED',
+      errorCode: 'INVITE_TEMP_PASSWORD_FAILED',
       message: getInviteErrorMessage(error),
     }
   }
@@ -1011,6 +1020,49 @@ export async function revokeUserInvite(
     }
 
     const adminSupabase = createAdminClient()
+    const { data: pendingInvite, error: lookupError } = await adminSupabase
+      .from('user_invites')
+      .select('id, auth_user_id')
+      .eq('id', input.inviteId)
+      .eq('clinic_id', profile.clinic_id)
+      .eq('status', 'pending')
+      .maybeSingle()
+
+    if (lookupError) {
+      logger.error('settings/revokeUserInvite/lookup', lookupError, { inviteId: input.inviteId })
+      return {
+        success: false,
+        errorCode: lookupError.code ?? 'INVITE_REVOKE_FAILED',
+        message: 'Unable to revoke this invite right now.',
+      }
+    }
+
+    if (!pendingInvite) {
+      return {
+        success: false,
+        errorCode: 'INVITE_NOT_PENDING',
+        message: 'Only pending invites can be revoked.',
+      }
+    }
+
+    // The invitee may already hold a working temporary password, so flipping the status alone
+    // would leave them a live clinic account. Close it first: if that fails the invite stays
+    // pending, so the admin can simply revoke again.
+    if (pendingInvite.auth_user_id) {
+      const { error: closeError } = await closeRevokedInviteeAccount(
+        adminSupabase,
+        pendingInvite.auth_user_id
+      )
+      if (closeError) {
+        logger.error('settings/revokeUserInvite/closeAccount', closeError, { inviteId: pendingInvite.id })
+        return {
+          success: false,
+          errorCode: closeError.code ?? 'INVITE_REVOKE_FAILED',
+          message: 'Unable to block this account right now. Try revoking again.',
+        }
+      }
+    }
+
     const now = new Date().toISOString()
     const { data: invite, error } = await adminSupabase
       .from('user_invites')
@@ -1019,7 +1071,7 @@ export async function revokeUserInvite(
         revoked_at: now,
         updated_at: now,
       })
-      .eq('id', input.inviteId)
+      .eq('id', pendingInvite.id)
       .eq('clinic_id', profile.clinic_id)
       .eq('status', 'pending')
       .select('*')

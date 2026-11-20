@@ -71,7 +71,7 @@ export function ClinicOnboardingForm() {
         {submitted ? (
           <div className="space-y-4 text-center">
             <p className="text-sm text-muted-foreground">
-              Your request has been submitted for review. If approved, the clinic owner will receive an invite email.
+              Your request has been submitted for review. If approved, the Care-Book team will share the owner’s sign-in details directly.
             </p>
             <Button asChild className="w-full">
               <Link href="/login">Back to sign in</Link>

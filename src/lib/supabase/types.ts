@@ -527,9 +527,12 @@ export type ManageClinicOnboardingRequestInput = {
 
 export type OwnerCredentials = {
   email: string
-  /** Shown once to the platform admin; never persisted or logged. */
+  /** Shown once to the admin who issued it; never persisted or logged. */
   tempPassword: string
 }
+
+/** A one-time temporary password for any invitee, clinic owner or clinic user alike. */
+export type TempPasswordCredentials = OwnerCredentials
 
 export type ManageClinicOnboardingRequestResult =
   | {
@@ -557,6 +560,7 @@ export type CreateUserInviteResult =
   | {
       success: true
       invite: UserInvite
+      credentials: TempPasswordCredentials
     }
   | ActionErrorResult
 
@@ -570,6 +574,8 @@ export type ManageUserInviteResult =
       invite: UserInvite
     }
   | ActionErrorResult
+
+export type IssueInviteTempPasswordResult = CreateUserInviteResult
 
 export type CompleteInvitedSignupInput = {
   password: string

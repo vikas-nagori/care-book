@@ -15,8 +15,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { TempPasswordDialog } from '@/components/onboarding/temp-password-dialog'
 import { useToast } from '@/hooks/use-toast'
-import type { ExternalStaff, UserInvite } from '@/lib/supabase/types'
+import type { ExternalStaff, TempPasswordCredentials, UserInvite } from '@/lib/supabase/types'
 import { createExternalStaff, createUserInvite } from './actions'
 
 function normalizeEmail(email: string) {
@@ -46,6 +47,7 @@ export function ExternalStaffList({
   const [busyStaffId, setBusyStaffId] = useState<string | null>(null)
   const [emailsByStaffId, setEmailsByStaffId] = useState<Record<string, string>>({})
   const [creating, setCreating] = useState(false)
+  const [credentials, setCredentials] = useState<TempPasswordCredentials | null>(null)
   const [newStaff, setNewStaff] = useState({
     name: '',
     phone: '',
@@ -66,7 +68,7 @@ export function ExternalStaffList({
     if (!email) {
       toast({
         title: 'Email required',
-        description: 'Enter an email address before sending the invite.',
+        description: 'Enter an email address before creating a login.',
         variant: 'destructive',
       })
       return
@@ -83,7 +85,7 @@ export function ExternalStaffList({
 
     if (!result.success) {
       toast({
-        title: 'Invite not sent',
+        title: 'Login not created',
         description: result.message,
         variant: 'destructive',
       })
@@ -92,9 +94,10 @@ export function ExternalStaffList({
     }
 
     toast({
-      title: 'Invite sent',
-      description: `${staff.name} can finish onboarding from the email link.`,
+      title: 'Login created',
+      description: `Share the temporary password with ${staff.name}.`,
     })
+    setCredentials(result.credentials)
     router.refresh()
     setBusyStaffId(null)
   }
@@ -125,6 +128,7 @@ export function ExternalStaffList({
 
   const setupContent = (
     <>
+      <TempPasswordDialog credentials={credentials} onClose={() => setCredentials(null)} />
       {isSchemaMissing && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           Temporary Staff setup is pending. Apply migration{' '}
@@ -241,12 +245,12 @@ export function ExternalStaffList({
                         disabled={isBusy}
                         onClick={() => handleSendInvite(staff)}
                       >
-                        {isBusy ? 'Sending...' : 'Send invite'}
+                        {isBusy ? 'Creating...' : 'Create login'}
                       </Button>
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      {status === 'onboarded' ? 'Linked to user' : 'Invite sent'}
+                      {status === 'onboarded' ? 'Linked to user' : 'Invite pending'}
                     </p>
                   )}
                 </section>
@@ -321,11 +325,11 @@ export function ExternalStaffList({
                             disabled={isBusy}
                             onClick={() => handleSendInvite(staff)}
                           >
-                            {isBusy ? 'Sending...' : 'Send invite'}
+                            {isBusy ? 'Creating...' : 'Create login'}
                           </Button>
                         ) : (
                           <span className="text-xs text-muted-foreground">
-                            {status === 'onboarded' ? 'Linked to user' : 'Invite sent'}
+                            {status === 'onboarded' ? 'Linked to user' : 'Invite pending'}
                           </span>
                         )}
                       </TableCell>

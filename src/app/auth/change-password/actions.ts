@@ -131,6 +131,27 @@ export async function completeForcedPasswordChange(
           inviteId: invite.id,
         })
       }
+
+      // An invite sent from an external staff record links that record to the new login, as
+      // the legacy email-invite completion did.
+      if (invite.external_staff_id) {
+        const { error: externalStaffError } = await adminSupabase
+          .from('external_staff')
+          .update({
+            status: 'onboarded',
+            linked_profile_id: user.id,
+            email: normalizedEmail,
+          })
+          .eq('id', invite.external_staff_id)
+          .eq('clinic_id', invite.clinic_id)
+
+        if (externalStaffError) {
+          logger.warn('auth/changePassword/linkExternalStaff', externalStaffError, {
+            userId: user.id,
+            inviteId: invite.id,
+          })
+        }
+      }
     }
 
     return {

@@ -4,7 +4,6 @@ import test from 'node:test'
 import {
   INVITE_PASSWORD_MIN_LENGTH,
   INVITE_PASSWORD_POLICY_MESSAGE,
-  buildInviteRedirectUrl,
   getInviteCollisionResult,
   getInviteCompletionFieldErrorTarget,
   normalizeEmail,
@@ -200,13 +199,6 @@ test('normalizeSiteOrigin accepts configured https origins and removes trailing 
 test('normalizeSiteOrigin rejects paths and non-http protocols', () => {
   assert.equal(normalizeSiteOrigin('https://care-book.example.com/settings'), null)
   assert.equal(normalizeSiteOrigin('javascript:alert(1)'), null)
-})
-
-test('buildInviteRedirectUrl uses the canonical app origin', () => {
-  assert.equal(
-    buildInviteRedirectUrl('https://care-book.example.com'),
-    'https://care-book.example.com/auth/callback?next=%2Fauth%2Fcomplete-invite'
-  )
 })
 
 test('getInviteCollisionResult permits same-clinic revoked invites to be reused', () => {
