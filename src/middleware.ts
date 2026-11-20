@@ -1,6 +1,9 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { EXTERNAL_WORKSPACE_PATH, isExternalAuthPath, resolveExternalStaffRoute, resolveMiddlewareRole } from '@/lib/external/routing'
 import { logger } from '@/lib/logger'
+import type { UserRole } from '@/lib/supabase/types'
+import { isUserRole } from '@/lib/user-role'
 import { shouldLogAuthError } from '@/lib/auth-error-classification'
 import { isPlatformAdminEmail } from '@/lib/platform/access'
 import { resolveSuperadminRedirect } from '@/lib/platform/routing'
@@ -35,10 +38,21 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
-  function redirectWithCsp(url: URL) {
-    const response = NextResponse.redirect(url)
+  function applySessionHeaders(response: NextResponse) {
     response.headers.set('Content-Security-Policy', contentSecurityPolicy)
+    for (const cookie of supabaseResponse.cookies.getAll()) response.cookies.set(cookie)
     return response
+  }
+
+  function redirectWithCsp(url: URL) {
+    return applySessionHeaders(NextResponse.redirect(url))
+  }
+
+  function denyAccess() {
+    return applySessionHeaders(NextResponse.json(
+      { errorCode: 'FORBIDDEN', message: 'This area is unavailable for your account.' },
+      { status: 403, headers: { 'Cache-Control': 'private, no-store' } },
+    ))
   }
 
   let supabaseResponse = nextWithNonce()
@@ -102,6 +116,39 @@ export async function middleware(request: NextRequest) {
     }
 
     const isSuperadmin = isPlatformAdminEmail(user.email)
+    let profileRole: UserRole | null = null
+    let lookupFailed = false
+    if (!isExternalAuthPath(path)) {
+      const { data: profile, error } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+      if (error) {
+        lookupFailed = true
+        logger.error('middleware/profileRole', error, { path })
+      }
+      if (isUserRole(profile?.role)) profileRole = profile.role
+    }
+
+    // An empty profile read (blocked account, inactive clinic) gets the closed workspace routes;
+    // a failed read is a transient outage, so fail closed for everyone without misrouting.
+    const role = resolveMiddlewareRole({ role: profileRole, lookupFailed, isSuperadmin, path })
+    if (role === 'unavailable') {
+      return applySessionHeaders(NextResponse.json(
+        { errorCode: 'UNAVAILABLE', message: 'Care-Book is temporarily unavailable. Try again shortly.' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store', 'Retry-After': '5' } },
+      ))
+    }
+    const externalRoute = resolveExternalStaffRoute(role, path, request.method)
+    if (externalRoute === 'forbidden') return denyAccess()
+    if (externalRoute) {
+      const url = request.nextUrl.clone()
+      url.pathname = externalRoute
+      url.search = ''
+      return redirectWithCsp(url)
+    }
+
+    if (path === EXTERNAL_WORKSPACE_PATH && role === 'external_staff') {
+      supabaseResponse.headers.set('Cache-Control', 'private, no-store')
+      return supabaseResponse
+    }
 
     // Authenticated users shouldn't sit on /login — superadmins land in the
     // platform console, everyone else on the clinic dashboard.

@@ -286,3 +286,23 @@ test('getPasswordChangeFieldErrorTarget maps current-password errors and falls b
   assert.equal(getPasswordChangeFieldErrorTarget('INVITE_PASSWORD_MISMATCH'), 'passwordConfirmation')
   assert.equal(getPasswordChangeFieldErrorTarget('SOMETHING_ELSE'), null)
 })
+
+test('External Staff is a valid clinic invite role', () => {
+  const input = {
+    email: 'external@example.com',
+    role: 'external_staff' as const,
+    fullName: 'Asha Patel',
+    mobileNumber: '9876543210',
+  }
+  assert.deepEqual(validateInviteInput(input), { success: true, values: input })
+})
+
+test('invite input rejects roles outside the allowed clinic roles', () => {
+  const result = validateInviteInput({
+    email: 'external@example.com',
+    role: 'external' as never,
+    fullName: 'Asha Patel',
+    mobileNumber: '9876543210',
+  })
+  assert.equal(result.success, false)
+})

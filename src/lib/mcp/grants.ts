@@ -4,6 +4,7 @@ import type { McpScope } from '../supabase/types.ts'
 import { verifyCodeChallenge } from './pkce.ts'
 import { decryptSecret, encryptSecret } from './session-crypto.ts'
 import { generateToken, hashToken } from './tokens.ts'
+import { isActiveMcpProfile } from './access.ts'
 import { OAuthError } from './errors.ts'
 
 export { OAuthError } from './errors.ts'
@@ -42,6 +43,9 @@ export async function issueAuthorizationCode(input: {
   supabaseRefreshToken?: string | null
 }): Promise<string> {
   const supabase = createAdminClient()
+  if (!(await grantOwnerCanConnect(supabase, input.userId, input.clinicId))) {
+    throw new OAuthError('access_denied', 'This Care-Book account cannot connect apps.')
+  }
   const code = generateToken('code')
   const encrypted = input.supabaseRefreshToken ? encryptSecret(input.supabaseRefreshToken) : null
 
@@ -91,9 +95,15 @@ export async function redeemAuthorizationCode(input: {
     throw new OAuthError('invalid_grant', 'PKCE verification failed.')
   }
 
+  const userId = String(row.user_id)
+  const clinicId = String(row.clinic_id)
+  if (!(await grantOwnerCanConnect(supabase, userId, clinicId))) {
+    throw new OAuthError('invalid_grant', 'Authorization code is no longer valid.')
+  }
+
   return createGrant({
-    userId: String(row.user_id),
-    clinicId: String(row.clinic_id),
+    userId,
+    clinicId,
     clientId: String(row.client_id),
     scopes: row.scopes as McpScope[],
     resource: String(row.resource),
@@ -146,7 +156,7 @@ export async function refreshGrant(input: {
     .is('revoked_at', null)
     .or(`refresh_expires_at.is.null,refresh_expires_at.gt.${new Date().toISOString()}`)
     .maybeSingle()
-  if (!current || !(await grantOwnerIsActive(supabase, current.user_id, current.clinic_id))) {
+  if (!current || !(await grantOwnerCanConnect(supabase, current.user_id, current.clinic_id))) {
     if (current) await supabase.from('mcp_access_grants').update({ revoked_at: new Date().toISOString() }).eq('id', current.id)
     throw new OAuthError('invalid_grant', 'Unknown, expired or revoked refresh token.')
   }
@@ -187,7 +197,7 @@ export async function resolveBearer(token: string): Promise<ResolvedGrant | null
   if (grant.resource !== mcpResourceUrl()) return null
 
   const { data: user } = await supabase.auth.admin.getUserById(grant.user_id)
-  if (!user?.user?.email || !(await grantOwnerIsActive(supabase, grant.user_id, grant.clinic_id))) {
+  if (!user?.user?.email || !(await grantOwnerCanConnect(supabase, grant.user_id, grant.clinic_id))) {
     await supabase.from('mcp_access_grants').update({ revoked_at: new Date().toISOString() }).eq('id', grant.id)
     return null
   }
@@ -207,12 +217,12 @@ export async function resolveBearer(token: string): Promise<ResolvedGrant | null
   }
 }
 
-async function grantOwnerIsActive(supabase: ReturnType<typeof createAdminClient>, userId: string, clinicId: string) {
+async function grantOwnerCanConnect(supabase: ReturnType<typeof createAdminClient>, userId: string, clinicId: string) {
   const [{ data: profile }, { data: clinic }] = await Promise.all([
-    supabase.from('profiles').select('clinic_id, status').eq('id', userId).maybeSingle(),
+    supabase.from('profiles').select('clinic_id, status, role').eq('id', userId).maybeSingle(),
     supabase.from('clinics').select('status').eq('id', clinicId).maybeSingle(),
   ])
-  return profile?.status === 'active' && profile.clinic_id === clinicId && clinic?.status === 'active'
+  return profile?.clinic_id === clinicId && isActiveMcpProfile(profile) && clinic?.status === 'active'
 }
 
 export async function revokeByToken(token: string): Promise<void> {

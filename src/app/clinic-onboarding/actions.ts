@@ -1,6 +1,7 @@
 'use server'
 
 import { headers } from 'next/headers'
+import { getCurrentProfile } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import {
   buildClinicOnboardingFingerprint,
@@ -27,6 +28,15 @@ export async function createClinicOnboardingRequest(
   input: CreateClinicOnboardingRequestInput
 ): Promise<CreateClinicOnboardingRequestResult> {
   try {
+    const profile = await getCurrentProfile()
+    if (profile?.role === 'external_staff') {
+      return {
+        success: false,
+        errorCode: 'CLINIC_ONBOARDING_FORBIDDEN',
+        message: 'Clinic onboarding is unavailable for your account.',
+      }
+    }
+
     const validation = validateClinicOnboardingInput(input)
     if (!validation.success) {
       return {

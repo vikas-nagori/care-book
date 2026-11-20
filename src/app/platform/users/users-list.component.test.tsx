@@ -59,7 +59,7 @@ describe('UsersList', () => {
       />
     )
 
-    expect(screen.getByText('admin')).toBeTruthy()
+    expect(screen.getByText('Admin')).toBeTruthy()
     expect(screen.getByText('invite pending')).toBeTruthy()
   })
 })

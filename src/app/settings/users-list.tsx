@@ -1,5 +1,7 @@
 'use client'
 
+import { USER_ROLE_LABELS } from '@/lib/user-role'
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -37,7 +39,7 @@ export function UsersList({
                 {profile.full_name?.trim() || 'Not added yet'}
               </p>
               <Badge className="shrink-0" variant={profile.role === 'admin' ? 'default' : 'secondary'}>
-                {profile.role}
+                {USER_ROLE_LABELS[profile.role]}
               </Badge>
             </div>
             <div className="space-y-0.5 text-xs text-muted-foreground">
@@ -77,7 +79,7 @@ export function UsersList({
                     <TableCell>{profile.mobile_number?.trim() || 'Not added yet'}</TableCell>
                     <TableCell>
                       <Badge variant={profile.role === 'admin' ? 'default' : 'secondary'}>
-                        {profile.role}
+                        {USER_ROLE_LABELS[profile.role]}
                       </Badge>
                     </TableCell>
                   </TableRow>

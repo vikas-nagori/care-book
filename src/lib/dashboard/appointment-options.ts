@@ -1,4 +1,5 @@
 import { getRestrictedUiAccess } from '../access/restricted-visibility.ts'
+import { evaluateRoleAccess } from '../auth-access.ts'
 import type {
   AppointmentAssigneeOption,
   AppointmentType,
@@ -57,6 +58,7 @@ type QueryResult = {
 export type AppointmentOptionsQuery = PromiseLike<QueryResult> & {
   select(columns: string): AppointmentOptionsQuery
   eq(column: string, value: unknown): AppointmentOptionsQuery
+  in(column: string, values: string[]): AppointmentOptionsQuery
   order(column: string): AppointmentOptionsQuery
 }
 
@@ -99,7 +101,7 @@ export async function loadDashboardAppointmentOptions(
 ): Promise<DashboardAppointmentOptionsResult> {
   try {
     const profile = await dependencies.getCurrentProfile()
-    if (!profile || profile.status !== 'active') {
+    if (!profile || evaluateRoleAccess(profile, ['admin', 'staff']) !== 'authorized') {
       return {
         ok: false,
         code: 'unauthorized',
@@ -121,6 +123,7 @@ export async function loadDashboardAppointmentOptions(
         .from('profiles')
         .select('id, full_name, email, role')
         .eq('status', 'active')
+        .in('role', ['admin', 'staff'])
         .order('full_name'),
       client
         .from('external_staff')

@@ -10,7 +10,8 @@ export async function POST(request: Request) {
   if (!request.headers.get('content-type')?.startsWith('application/json')) return new Response(null, { status: 415 })
   const profile = await getCurrentProfile()
   if (!profile) return new Response(null, { status: 401 })
-  if (evaluateRoleAccess(profile, ['admin', 'staff']) !== 'authorized') return new Response(null, { status: 403 })
+  // External Staff share the app error boundary; reports are parsed to a fixed non-clinical shape.
+  if (evaluateRoleAccess(profile, ['admin', 'staff', 'external_staff']) !== 'authorized') return new Response(null, { status: 403 })
   let body: unknown
   try {
     const text = await request.text()

@@ -1,3 +1,4 @@
+import { EXTERNAL_WORKSPACE_PATH } from '@/lib/external/routing'
 import { getCurrentProfile } from '@/lib/auth'
 import { normalizeEmail } from '@/lib/onboarding/invite-helpers'
 import { redirect } from 'next/navigation'
@@ -26,6 +27,7 @@ async function loadConnectedApps(): Promise<ConnectedMcpApp[]> {
 
 export default async function SettingsPage() {
   const currentProfile = await getCurrentProfile()
+  if (currentProfile?.role === 'external_staff') redirect(EXTERNAL_WORKSPACE_PATH)
   const accessLevel = getSettingsAccessLevel(currentProfile)
 
   if (accessLevel === 'unauthenticated' || !currentProfile) {

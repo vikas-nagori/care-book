@@ -1,6 +1,6 @@
 import { SEED } from './ids.ts'
 
-export type RouteAccessGroup = 'shared' | 'admin' | 'platform' | 'public'
+export type RouteAccessGroup = 'shared' | 'admin' | 'platform' | 'public' | 'external'
 
 export type RouteLandmark = {
   kind: 'heading' | 'button' | 'text'
@@ -25,6 +25,12 @@ export type PageRouteDeclaration = {
 }
 
 export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
+  {
+    pattern: '/external',
+    access: 'external',
+    owner: 'e2e/external/coordination.spec.ts',
+    cases: [{ requestPath: '/external', expected: { kind: 'render', pathname: '/external' }, landmark: { kind: 'text', name: 'My Calendar' } }],
+  },
   {
     pattern: '/',
     access: 'shared',

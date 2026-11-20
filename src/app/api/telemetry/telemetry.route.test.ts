@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-const auth = vi.hoisted(() => ({ profile: null as null | { id: string; clinic_id: string; role: 'admin' | 'staff'; status: string; clinic: { status: string } } }))
+const auth = vi.hoisted(() => ({ profile: null as null | { id: string; clinic_id: string; role: 'admin' | 'staff' | 'external_staff'; status: string; clinic: { status: string } } }))
 vi.mock('@/lib/auth', () => ({ getCurrentProfile: async () => auth.profile }))
 import { POST } from './route'
 const correlationId = '00000000-0000-4000-8000-000000000001'
@@ -70,4 +70,9 @@ it('separates the booking stage budget from legacy failures and rejects malforme
   auth.profile!.id = crypto.randomUUID()
   expect((await POST(request({ ...booking, durationMs: -1 }))).status).toBe(400)
   expect((await POST(request({ ...booking, phase: 'private detail' }))).status).toBe(400)
+})
+it('accepts the same bounded reports from External Staff, whose workspace shares the app error boundary', async () => {
+  auth.profile!.role = 'external_staff'
+  expect((await POST(request({ operation: 'App/errorBoundary', correlationId }))).status).toBe(204)
+  expect(JSON.stringify(vi.mocked(console.error).mock.calls)).toContain('client/App/errorBoundary')
 })

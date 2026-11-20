@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { isActiveMcpProfile } from '@/lib/mcp/access'
 import { getCurrentProfile } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
@@ -65,7 +66,7 @@ export async function logoutFromSettings(): Promise<void> {
 export async function revokeConnectedMcpApp(formData: FormData): Promise<void> {
   const profile = await getCurrentProfile()
   const grantId = String(formData.get('grant_id') ?? '')
-  if (!profile || !grantId) return
+  if (!isActiveMcpProfile(profile) || !grantId) return
   const { error } = await (await createClient())
     .from('mcp_access_grants')
     .update({ revoked_at: new Date().toISOString() })
@@ -552,10 +553,18 @@ export async function createUserInvite(
       }
     }
 
+    const externalStaffId = input.externalStaffId || null
+    if (externalStaffId && validation.values.role === 'external_staff') {
+      return {
+        success: false,
+        errorCode: 'INVITE_INVALID_INPUT',
+        message: 'Invite External Staff from Invite User without linking a Temporary Staff record.',
+      }
+    }
+
     const adminSupabase = createAdminClient()
     const email = validation.values.email
     const redirectTo = await buildInviteRedirectTo()
-    const externalStaffId = input.externalStaffId || null
     const clinicId = profile.clinic_id
     if (!clinicId) {
       return {
@@ -581,7 +590,7 @@ export async function createUserInvite(
         return {
           success: false,
           errorCode: externalStaffLookupError.code ?? 'INVITE_EXTERNAL_STAFF_LOOKUP_FAILED',
-          message: 'Unable to check the external staff record right now.',
+          message: 'Unable to check the temporary staff record right now.',
         }
       }
 
@@ -589,7 +598,7 @@ export async function createUserInvite(
         return {
           success: false,
           errorCode: 'INVITE_EXTERNAL_STAFF_NOT_FOUND',
-          message: 'Choose an external staff record from your clinic.',
+          message: 'Choose a temporary staff record from your clinic.',
         }
       }
     }
@@ -784,7 +793,7 @@ export async function createExternalStaff(
       return {
         success: false,
         errorCode: 'EXTERNAL_STAFF_UNAUTHORIZED',
-        message: 'Only admins can create external staff.',
+        message: 'Only admins can add temporary staff.',
       }
     }
 
@@ -797,7 +806,7 @@ export async function createExternalStaff(
       return {
         success: false,
         errorCode: 'EXTERNAL_STAFF_MISSING_NAME',
-        message: 'Enter the external staff name.',
+        message: 'Enter the temporary staff member’s name.',
       }
     }
 
@@ -805,7 +814,7 @@ export async function createExternalStaff(
       return {
         success: false,
         errorCode: 'EXTERNAL_STAFF_MISSING_PHONE',
-        message: 'Enter the external staff phone number.',
+        message: 'Enter the temporary staff member’s phone number.',
       }
     }
 
@@ -829,14 +838,14 @@ export async function createExternalStaff(
         return {
           success: false,
           errorCode: 'EXTERNAL_STAFF_SCHEMA_MISSING',
-          message: 'External Staff setup is pending. Apply migration 017_external_staff_payment_due.sql first.',
+          message: 'Temporary Staff setup is pending. Apply migration 017_external_staff_payment_due.sql first.',
         }
       }
 
       return {
         success: false,
         errorCode: error?.code ?? 'EXTERNAL_STAFF_CREATE_FAILED',
-        message: error?.message ?? 'Unable to create external staff right now.',
+        message: error?.message ?? 'Unable to add temporary staff right now.',
       }
     }
 
@@ -854,7 +863,7 @@ export async function createExternalStaff(
     return {
       success: false,
       errorCode: 'EXTERNAL_STAFF_CREATE_FAILED',
-      message: 'Unable to create external staff right now.',
+      message: 'Unable to add temporary staff right now.',
     }
   }
 }

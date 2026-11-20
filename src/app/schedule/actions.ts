@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getCurrentProfile } from '@/lib/auth'
 import { logger } from '@/lib/logger'
+import { EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE, isExternalAssignmentAccessError } from '@/lib/appointments/assignment'
 import { createClient } from '@/lib/supabase/server'
 
 // --- Types ---
@@ -20,6 +21,7 @@ export type UpdateAppointmentInput = {
   fee: number | null
   assignedTo?: string | null
   externalStaffId?: string | null
+  externalProfileId?: string | null
   notes: string | null
 }
 
@@ -80,6 +82,13 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
       return { success: false, errorCode: 'SCHEDULE_UNAUTHORIZED', message: 'You are not allowed to manage appointments.' }
     }
 
+    if (input.externalProfileId && profile.role !== 'admin') {
+      return { success: false, errorCode: 'SCHEDULE_UNAUTHORIZED', message: 'Only admins can assign appointments to External Staff.' }
+    }
+    if (input.externalProfileId && (input.assignedTo || input.externalStaffId)) {
+      return { success: false, errorCode: 'SCHEDULE_INVALID_ASSIGNMENT', message: 'Choose one assignee for this appointment.' }
+    }
+
     if (!input.appointmentId || !input.date || !input.time) {
       return { success: false, errorCode: 'SCHEDULE_MISSING_FIELDS', message: 'Appointment ID, date, and time are required.' }
     }
@@ -97,12 +106,18 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
         fee: input.fee,
         assigned_to: input.assignedTo || null,
         external_staff_id: input.externalStaffId || null,
+        ...(input.externalProfileId !== undefined || input.assignedTo || input.externalStaffId
+          ? { external_profile_id: input.externalProfileId || null }
+          : {}),
         notes: input.notes || null,
       })
       .eq('id', input.appointmentId)
 
     if (error) {
       logger.error('schedule/updateAppointment', error, { appointmentId: input.appointmentId })
+      if (isExternalAssignmentAccessError(error)) {
+        return { success: false, errorCode: 'EXTERNAL_ASSIGNMENT_UNAVAILABLE', message: EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE }
+      }
       return { success: false, errorCode: 'APPOINTMENT_UPDATE_FAILED', message: error.message }
     }
 

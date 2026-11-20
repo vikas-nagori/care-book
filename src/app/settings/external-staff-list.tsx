@@ -106,7 +106,7 @@ export function ExternalStaffList({
     const result = await createExternalStaff(newStaff)
     if (!result.success) {
       toast({
-        title: 'External staff not added',
+        title: 'Temporary staff not added',
         description: result.message,
         variant: 'destructive',
       })
@@ -115,7 +115,7 @@ export function ExternalStaffList({
     }
 
     toast({
-      title: 'External staff added',
+      title: 'Temporary staff added',
       description: `${result.externalStaff.name} is now available for appointment assignment.`,
     })
     setNewStaff({ name: '', phone: '', email: '' })
@@ -127,7 +127,7 @@ export function ExternalStaffList({
     <>
       {isSchemaMissing && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          External Staff setup is pending. Apply migration{' '}
+          Temporary Staff setup is pending. Apply migration{' '}
           <span className="font-mono">supabase/migrations/017_external_staff_payment_due.sql</span>{' '}
           to enable creation and appointment assignment.
         </div>
@@ -161,7 +161,7 @@ export function ExternalStaffList({
           <Label htmlFor={emailId}>Email</Label>
           <Input
             id={emailId}
-            aria-label="External staff email"
+            aria-label="Temporary staff email"
             type="email"
             value={newStaff.email}
             onChange={(event) => setNewStaff((current) => ({ ...current, email: event.target.value }))}
@@ -174,7 +174,7 @@ export function ExternalStaffList({
             className={variant === 'sheet' ? 'h-11 w-full' : undefined}
             disabled={creating || isSchemaMissing}
           >
-            {creating ? 'Adding...' : 'Add External Staff'}
+            {creating ? 'Adding...' : 'Add Temporary Staff'}
           </Button>
         </div>
       </form>
@@ -182,7 +182,7 @@ export function ExternalStaffList({
   )
 
   const emptyState = (
-    <p className="text-sm text-muted-foreground">No external staff have been added yet.</p>
+    <p className="text-sm text-muted-foreground">No temporary staff have been added yet.</p>
   )
 
   if (variant === 'sheet') {
@@ -261,7 +261,7 @@ export function ExternalStaffList({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">External Staff</CardTitle>
+        <CardTitle className="text-base">Temporary Staff</CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
         {setupContent}

@@ -1,4 +1,5 @@
 import { getCurrentProfile } from '@/lib/auth'
+import type { ExternalProfileOption } from '@/lib/appointments/assignment'
 import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { getAppointmentVisibilityFilter } from '@/lib/access/appointment-visibility'
 import { createClient } from '@/lib/supabase/server'
@@ -16,7 +17,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
   let appointmentQuery = access.canViewPaymentSignals
     ? supabase
         .from('appointments')
-        .select('id, clinic_id, patient_id, date, time, duration_minutes, type, appointment_type_id, type_is_shared, status, payment_status, fee, notes, created_by, assigned_to, external_staff_id, created_at, patient:patients(id, name, phone, address, medical_history, notes), external_staff:external_staff(id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at)')
+        .select('id, clinic_id, patient_id, date, time, duration_minutes, type, appointment_type_id, type_is_shared, status, payment_status, fee, notes, created_by, assigned_to, external_staff_id, external_profile_id, external_profile:profiles!appointments_external_profile_id_fkey(id, full_name, email), created_at, patient:patients(id, name, phone, address, medical_history, notes), external_staff:external_staff(id, clinic_id, name, phone, email, notes, status, linked_profile_id, created_by, created_at, updated_at)')
         .eq('id', id)
     : supabase
         .from('appointments')
@@ -34,6 +35,9 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
 
   const normalizedAppointment = {
     ...appointment,
+    external_profile: 'external_profile' in appointment
+      ? ((Array.isArray(appointment.external_profile) ? appointment.external_profile[0] : appointment.external_profile) ?? null) as ExternalProfileOption | null
+      : null,
     patient: Array.isArray(appointment.patient)
       ? (appointment.patient[0] ?? null)
       : (appointment.patient ?? null),
@@ -65,6 +69,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
       .from('profiles')
       .select('id, full_name, email, role')
       .eq('status', 'active')
+      .in('role', ['admin', 'staff'])
       .order('full_name'),
     supabase
       .from('external_staff')

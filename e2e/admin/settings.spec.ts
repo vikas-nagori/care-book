@@ -83,7 +83,7 @@ test('creates, edits, and deletes a package template', async ({ page, factory })
   await guards.assertClean()
 })
 
-test('creates external staff without sending an invite', async ({ page, factory }) => {
+test('creates temporary staff without sending an invite', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const name = factory.uniqueName('external-staff')
   const phone = stablePhone(name)

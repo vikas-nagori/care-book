@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { validateInviteInput } from '@/lib/onboarding/invite-helpers'
+import { USER_ROLE_LABELS } from '@/lib/user-role'
 import type { UserRole } from '@/lib/supabase/types'
 import { createUserInvite } from './actions'
 
@@ -116,8 +117,9 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
                 <SelectValue placeholder="Choose a role" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="staff">Staff</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="staff">{USER_ROLE_LABELS.staff}</SelectItem>
+                <SelectItem value="external_staff">{USER_ROLE_LABELS.external_staff}</SelectItem>
+                <SelectItem value="admin">{USER_ROLE_LABELS.admin}</SelectItem>
               </SelectContent>
             </Select>
           </div>

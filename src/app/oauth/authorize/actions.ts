@@ -1,6 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { isActiveMcpProfile } from '@/lib/mcp/access'
 import { getCurrentProfile } from '@/lib/auth'
 import { findClient } from '@/lib/mcp/clients'
 import { mcpResourceUrl, parseScopes } from '@/lib/mcp/config'
@@ -10,7 +11,10 @@ import type { McpScope } from '@/lib/supabase/types'
 
 export async function approveConsent(formData: FormData) {
   const profile = await getCurrentProfile()
-  if (!profile?.clinic_id || profile.status !== 'active') redirect('/login')
+  if (!profile?.clinic_id) redirect('/login')
+  if (!isActiveMcpProfile(profile)) {
+    throw new OAuthError('access_denied', 'This Care-Book account cannot connect apps.')
+  }
 
   const clientId = String(formData.get('client_id') ?? '')
   const redirectUri = String(formData.get('redirect_uri') ?? '')
@@ -47,6 +51,11 @@ export async function approveConsent(formData: FormData) {
 }
 
 export async function denyConsent(formData: FormData) {
+  const profile = await getCurrentProfile()
+  if (!isActiveMcpProfile(profile)) {
+    throw new OAuthError('access_denied', 'This Care-Book account cannot connect apps.')
+  }
+
   const redirectUri = String(formData.get('redirect_uri') ?? '')
   const state = formData.get('state') ? String(formData.get('state')) : null
   const clientId = String(formData.get('client_id') ?? '')

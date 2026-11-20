@@ -2,7 +2,7 @@
 // auth users are created-or-found by email. The pretest script and Playwright setup project may
 // both run it safely (see e2e/setup/global.setup.ts).
 
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { adminClient } from './supabase-admin.ts'
 import {
   ADMIN,
@@ -10,6 +10,7 @@ import {
   CLINIC_A,
   CLINIC_B,
   CLINIC_B_ADMIN,
+  EXTERNAL,
   PASSWORD,
   STAFF2,
   type Account,
@@ -95,6 +96,56 @@ async function seedPatients(db: SupabaseClient) {
   ]
   const { error } = await db.from('patients').upsert(rows, { onConflict: 'id' })
   if (error) throw new Error(`seed patients: ${error.message}`)
+}
+
+async function seedExternalCoordination(db: SupabaseClient, accountIds: Map<string, string>) {
+  const externalId = accountIds.get(EXTERNAL.slug)!
+  const { error } = await db.from('patients').upsert({
+    id: SEED.patientExternal,
+    clinic_id: CLINIC_A.id,
+    name: 'Leela Shared Patient',
+    phone: '9876500010',
+    email: 'leela@example.test',
+    dob: '1990-03-10',
+    gender: 'female',
+    address: '10 Example Lane',
+    medical_history: 'PRIVATE_CLINICAL_SENTINEL',
+    notes: 'PRIVATE_PATIENT_NOTES_SENTINEL',
+  }, { onConflict: 'id' })
+  if (error) throw new Error(`seed external patient: ${error.message}`)
+
+  // The management RPC requires an actual active clinic admin, even in disposable fixtures.
+  const actor = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  const login = await actor.auth.signInWithPassword({ email: ADMIN.email, password: PASSWORD })
+  if (login.error) throw new Error(`seed external admin login: ${login.error.message}`)
+  try {
+    const grants = await actor.rpc('replace_patient_external_access', {
+      p_patient_id: SEED.patientExternal, p_profile_ids: [externalId],
+    })
+    if (grants.error) throw new Error(`seed external access: ${grants.error.message}`)
+    const typeId = await appointmentTypeId(db, CLINIC_A.id, true)
+    const booking = await actor.from('appointments').upsert({
+      id: SEED.appointmentExternal,
+      clinic_id: CLINIC_A.id,
+      patient_id: SEED.patientExternal,
+      date: clinicDate(),
+      time: '11:15',
+      duration_minutes: 45,
+      appointment_type_id: typeId,
+      type: 'Clinic',
+      status: 'scheduled',
+      fee: 800,
+      notes: 'PRIVATE_APPOINTMENT_NOTES_SENTINEL',
+      external_profile_id: externalId,
+      assigned_to: null,
+      external_staff_id: null,
+    }, { onConflict: 'id' })
+    if (booking.error) throw new Error(`seed external appointment: ${booking.error.message}`)
+  } finally {
+    await actor.auth.signOut({ scope: 'local' })
+  }
 }
 
 async function seedPackage(db: SupabaseClient) {
@@ -313,6 +364,7 @@ export async function seedDatabase(): Promise<void> {
   await seedPackage(db)
   await seedPackageTemplate(db)
   await seedAppointments(db, accountIds)
+  await seedExternalCoordination(db, accountIds)
   await seedPayment(db)
   await seedPendingOnboardingRequest(db)
 }

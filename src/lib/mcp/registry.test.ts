@@ -43,3 +43,8 @@ test('findTool resolves by exact name only', () => {
   assert.equal(registry.findTool('r')?.name, 'r')
   assert.equal(registry.findTool('R'), undefined)
 })
+
+test('External Staff cannot list or dispatch tools with an existing grant', () => {
+  const registry = createRegistry(defs)
+  assert.deepEqual(registry.visibleTools(grant(['read', 'write:clinical', 'write:billing']), { role: 'external_staff' }), [])
+})

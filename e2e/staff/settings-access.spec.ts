@@ -7,7 +7,7 @@ const ADMIN_SECTION_LABELS = [
   'Appointment Types',
   'Package Templates',
   'Invite User',
-  'External Staff',
+  'Temporary Staff',
   'Invites',
   'Active Users',
 ] as const

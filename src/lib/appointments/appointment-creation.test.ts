@@ -28,6 +28,7 @@ test('builds one scheduled appointment when recurrence is disabled', () => {
       fee: 800,
       assigned_to: 'staff-1',
       external_staff_id: null,
+      external_profile_id: null,
       notes: 'Continue exercises',
     },
   ])

@@ -87,6 +87,7 @@ export type Appointment = {
   created_by: string | null
   assigned_to: string | null
   external_staff_id: string | null
+  external_profile_id?: string | null
   created_at: string
   patient?: Patient
   creator?: Profile | null
@@ -233,7 +234,7 @@ export type PackageSessionAllocation = {
   created_at: string
 }
 
-export type UserRole = 'admin' | 'staff'
+export type UserRole = 'admin' | 'staff' | 'external_staff'
 
 export type McpScope = 'read' | 'write:clinical' | 'write:billing'
 

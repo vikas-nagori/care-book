@@ -83,6 +83,13 @@ export function buildDatabaseThrough(dbName: string, lastMigration?: string): vo
   ])
 }
 
+/** Apply one named migration for a differential test of that specific upgrade. */
+export function applyMigration(dbName: string, migration: string): void {
+  const file = migrationFiles().find((candidate) => candidate.split('/').at(-1) === migration)
+  if (!file) throw new Error(`migration not found: ${migration}`)
+  applyFiles(dbName, [file])
+}
+
 /** Apply migrations strictly after the supplied filename to an already-built database. */
 export function applyMigrationsAfter(dbName: string, migration: string): void {
   const migrations = migrationFiles()

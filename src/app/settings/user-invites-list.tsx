@@ -1,5 +1,7 @@
 'use client'
 
+import { USER_ROLE_LABELS } from '@/lib/user-role'
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
@@ -113,7 +115,7 @@ export function UserInvitesList({
                 </Badge>
               </div>
               <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                <Badge variant={invite.role === 'admin' ? 'default' : 'secondary'}>{invite.role}</Badge>
+                <Badge variant={invite.role === 'admin' ? 'default' : 'secondary'}>{USER_ROLE_LABELS[invite.role]}</Badge>
                 <span className="text-right">{dateLabel}</span>
               </div>
               {invite.status === 'pending' && (
@@ -174,7 +176,7 @@ export function UserInvitesList({
                       <TableCell className="font-medium">{invite.email}</TableCell>
                       <TableCell>
                         <Badge variant={invite.role === 'admin' ? 'default' : 'secondary'}>
-                          {invite.role}
+                          {USER_ROLE_LABELS[invite.role]}
                         </Badge>
                       </TableCell>
                       <TableCell>

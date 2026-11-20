@@ -1,7 +1,8 @@
+import type { UserRole } from '../supabase/types'
+import { isUserRole } from '../user-role.ts'
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 export const DEFAULT_INVITE_NEXT_PATH = '/auth/complete-invite'
-
-type InviteRole = 'admin' | 'staff'
 
 type ValidationFailure = {
   success: false
@@ -16,7 +17,7 @@ type ValidationSuccess<T> = {
 
 export type InviteInput = {
   email: string
-  role: InviteRole
+  role: UserRole
   fullName: string
   mobileNumber: string
 }
@@ -136,6 +137,14 @@ export function validateInviteInput(
       success: false,
       errorCode: 'INVITE_INVALID_EMAIL',
       message: 'Enter a valid email address.',
+    }
+  }
+
+  if (!isUserRole(input.role)) {
+    return {
+      success: false,
+      errorCode: 'INVITE_INVALID_ROLE',
+      message: 'Choose a valid role.',
     }
   }
 

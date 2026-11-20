@@ -26,7 +26,7 @@ test('getAccountSummaryItems returns the expected read-only account fields', () 
     { label: 'Name', value: 'Asha Patel' },
     { label: 'Email', value: 'admin@example.com' },
     { label: 'Mobile', value: '9876543210' },
-    { label: 'Role', value: 'admin' },
+    { label: 'Role', value: 'Admin' },
   ])
 })
 
@@ -41,6 +41,6 @@ test('getAccountSummaryItems falls back when optional profile details are missin
     { label: 'Name', value: 'Not added yet' },
     { label: 'Email', value: 'admin@example.com' },
     { label: 'Mobile', value: 'Not added yet' },
-    { label: 'Role', value: 'admin' },
+    { label: 'Role', value: 'Admin' },
   ])
 })

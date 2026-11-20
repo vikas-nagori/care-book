@@ -58,12 +58,13 @@ function adminClient() {
   })
 }
 
-function invite(role: 'admin' | 'staff') {
+function invite(role: 'admin' | 'staff' | 'external_staff', externalStaffId?: string) {
   return createUserInvite({
     email: 'New.User@Example.com',
     fullName: 'New User',
     mobileNumber: '9999999999',
     role,
+    externalStaffId,
   })
 }
 
@@ -105,6 +106,24 @@ describe('createUserInvite', () => {
       expect.objectContaining({ clinic_id: CLINIC_ID, role: 'admin' }),
       { onConflict: 'id' }
     )
+  })
+
+  it('persists the restricted role on both a new External Staff profile and its invite', async () => {
+    expect((await invite('external_staff')).success).toBe(true)
+    expect(mocks.profileUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ clinic_id: CLINIC_ID, role: 'external_staff' }),
+      { onConflict: 'id' }
+    )
+    expect(mocks.inviteInsertPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'external_staff', external_staff_id: null })
+    )
+  })
+
+  it('rejects combining an External Staff invite with a Temporary Staff record', async () => {
+    expect(await invite('external_staff', 'temporary-1')).toEqual(
+      expect.objectContaining({ success: false, errorCode: 'INVITE_INVALID_INPUT' })
+    )
+    expect(mocks.inviteUserByEmail).not.toHaveBeenCalled()
   })
 
   it('records the captured name and mobile on the invite so acceptance can use them', async () => {

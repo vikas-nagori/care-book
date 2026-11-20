@@ -30,6 +30,7 @@ export default async function NewAppointmentPage({
       .from('profiles')
       .select('id, full_name, email, role')
       .eq('status', 'active')
+      .in('role', ['admin', 'staff'])
       .order('full_name'),
     supabase
       .from('external_staff')
