@@ -101,7 +101,7 @@ For external appointment creation:
 4. Accept only patient, type, date, time, duration and an idempotency reference. Validate bounds server-side; reject unknown or sensitive fields.
 5. Resolve the session rate internally for admin billing; never accept or return a financial field from/to the external user. Preserve billing triggers and the clinic ledger's normal appointment lifecycle.
 6. Create a scheduled booking assigned to self. A retried request returns the same safe booking only if the actor, access and booking intent still match. It must not create a second booking after an uncertain response.
-7. Return only the safe appointment projection. Conflict and validation errors must not expose other patient names, booking details, rates, database internals or clinical notes. Whether hidden bookings may make a time unavailable is the open decision below.
+7. Return only the safe appointment projection. Check booking conflicts only against the current external account's visible appointments. Hidden appointments must not block creation or affect the response; admins resolve resulting overlaps. Conflict and validation errors must not expose other patient names, booking details, rates, database internals or clinical notes.
 
 Review existing security-definer functions and views for alternate access paths. Verify new-role denial on patients, appointments, treatment plans, session notes, doctors/referrals, reminders, settings/rates, payment/package tables, financial views and other users' profiles. Keep self account/password functionality available.
 
@@ -136,9 +136,9 @@ Proposed defaults for review: Temporary Staff is the legacy feature's label; exi
 
 UI composition, function names, pagination strategy and small component boundaries are left to the implementer, within the required contracts and existing project conventions. Preserve user-timezone handling and clinic-date storage semantics.
 
-### Open decision from the independent design review
+### Confirmed booking-conflict decision
 
-The existing booking service rejects bookings for the same patient/date/time. For External Staff, decide whether to keep that check across hidden appointments, returning only a generic time-unavailable response, or check only the external account's visible bookings. The former prevents duplicate slots but discloses availability; the latter conceals other bookings completely but can create overlaps for the admin to resolve. This question has been sent to the user; do not implement either assumption until answered.
+On 21 November 2026 the user chose: “Check only their own appointments; let the admin resolve hidden overlaps.” For External Staff, apply the existing same-patient/date/time conflict rule only to appointments visible to that external account. A hidden appointment belonging to an internal practitioner or another external account must not affect booking acceptance, error messages or the returned projection. Allow that overlap; both bookings remain visible to the admin. Keep existing admin/internal Staff booking behavior unchanged, and keep retry/idempotency protection separate from conflict detection.
 
 ## Verification and rollout
 
@@ -149,6 +149,7 @@ Write failing integration tests before modifying policies/functions. Exercise re
 - Admin-only multi-select management; multiple grants; atomic rejection of invalid lists; immediate subsequent-read denial after removal.
 - External-created booking visible to its assignee and admins only; identical behavior for an admin-created external assignment and for normally shared appointment types.
 - External A cannot see External B's appointments for the same shared patient; internal Staff cannot read external appointments or their session notes.
+- A hidden same-patient/date/time booking does not prevent an external booking or change its response; both bookings appear for the admin. A conflicting visible appointment assigned to that external account is rejected without exposing any hidden booking.
 - External booking rejects unshared patients, cross-clinic types/IDs, forged actors/assignees, financial input, blocked/deleted profiles and inactive clinics.
 - Grant revocation and booking do not race into an unauthorized appointment; retrying a booking does not duplicate it.
 - Admin/internal Staff behavior, Temporary Staff records, existing onboarding and the admin-only patient-delete restriction remain intact.
