@@ -28,6 +28,8 @@ create table if not exists auth.users (
 );
 
 grant usage on schema auth to supabase_auth_admin;
+-- Supabase grants schema usage to the API roles too (auth.uid() is called from their own SQL).
+grant usage on schema auth to anon, authenticated, service_role;
 grant select, update, delete on auth.users to supabase_auth_admin;
 
 -- auth.uid() / auth.role() mirror Supabase by reading the request JWT claims from session GUCs.

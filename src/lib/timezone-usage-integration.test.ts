@@ -50,7 +50,7 @@ test('patient flows use the browser date default and preserve date-only calendar
   const appointmentDetail = source('src/app/schedule/[id]/appointment-detail.tsx')
   const billingView = source('src/app/billing/billing-view.tsx')
 
-  assert.match(patientPage, /const userTimeZone = await getUserTimeZone\(\)/)
+  assert.match(patientPage, /\[currentProfile, supabase, userTimeZone\] = await Promise\.all\(\[getCurrentProfile\(\), createClient\(\), getUserTimeZone\(\)\]\)/)
   assert.match(patientPage, /const defaultDate = getZonedDate\(new Date\(\), userTimeZone\)/)
   assert.match(patientPage, /defaultDate=\{defaultDate\}/)
   assert.match(patientDetail, /defaultDate: string/)

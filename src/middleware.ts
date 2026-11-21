@@ -13,6 +13,18 @@ import {
   needsForcedPasswordChange,
 } from '@/lib/security/forced-password-change'
 
+/** Supabase stores the session in `sb-<ref>-auth-token` cookies (chunked as `.0`, `.1`, …). */
+function isSessionCookie({ name }: { name: string }) {
+  return name.startsWith('sb-') && name.includes('-auth-token')
+}
+
+function hasSessionCookie(request: NextRequest) {
+  return request.cookies.getAll().some(isSessionCookie)
+}
+
+/** @supabase/ssr's own defaults, so a re-issued cookie is identical apart from its fresh expiry. */
+const SESSION_COOKIE_OPTIONS = { path: '/', sameSite: 'lax', httpOnly: false, maxAge: 400 * 24 * 60 * 60 } as const
+
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
 
@@ -76,7 +88,15 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  // The role read keys on the request's own token (auth.uid()), so it runs alongside the session
+  // check instead of after it: one Supabase round trip per request rather than two. It is only
+  // used once getUser() has confirmed the same token belongs to a live session.
+  const [{ data: { user }, error: authError }, roleRead] = await Promise.all([
+    supabase.auth.getUser(),
+    isExternalAuthPath(path) || !hasSessionCookie(request)
+      ? Promise.resolve(null)
+      : Promise.resolve(supabase.rpc('current_profile_role')).catch(() => null),
+  ])
   if (shouldLogAuthError(authError)) logger.error('middleware/getUser', authError, { path })
 
   const isPublicRoute =
@@ -100,6 +120,16 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user) {
+    // Keep phones signed in across app kills and long gaps: on a full page load (every cold start),
+    // re-issue the live session cookies from the server with their normal 400-day lifetime. Safari
+    // shortens cookies written by page scripts — which is how the browser client stores a token it
+    // refreshed itself — so this makes sure the longest-lived copy is the one the phone keeps.
+    if (request.headers.get('sec-fetch-dest') === 'document' && !supabaseResponse.cookies.getAll().some(isSessionCookie)) {
+      for (const cookie of request.cookies.getAll().filter(isSessionCookie)) {
+        supabaseResponse.cookies.set(cookie.name, cookie.value, SESSION_COOKIE_OPTIONS)
+      }
+    }
+
     // Accounts issued a temporary password must set their own before touching anything else.
     // /auth/* stays reachable (the change page itself, the callback, complete-invite).
     if (needsForcedPasswordChange(user.app_metadata, path)) {
@@ -119,12 +149,17 @@ export async function middleware(request: NextRequest) {
     let profileRole: UserRole | null = null
     let lookupFailed = false
     if (!isExternalAuthPath(path)) {
-      const { data: profile, error } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
-      if (error) {
-        lookupFailed = true
-        logger.error('middleware/profileRole', error, { path })
+      if (roleRead && !roleRead.error) {
+        if (isUserRole(roleRead.data)) profileRole = roleRead.data
+      } else {
+        // No parallel read (function not deployed yet, transient error): the original lookup.
+        const { data: profile, error } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+        if (error) {
+          lookupFailed = true
+          logger.error('middleware/profileRole', error, { path })
+        }
+        if (isUserRole(profile?.role)) profileRole = profile.role
       }
-      if (isUserRole(profile?.role)) profileRole = profile.role
     }
 
     // An empty profile read (blocked account, inactive clinic) gets the closed workspace routes;

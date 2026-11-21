@@ -65,12 +65,14 @@ function statementRejected(error: DatabaseError) {
 function matchingPatient(actual: PatientRow, expected: PatientRow): boolean {
   return Object.entries(expected).every(([key, value]) => actual[key as keyof PatientRow] === value)
 }
-function matchingAppointment(actual: BookingRow, expected: BookingRow): boolean {
+function matchingAppointment(actual: BookingRow, expected: BookingRow, compareFee: boolean): boolean {
   // Status/payment fields can change after creation and are not part of the submitted intent.
+  // Staff bookings are priced by the database (patient's last fee for the type, else the type
+  // rate), so their stored fee is not part of what the client submitted either.
   return actual.id === expected.id && actual.clinic_id === expected.clinic_id && actual.created_by === expected.created_by &&
     actual.patient_id === expected.patient_id && actual.date === expected.date && actual.time.slice(0, 5) === expected.time &&
     actual.duration_minutes === expected.duration_minutes && actual.appointment_type_id === expected.appointment_type_id &&
-    actual.fee === expected.fee && actual.assigned_to === expected.assigned_to &&
+    (!compareFee || actual.fee === expected.fee) && actual.assigned_to === expected.assigned_to &&
     actual.external_staff_id === expected.external_staff_id &&
     actual.external_profile_id === expected.external_profile_id && actual.notes === expected.notes
 }
@@ -114,7 +116,7 @@ export async function executeBooking(request: BookingRequest, mode: 'create' | '
       if (existing.data.length === 0) return null
       if (existing.data.length !== rows.length) return mismatch(createdPatientId)
       const saved = new Map(existing.data.map(row => [row.id, row]))
-      if (!rows.every(row => saved.has(row.id) && matchingAppointment(saved.get(row.id)!, row))) return mismatch(createdPatientId)
+      if (!rows.every(row => saved.has(row.id) && matchingAppointment(saved.get(row.id)!, row, context.role !== 'staff'))) return mismatch(createdPatientId)
       if (patientRow) {
         const patient = await store.getPatient(patientId!)
         if (patient.error) return unconfirmed(createdPatientId)

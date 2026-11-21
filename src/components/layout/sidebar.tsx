@@ -2,28 +2,19 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Users, CalendarDays, Receipt, Settings } from 'lucide-react'
 import { BrandMark } from '@/components/brand/brand'
 import { shouldHideAppChrome } from '@/lib/layout/app-chrome'
 import { cn } from '@/lib/utils'
+import { clinicNavItems, EXTERNAL_NAV, isNavItemActive } from './nav-items'
 
-const navItems = [
-  { href: '/',         label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/schedule', label: 'Schedule',  icon: CalendarDays },
-  { href: '/patients', label: 'Patients',  icon: Users },
-  { href: '/billing',  label: 'Billing',   icon: Receipt },
-  { href: '/settings', label: 'Settings',  icon: Settings },
-]
 
-type SidebarProps = { canViewBilling: boolean }
+type SidebarProps = { canViewBilling?: boolean; variant?: 'clinic' | 'external' }
 
-export function Sidebar({ canViewBilling }: SidebarProps) {
+export function Sidebar({ canViewBilling = false, variant = 'clinic' }: SidebarProps) {
   const pathname = usePathname()
   if (shouldHideAppChrome(pathname)) return null
 
-  const visible = canViewBilling
-    ? navItems
-    : navItems.filter((item) => item.href !== '/billing')
+  const visible = variant === 'external' ? EXTERNAL_NAV : clinicNavItems(canViewBilling)
 
   return (
     <aside
@@ -44,7 +35,7 @@ export function Sidebar({ canViewBilling }: SidebarProps) {
             Care-Book
           </div>
           <div style={{ fontSize: 10.5, color: 'var(--ph-ink-4)', letterSpacing: '0.02em', marginTop: 1 }}>
-            Clinic workspace
+            {variant === 'external' ? 'External workspace' : 'Clinic workspace'}
           </div>
         </div>
       </div>
@@ -52,9 +43,7 @@ export function Sidebar({ canViewBilling }: SidebarProps) {
       {/* Nav */}
       <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {visible.map((item) => {
-          const isActive =
-            pathname === item.href ||
-            (item.href !== '/' && pathname.startsWith(item.href))
+          const isActive = isNavItemActive(item, pathname)
           return (
             <Link key={item.href} href={item.href} className={cn('ph-nav-link', isActive && 'active')}>
               <item.icon size={16} />

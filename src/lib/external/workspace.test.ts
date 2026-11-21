@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { getExternalCalendarDay, getClinicBookingSlot } from './calendar.ts'
-import { parseExternalBookingRequest, projectExternalAppointment, projectExternalWorkspace } from './workspace.ts'
+import {
+  parseExternalAppointmentUpdate, parseExternalBookingRequest, projectExternalAppointment, projectExternalWorkspace,
+} from './workspace.ts'
 
 const patient = {
   id: 'patient',
@@ -16,6 +18,7 @@ const appointment = {
   id: 'booking',
   patient_id: patient.id,
   patient_name: patient.name,
+  appointment_type_id: 'clinic',
   date: '2026-11-21',
   time: '08:15:00',
   duration_minutes: 30,
@@ -68,6 +71,36 @@ test('the booking payload retains a caller retry reference and rejects any unexp
   assert.equal(parseExternalBookingRequest({ ...request, fee: 1000 }), null)
   assert.equal(parseExternalBookingRequest({ ...request, date: '2026-02-30' }), null)
   assert.equal(parseExternalBookingRequest({ ...request, duration_minutes: 1441 }), null)
+})
+
+test('an appointment without its type id is malformed, since the reschedule form needs it', () => {
+  const withoutType: Record<string, unknown> = { ...appointment }
+  delete withoutType.appointment_type_id
+  assert.equal(projectExternalAppointment(withoutType), null)
+  assert.equal(projectExternalAppointment({ ...appointment, appointment_type_id: null }), null)
+})
+
+test('the update payload accepts a reschedule or a cancellation and rejects anything else', () => {
+  const update = {
+    id: '00000000-0000-4000-8000-000000000001',
+    appointment_type_id: '00000000-0000-4000-8000-000000000003',
+    date: '2026-11-21',
+    time: '09:15:00',
+    duration_minutes: 45,
+    status: 'scheduled',
+  }
+  assert.deepEqual(parseExternalAppointmentUpdate(update), update)
+  assert.deepEqual(parseExternalAppointmentUpdate({ ...update, status: 'cancelled' }), { ...update, status: 'cancelled' })
+  const missing: Record<string, unknown> = { ...update }
+  delete missing.status
+  for (const invalid of [
+    missing, { ...update, fee: 1000 }, { ...update, patient_id: update.id }, { ...update, status: 'completed' },
+    { ...update, id: 'booking' }, { ...update, appointment_type_id: 'clinic' }, { ...update, date: '2026-02-30' },
+    { ...update, time: '24:00' }, { ...update, time: '09:15:30' }, { ...update, duration_minutes: 0 },
+    { ...update, duration_minutes: 1441 }, { ...update, duration_minutes: '45' }, null, [update],
+  ]) {
+    assert.equal(parseExternalAppointmentUpdate(invalid), null)
+  }
 })
 
 test('a local calendar day queries both relevant clinic dates and filters adjoining bookings', () => {

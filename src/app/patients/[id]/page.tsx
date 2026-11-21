@@ -25,44 +25,11 @@ export default async function PatientPage({
   const appointmentPage = parseAppointmentPage(query.appointments_page)
   const appointmentRangeStart = (appointmentPage - 1) * APPOINTMENTS_PAGE_SIZE
   const appointmentRangeEnd = appointmentRangeStart + APPOINTMENTS_PAGE_SIZE - 1
-  const currentProfile = await getCurrentProfile()
+  const [currentProfile, supabase, userTimeZone] = await Promise.all([getCurrentProfile(), createClient(), getUserTimeZone()])
   const access = getRestrictedUiAccess(currentProfile)
   const adminClinicId = evaluateRoleAccess(currentProfile, ['admin']) === 'authorized' ? currentProfile?.clinic_id : null
   const appointmentVisibilityFilter = getAppointmentVisibilityFilter(currentProfile)
-  const supabase = await createClient()
-  const userTimeZone = await getUserTimeZone()
   const defaultDate = getZonedDate(new Date(), userTimeZone)
-
-  const { data: patient, error: patientError } = await supabase
-    .from('patients')
-    .select('*, referred_by_doctor:doctors(id, name, specialty, address)')
-    .eq('id', id)
-    .single()
-
-  if (patientError) logger.error('PatientPage/patient', patientError, { id: id })
-  if (!patient) notFound()
-
-  // Looked up separately rather than embedded: patients -> patients is a self-reference, and an
-  // embed hinted by its foreign key is ambiguous (it also reads as "patients this one referred"),
-  // which fails the whole patient query and 404s the page.
-  let referredByPatient: { id: string; name: string } | null = null
-  if (patient.referred_by_patient_id) {
-    const { data: referrer, error: referrerError } = await supabase
-      .from('patients')
-      .select('id, name')
-      .eq('id', patient.referred_by_patient_id)
-      .maybeSingle()
-    if (referrerError) logger.error('PatientPage/referrer', referrerError, { id: id })
-    referredByPatient = referrer ?? null
-  }
-
-  const normalizedPatient = {
-    ...patient,
-    referred_by_doctor: Array.isArray(patient.referred_by_doctor)
-      ? (patient.referred_by_doctor[0] ?? null)
-      : (patient.referred_by_doctor ?? null),
-    referred_by_patient: referredByPatient,
-  }
 
   let appointmentsQuery = supabase
     .from('appointments')
@@ -107,7 +74,9 @@ export default async function PatientPage({
       })
     : undefined
 
+  // The patient row loads alongside everything else; a missing patient still 404s below.
   const [
+    { data: patient, error: patientError },
     { data: appointments, error: appointmentsError, count: appointmentsCount },
     { error: activeCountError, count: appointmentsActiveCount },
     { data: treatmentPlans, error: treatmentPlansError },
@@ -117,6 +86,11 @@ export default async function PatientPage({
     { data: packageBalances, error: packageBalancesError },
     patientExternalAccess,
   ] = await Promise.all([
+    supabase
+      .from('patients')
+      .select('*, referred_by_doctor:doctors(id, name, specialty, address)')
+      .eq('id', id)
+      .single(),
     appointmentsQuery,
     activeCountQuery,
     supabase
@@ -146,6 +120,31 @@ export default async function PatientPage({
       : Promise.resolve({ data: [], error: null }),
     externalAccess,
   ])
+
+  if (patientError) logger.error('PatientPage/patient', patientError, { id: id })
+  if (!patient) notFound()
+
+  // Looked up separately rather than embedded: patients -> patients is a self-reference, and an
+  // embed hinted by its foreign key is ambiguous (it also reads as "patients this one referred"),
+  // which fails the whole patient query and 404s the page.
+  let referredByPatient: { id: string; name: string } | null = null
+  if (patient.referred_by_patient_id) {
+    const { data: referrer, error: referrerError } = await supabase
+      .from('patients')
+      .select('id, name')
+      .eq('id', patient.referred_by_patient_id)
+      .maybeSingle()
+    if (referrerError) logger.error('PatientPage/referrer', referrerError, { id: id })
+    referredByPatient = referrer ?? null
+  }
+
+  const normalizedPatient = {
+    ...patient,
+    referred_by_doctor: Array.isArray(patient.referred_by_doctor)
+      ? (patient.referred_by_doctor[0] ?? null)
+      : (patient.referred_by_doctor ?? null),
+    referred_by_patient: referredByPatient,
+  }
 
   if (appointmentsError) logger.error('PatientPage/appointments', appointmentsError, { id: id })
   if (activeCountError) logger.error('PatientPage/appointmentsActiveCount', activeCountError, { id: id })

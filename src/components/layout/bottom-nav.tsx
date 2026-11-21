@@ -2,27 +2,18 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Users, CalendarDays, Receipt, Settings } from 'lucide-react'
 import { shouldHideAppChrome } from '@/lib/layout/app-chrome'
 import { cn } from '@/lib/utils'
+import { clinicNavItems, EXTERNAL_NAV, isNavItemActive } from './nav-items'
 
-const navItems = [
-  { href: '/',         label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/schedule', label: 'Schedule',  icon: CalendarDays },
-  { href: '/patients', label: 'Patients',  icon: Users },
-  { href: '/billing',  label: 'Billing',   icon: Receipt },
-  { href: '/settings', label: 'Settings',  icon: Settings },
-]
 
-type BottomNavProps = { canViewBilling: boolean }
+type BottomNavProps = { canViewBilling?: boolean; variant?: 'clinic' | 'external' }
 
-export function BottomNav({ canViewBilling }: BottomNavProps) {
+export function BottomNav({ canViewBilling = false, variant = 'clinic' }: BottomNavProps) {
   const pathname = usePathname()
   if (shouldHideAppChrome(pathname)) return null
 
-  const visible = canViewBilling
-    ? navItems
-    : navItems.filter((item) => item.href !== '/billing')
+  const visible = variant === 'external' ? EXTERNAL_NAV : clinicNavItems(canViewBilling)
 
   return (
     <nav
@@ -35,9 +26,7 @@ export function BottomNav({ canViewBilling }: BottomNavProps) {
       }}
     >
       {visible.map((item) => {
-        const isActive =
-          pathname === item.href ||
-          (item.href !== '/' && pathname.startsWith(item.href))
+        const isActive = isNavItemActive(item, pathname)
         return (
           <Link
             key={item.href}

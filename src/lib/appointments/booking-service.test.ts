@@ -128,6 +128,19 @@ test('staff replay respects trigger-derived rate and shared assignment clearing'
   assert.deepEqual(await executeBooking(value, 'status', { ...actor, role: 'staff', store: memory.store }), result)
 })
 
+test("staff replay accepts the database's patient-history fee, admin replay does not", async () => {
+  for (const role of ['staff', 'admin'] as const) {
+    const memory = memoryStore()
+    const first = await executeBooking(request(), 'create', { ...actor, role, store: memory.store })
+    assert.equal(first.success, true)
+    // The staff payment trigger prices from the patient's last fee for the type, not the type rate.
+    for (const row of memory.appointments.values()) row.fee = 1200
+    const replay = await executeBooking(request(), 'status', { ...actor, role, store: memory.store })
+    if (role === 'staff') assert.deepEqual(replay, first)
+    else assert.equal(!replay.success && replay.errorCode, 'BOOKING_INTENT_MISMATCH')
+  }
+})
+
 test('separate attempts preserve patient-time conflicts and sanitize provider errors', async () => {
   const memory = memoryStore()
   assert.equal((await executeBooking(request(), 'create', { ...actor, store: memory.store })).success, true)
