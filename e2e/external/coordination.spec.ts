@@ -9,20 +9,79 @@ import { gotoNotFoundRoute } from '../support/assertions'
 
 test('external calendar and patient profile expose only explicitly shared coordination details', async ({ page }) => {
   await page.goto(`/external?date=${clinicDate()}`)
-  await expect(page.getByRole('link', { name: 'My Calendar', exact: true })).toBeVisible()
+  // Same chrome as clinic staff: sidebar on desktop, bottom bar on mobile, with only their pages.
+  const nav = (name: string) => page.getByRole('link', { name, exact: true }).filter({ visible: true })
+  await expect(nav('Schedule')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Schedule', exact: true }).filter({ visible: true })).toBeVisible()
   await expect(page.getByText('Leela Shared Patient', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Asha Rao', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Ravi Kumar', { exact: true })).toHaveCount(0)
+  await expect(page.locator('[data-today="true"]').filter({ visible: true }).first()).toBeVisible()
 
-  await page.getByRole('link', { name: 'Shared Patients', exact: true }).click()
-  await expect(page.getByText('Leela Shared Patient', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('leela@example.test', { exact: true })).toBeVisible()
-  await expect(page.getByText('10 Example Lane', { exact: true })).toBeVisible()
-  await expect(page.getByText('9876500010', { exact: true })).toBeVisible()
+  await nav('Patients').click()
+  await expect(page).toHaveURL(/\/external\/patients$/)
+  await page.getByPlaceholder('Search by name or phone…').fill('Leela')
+  await page.getByRole('button', { name: /Leela Shared Patient/ }).filter({ visible: true }).click()
+  const profile = page.getByRole('dialog', { name: 'Leela Shared Patient', exact: true })
+  await expect(profile.getByText('leela@example.test', { exact: true })).toBeVisible()
+  await expect(profile.getByText('10 Example Lane', { exact: true })).toBeVisible()
+  await expect(profile.getByText('9876500010', { exact: true })).toBeVisible()
   await expect(page.locator('body')).not.toContainText('PRIVATE_')
   await expect(page.getByRole('link', { name: 'Billing', exact: true })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Settings', exact: true })).toHaveCount(0)
   await page.screenshot({ path: `test-results/external-profile-${test.info().project.name}.png`, fullPage: true })
+})
+
+test('old workspace tab links land on the new pages', async ({ page }) => {
+  await page.goto('/external?tab=patients')
+  await expect(page).toHaveURL(/\/external\/patients$/)
+  await page.goto('/external?tab=account')
+  await expect(page).toHaveURL(/\/external\/account$/)
+  await expect(page.getByRole('heading', { name: 'Your account', exact: true })).toBeVisible()
+})
+
+test('external staff reschedule and then cancel their own upcoming appointment', async ({ page }) => {
+  const db = adminClient()
+  const { data: fixture, error: fixtureError } = await db.from('appointments')
+    .select('appointment_type_id').eq('id', SEED.appointmentExternal).single()
+  expect(fixtureError).toBeNull()
+  const mobile = test.info().project.name.includes('mobile')
+  const from = clinicDate(mobile ? 5 : 3), to = clinicDate(mobile ? 6 : 4)
+  // Booked the way External Staff book: as themselves, through the booking function.
+  const actor = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  const login = await actor.auth.signInWithPassword({ email: EXTERNAL.email, password: PASSWORD })
+  expect(login.error).toBeNull()
+  const booked = await actor.rpc('external_create_appointment', { p_request: {
+    id: randomUUID(), patient_id: SEED.patientExternal, appointment_type_id: fixture!.appointment_type_id,
+    date: from, time: '15:10', duration_minutes: 45,
+  } })
+  await actor.auth.signOut({ scope: 'local' })
+  expect(booked.error).toBeNull()
+  const id = (booked.data as { id: string }).id
+  try {
+    await page.goto(`/external?date=${from}`)
+    await page.getByRole('button', { name: /Leela Shared Patient/ }).filter({ visible: true }).first().click()
+    const dialog = page.getByRole('dialog', { name: 'Leela Shared Patient', exact: true })
+    await dialog.getByLabel('Date', { exact: true }).fill(to)
+    await dialog.getByLabel('Duration (minutes)', { exact: true }).fill('60')
+    await dialog.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+    await expect(page).toHaveURL(new RegExp(`date=${to}`))
+    const moved = await db.from('appointments').select('date, duration_minutes, status').eq('id', id).single()
+    expect(moved.data).toMatchObject({ date: to, duration_minutes: 60, status: 'scheduled' })
+
+    await page.getByRole('button', { name: /Leela Shared Patient/ }).filter({ visible: true }).first().click()
+    await dialog.getByRole('button', { name: 'Cancel appointment', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Cancel appointment', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+    const cancelled = await db.from('appointments').select('status').eq('id', id).single()
+    expect(cancelled.data?.status).toBe('cancelled')
+    await expect(page.locator('body')).not.toContainText('PRIVATE_')
+  } finally {
+    await db.from('appointments').delete().eq('id', id)
+  }
 })
 
 test('external accounts cannot open internal clinic routes', async ({ page }) => {
@@ -130,16 +189,17 @@ test('admin multi-select shares patient basics with a second external account an
     await expect(admin.getByText('Access saved.', { exact: true })).toBeVisible()
 
     const external = await externalContext.newPage()
-    await external.goto('/external?tab=patients')
-    await expect(external.getByText('Leela Shared Patient', { exact: true })).toBeVisible()
-    await expect(external.getByText('leela@example.test', { exact: true })).toBeVisible()
-    await external.getByRole('link', { name: 'My Calendar', exact: true }).click()
+    await external.goto('/external/patients')
+    await external.getByRole('button', { name: /Leela Shared Patient/ }).filter({ visible: true }).click()
+    await expect(external.getByRole('dialog', { name: 'Leela Shared Patient' }).getByText('leela@example.test', { exact: true })).toBeVisible()
+    await external.keyboard.press('Escape')
+    await external.getByRole('link', { name: 'Schedule', exact: true }).filter({ visible: true }).click()
     await expect(external.getByText('Leela Shared Patient', { exact: true })).toHaveCount(0)
 
     await second.uncheck()
     await admin.getByRole('button', { name: 'Save access', exact: true }).click()
     await expect(admin.getByText('Access saved.', { exact: true })).toBeVisible()
-    await external.goto('/external?tab=patients')
+    await external.goto('/external/patients')
     await expect(external.getByText('No patients have been shared', { exact: false })).toBeVisible()
     await expect(external.getByText('Leela Shared Patient', { exact: true })).toHaveCount(0)
     await admin.screenshot({ path: `test-results/admin-patient-sharing-${test.info().project.name}.png`, fullPage: true })

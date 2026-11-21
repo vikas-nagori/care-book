@@ -7,7 +7,7 @@ export type AppointmentFormData = {
   durationMinutes: string
   notes: string
   appointmentTypeName?: string
-  assignedStaffLabel?: string
+  assignedStaffLabel?: string | RegExp
 }
 
 export class AppointmentForm {

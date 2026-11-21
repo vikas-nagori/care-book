@@ -72,7 +72,9 @@ test('books a restricted appointment assigned to role-appropriate internal staff
   const assignee = await factory.findProfileByEmail(assigneeAccount.email)
   const date = clinicDate(75)
   const notes = factory.uniqueName('private-booking')
-  const assigneeLabel = `${assignee.full_name || assignee.email} · ${assignee.role}`
+  // Options read "<name> (<role>)"; the role tag's spacing differs between browsers.
+  const escaped = (assignee.full_name || assignee.email).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const assigneeLabel = new RegExp(`^${escaped}\\s*\\(${assignee.role === 'admin' ? 'Admin' : 'Staff'}\\)$`)
   factory.watchUiAppointments({ patientId: patient.id, notes })
 
   await page.goto('/schedule/new')

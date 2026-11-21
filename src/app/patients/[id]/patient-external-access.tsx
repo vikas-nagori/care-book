@@ -73,7 +73,7 @@ export function PatientExternalAccess({
       <CardHeader>
         <CardTitle>External Staff access</CardTitle>
         <CardDescription>
-          Share this patient’s contact details and let selected External Staff book their own appointments.
+          Share this patient’s contact details and let selected External Staff book their own appointments. Invited staff can be selected before they first sign in.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -108,7 +108,11 @@ export function PatientExternalAccess({
                   </div>
                 ) : <p className="text-sm text-muted-foreground">No matching accounts.</p>}
               </>
-            ) : <p className="text-sm text-muted-foreground">No active External Staff accounts.</p>}
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No External Staff yet. Add one from Settings → Invite User with the External Staff role, then share this patient here.
+              </p>
+            )}
             {hasUnavailableGrants && (
               <p className="text-sm text-muted-foreground">Saving removes grants for accounts that are no longer eligible.</p>
             )}

@@ -13,6 +13,7 @@ export type ExternalAppointment = {
   id: string
   patient_id: string
   patient_name: string
+  appointment_type_id: string
   date: string
   time: string
   duration_minutes: number
@@ -35,4 +36,14 @@ export type ExternalBookingRequest = {
   date: string
   time: string
   duration_minutes: number
+}
+
+/** Reschedule (status 'scheduled') or cancel (status 'cancelled', every other field unchanged). */
+export type ExternalAppointmentUpdate = {
+  id: string
+  appointment_type_id: string
+  date: string
+  time: string
+  duration_minutes: number
+  status: 'scheduled' | 'cancelled'
 }

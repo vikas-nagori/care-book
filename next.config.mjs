@@ -75,6 +75,18 @@ const securityHeaders = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The installed app compares this (inlined into the client bundle) with /api/version on resume
+  // and reloads once when a newer deployment is live.
+  env: {
+    NEXT_PUBLIC_APP_VERSION: process.env.VERCEL_GIT_COMMIT_SHA ?? 'dev',
+  },
+  experimental: {
+    // Revisiting a screen within a minute (switching tabs back and forth on the phone) reuses it
+    // instantly. Saves call revalidatePath/router.refresh, which clear this cache, and
+    // ResumeRefresh refreshes when the app returns after a minute away — so nothing another
+    // device changed is more than about a minute old on screen.
+    staleTimes: { dynamic: 60 },
+  },
   // PDFKit loads standard fonts through createRequire and package import maps.
   // Webpack's trace finds the ESM variants but misses the CommonJS runtime files.
   outputFileTracingIncludes: {

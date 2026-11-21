@@ -29,7 +29,19 @@ export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
     pattern: '/external',
     access: 'external',
     owner: 'e2e/external/coordination.spec.ts',
-    cases: [{ requestPath: '/external', expected: { kind: 'render', pathname: '/external' }, landmark: { kind: 'text', name: 'My Calendar' } }],
+    cases: [{ requestPath: '/external', expected: { kind: 'render', pathname: '/external' }, landmark: { kind: 'heading', name: 'Schedule' } }],
+  },
+  {
+    pattern: '/external/patients',
+    access: 'external',
+    owner: 'e2e/external/coordination.spec.ts',
+    cases: [{ requestPath: '/external/patients', expected: { kind: 'render', pathname: '/external/patients' }, landmark: { kind: 'heading', name: 'Patients' } }],
+  },
+  {
+    pattern: '/external/account',
+    access: 'external',
+    owner: 'e2e/external/coordination.spec.ts',
+    cases: [{ requestPath: '/external/account', expected: { kind: 'render', pathname: '/external/account' }, landmark: { kind: 'heading', name: 'Your account' } }],
   },
   {
     pattern: '/',

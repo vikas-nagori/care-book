@@ -32,7 +32,7 @@ import {
   parseStaffAssignmentValue,
   type ExternalProfileOption,
 } from '@/lib/appointments/assignment'
-import { getExternalAssigneeOptions } from './external-assignment-actions'
+import { getExternalAssigneeOptions } from './external-assignees'
 import { generateRecurringAppointmentDates } from '@/lib/appointments/recurrence'
 import { resolveAppointmentStatus } from '@/lib/appointments/appointment-creation'
 import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
@@ -91,6 +91,29 @@ function getAssigneeLabel(assignee: Pick<AppointmentAssigneeOption, 'full_name' 
   return assignee.full_name || assignee.email
 }
 
+const ASSIGNEE_TAGS = {
+  admin: { label: 'ADMIN', title: 'Admin' },
+  staff: { label: 'STF', title: 'Staff' },
+  temporary: { label: 'TEMP', title: 'Temporary Staff' },
+  external: { label: 'EXT', title: 'External Staff' },
+} as const
+
+function AssigneeTag({ kind }: { kind: keyof typeof ASSIGNEE_TAGS }) {
+  const tag = ASSIGNEE_TAGS[kind]
+  return (
+    <span
+      title={tag.title}
+      className={cn(
+        'ml-2 inline-flex items-center rounded px-1.5 py-px align-middle text-[10px] font-semibold leading-4 tracking-wide',
+        kind === 'external' ? 'bg-amber-100 text-amber-900' : 'bg-muted text-muted-foreground',
+      )}
+    >
+      <span aria-hidden="true">{tag.label}</span>
+      <span className="sr-only"> ({tag.title})</span>
+    </span>
+  )
+}
+
 export function AppointmentForm({
   patients,
   doctors = [],
@@ -140,12 +163,22 @@ export function AppointmentForm({
   const [fee, setFee] = useState<string>(
     canViewPaymentSignals ? appointment?.fee?.toString() || '' : '',
   )
+  // A fee the admin typed stays until they change the patient or type.
+  const feeTouched = useRef(false)
+  const [feeFromHistory, setFeeFromHistory] = useState(false)
   const [appointmentDate, setAppointmentDate] = useState(appointment?.date || defaultDate || '')
   const [repeatAppointment, setRepeatAppointment] = useState(false)
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([])
   const [totalSessions, setTotalSessions] = useState('10')
 
   const selectedType = appointmentTypes.find((type) => type.id === appointmentTypeId) ?? null
+
+  // New bookings of a restricted (non-shared) type default to whoever is booking.
+  function applyDefaultAssignee(type: DashboardAppointmentTypeOption) {
+    if (appointment || type.is_shared || !currentProfileId) return
+    setAssignedTo((current) => current || currentProfileId)
+    setStaffAssignment((current) => current === UNASSIGNED_ASSIGNEE_VALUE ? `internal:${currentProfileId}` : current)
+  }
   const isSharedType = selectedType?.is_shared ?? false
   const initialSelectedPatientId = appointment?.patient_id || defaultPatientId || ''
   const initialSelectedPatient = patients.find((patient) => patient.id === initialSelectedPatientId) ?? null
@@ -183,6 +216,42 @@ export function AppointmentForm({
       .then(setResult, () => setResult({ ok: false }))
     return () => { cancelled = true }
   }, [canManageExternalStaff, selectedPatientId, externalAssigneeAttempt])
+
+  // A different patient means a different price history: drop any typed fee and fall back to the
+  // type's rate until this patient's suggestion arrives.
+  const pricedPatientId = useRef(selectedPatientId)
+  useEffect(() => {
+    if (appointment || !canViewPaymentSignals || pricedPatientId.current === selectedPatientId) return
+    pricedPatientId.current = selectedPatientId
+    feeTouched.current = false
+    const type = appointmentTypes.find((candidate) => candidate.id === appointmentTypeId)
+    const rate = type ? getAppointmentTypeSessionRate(type) : null
+    setFee(rate === null ? '' : String(rate))
+  }, [selectedPatientId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Price new bookings like the server does for Staff and External Staff: this patient's last
+  // fee for the type, else the type's rate. Admins can still overwrite it.
+  useEffect(() => {
+    if (appointment || !canViewPaymentSignals || !selectedPatientId || !appointmentTypeId) {
+      setFeeFromHistory(false)
+      return
+    }
+    let cancelled = false
+    // A missing suggestion only leaves the type's rate in place, so failures stay silent.
+    void withBookingDeadline(Promise.resolve().then(() => createClient().rpc('suggest_appointment_fee', {
+      p_patient_id: selectedPatientId,
+      p_appointment_type_id: appointmentTypeId,
+    }))).then(({ data, error }) => {
+      if (cancelled || error || data === null || feeTouched.current) return
+      const suggested = Number(data)
+      if (!Number.isFinite(suggested) || suggested < 0) return
+      const type = appointmentTypes.find((candidate) => candidate.id === appointmentTypeId)
+      const rate = type ? getAppointmentTypeSessionRate(type) : null
+      setFee(String(suggested))
+      setFeeFromHistory(rate === null || suggested !== rate)
+    }, () => {})
+    return () => { cancelled = true }
+  }, [appointment, canViewPaymentSignals, selectedPatientId, appointmentTypeId, appointmentTypes])
 
   const filteredPatients = useMemo(
     () => filterAppointmentPatientOptions(patients, patientSearchQuery).slice(0, 8),
@@ -225,6 +294,7 @@ export function AppointmentForm({
         const def = defaultAppointmentType(initialAppointmentTypes)
         if (def) {
           setAppointmentTypeId(def.id)
+          applyDefaultAssignee(def)
           if (canViewPaymentSignals) {
             const rate = getAppointmentTypeSessionRate(def)
             setFee((current) => current || (rate === null ? '' : String(rate)))
@@ -251,6 +321,7 @@ export function AppointmentForm({
           const def = defaultAppointmentType(types)
           if (def) {
             setAppointmentTypeId(def.id)
+            applyDefaultAssignee(def)
             if (canViewPaymentSignals) {
               const rate = getAppointmentTypeSessionRate(def)
               setFee((current) => current || (rate === null ? '' : String(rate)))
@@ -288,6 +359,8 @@ export function AppointmentForm({
   // Update assignment + fee when the selected type changes
   function handleTypeChange(typeId: string) {
     setAppointmentTypeId(typeId)
+    feeTouched.current = false
+    setFeeFromHistory(false)
     const type = appointmentTypes.find((candidate) => candidate.id === typeId)
     const shared = type?.is_shared ?? false
 
@@ -878,7 +951,8 @@ export function AppointmentForm({
         </div>
       </div>
 
-      {selectedType && (!isSharedType || (canManageExternalStaff && selectedPatientId)) && (
+      {selectedType && (!isSharedType || (canManageExternalStaff && selectedPatientId &&
+        (externalAssignees.length > 0 || existingAssigneeUnavailable || selectedAssignment.externalProfileId))) && (
         <div className="space-y-2">
           <Label htmlFor="assigned_to">Assigned Staff</Label>
           <Select
@@ -892,12 +966,14 @@ export function AppointmentForm({
               <SelectItem value={UNASSIGNED_ASSIGNEE_VALUE}>Unassigned</SelectItem>
               {!isSharedType && assigneeOptions.filter((assignee) => assignee.role !== 'external_staff').map((assignee) => (
                 <SelectItem key={assignee.id} value={`internal:${assignee.id}`}>
-                  {getAssigneeLabel(assignee)} · {assignee.role}
+                  {getAssigneeLabel(assignee)}
+                  <AssigneeTag kind={assignee.role === 'admin' ? 'admin' : 'staff'} />
                 </SelectItem>
               ))}
               {!isSharedType && canManageExternalStaff && externalStaffOptions.map((staff) => (
                 <SelectItem key={staff.id} value={`external:${staff.id}`}>
-                  {staff.name} · Temporary Staff
+                  {staff.name}
+                  <AssigneeTag kind="temporary" />
                 </SelectItem>
               ))}
               {canManageExternalStaff && (externalAssignees.length > 0 || existingAssigneeUnavailable) && (
@@ -905,19 +981,21 @@ export function AppointmentForm({
                   <SelectLabel>External Staff</SelectLabel>
                   {externalAssignees.map((staff) => (
                     <SelectItem key={staff.id} value={`external-profile:${staff.id}`}>
-                      {getAssigneeLabel(staff)} · External Staff
+                      {getAssigneeLabel(staff)}
+                      <AssigneeTag kind="external" />
                     </SelectItem>
                   ))}
                   {existingAssigneeUnavailable && (
                     <SelectItem value={`external-profile:${existingExternalProfileId}`} disabled>
                       {existingExternalAssignee ? getAssigneeLabel(existingExternalAssignee) : 'External Staff'} · Existing assignment
+                      <AssigneeTag kind="external" />
                     </SelectItem>
                   )}
                 </SelectGroup>
               )}
             </SelectContent>
           </Select>
-          {canManageExternalStaff && selectedPatientId && (
+          {canManageExternalStaff && selectedPatientId && (!isSharedType || existingExternalProfileId || selectedAssignment.externalProfileId) && (
             externalAssigneeResult?.ok === false ? (
               <p className="text-xs text-muted-foreground" role="status">
                 Unable to load External Staff.{' '}
@@ -944,9 +1022,16 @@ export function AppointmentForm({
             min="0"
             step="0.01"
             value={fee}
-            onChange={(e) => setFee(e.target.value)}
+            onChange={(e) => {
+              feeTouched.current = true
+              setFeeFromHistory(false)
+              setFee(e.target.value)
+            }}
             placeholder="Auto-filled from type"
           />
+          {feeFromHistory && (
+            <p className="text-xs text-muted-foreground">From this patient’s last {selectedType?.name ?? ''} session.</p>
+          )}
         </div>
       )}
 

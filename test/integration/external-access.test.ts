@@ -86,20 +86,21 @@ test('atomic grants validate clinic, active role and invite status; only clinic 
   replace(admin, additional, [])
   for (const actor of [staff, a, otherAdmin]) assert.throws(() => replace(actor, p, []))
   assert.throws(() => replace(admin, other, [a]))
-  const pending = seedUser(DB, 'staff', clinic)
-  run(DB, `update profiles set role='external_staff' where id='${pending}';
-    insert into user_invites (clinic_id, email, role, invited_by, auth_user_id)
-    select clinic_id, email, role, '${admin}', id from profiles where id='${pending}'`)
+  // Pending (not yet signed-in) invitees became eligible in 20261121032844; revoked ones never are.
+  const revoked = seedUser(DB, 'staff', clinic)
+  run(DB, `update profiles set role='external_staff' where id='${revoked}';
+    insert into user_invites (clinic_id, email, role, status, invited_by, auth_user_id)
+    select clinic_id, email, role, 'revoked', '${admin}', id from profiles where id='${revoked}'`)
   const blocked = seedUser(DB, 'staff', clinic)
   run(DB, `update profiles set role='external_staff',status='blocked' where id='${blocked}'`)
   const deleted = seedUser(DB, 'staff', clinic)
   run(DB, `set request.jwt.claim.role = 'service_role'; update profiles set role='external_staff',
     status='deleted', deleted_by='${admin}', deleted_at=now(), deletion_reason='test' where id='${deleted}'`)
-  for (const invalid of [outsider, staff, pending, blocked, deleted, randomUUID()]) {
+  for (const invalid of [outsider, staff, revoked, blocked, deleted, randomUUID()]) {
     assert.throws(() => replace(admin, p, [a, invalid]))
     assert.equal(as(admin, 'select count(*) from patient_external_access'), '2')
   }
-  for (const actor of [blocked, pending, deleted]) assert.throws(() => workspace(actor), /Access denied/)
+  for (const actor of [blocked, revoked, deleted]) assert.throws(() => workspace(actor), /Access denied/)
   for (const actor of [a, staff, otherAdmin]) assert.equal(as(actor, 'select count(*) from patient_external_access'), '0')
   assert.throws(() => as(admin, 'delete from patient_external_access'), /permission denied/)
   replace(admin, p, [])
@@ -109,7 +110,8 @@ test('shared-type external bookings expose safe fields and are private to admin 
   replace(admin, p, [a, b])
   const input = request()
   const first = book(a, input) // same slot as the hidden Temporary Staff booking
-  assert.deepEqual(first, { id: first.id, patient_id: p, patient_name: 'Shared Patient',
+  // appointment_type_id joined the projection in 20261121100000.
+  assert.deepEqual(first, { id: first.id, patient_id: p, patient_name: 'Shared Patient', appointment_type_id: type,
     date: BOOKING_DAY, time: '10:00:00', duration_minutes: 45, type: 'Clinic', status: 'scheduled' })
   assert.deepEqual(book(a, input), first)
   assert.throws(() => book(a, { ...input, duration_minutes: 30 }), /Invalid booking request/)

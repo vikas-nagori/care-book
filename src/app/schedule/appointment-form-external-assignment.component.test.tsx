@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { Appointment, AppointmentType } from '@/lib/supabase/types'
 
 const mocks = vi.hoisted(() => ({ load: vi.fn(), toast: vi.fn(), update: vi.fn(), eq: vi.fn() }))
-vi.mock('./external-assignment-actions', () => ({ getExternalAssigneeOptions: mocks.load }))
+vi.mock('./external-assignees', () => ({ getExternalAssigneeOptions: mocks.load }))
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ from: () => ({ update: mocks.update }) }) }))
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }))
 vi.mock('@/lib/observability/report-booking-event', () => ({ reportBookingEvent: vi.fn() }))
@@ -30,7 +30,7 @@ function openSelect(name: string) {
   fireEvent.keyDown(screen.getByRole('combobox', { name }), { key: 'Enter' })
 }
 
-function choose(name: string, option: string) {
+function choose(name: string, option: string | RegExp) {
   openSelect(name)
   fireEvent.click(screen.getByRole('option', { name: option }))
 }
@@ -71,7 +71,7 @@ describe('external assignee selection', () => {
     mountAdmin()
     await waitFor(() => expect(mocks.load).toHaveBeenCalledWith(patientA.id))
     choose('Type', 'Home Visit')
-    choose('Assigned Staff', 'Alex External · External Staff')
+    choose('Assigned Staff', /Alex External/)
     choose('Type', 'Clinic Visit')
     expect(screen.getByRole('combobox', { name: 'Assigned Staff' }).textContent).toContain('Alex External')
     fireEvent.submit(screen.getByLabelText('Time *').closest('form')!)
@@ -89,13 +89,34 @@ describe('external assignee selection', () => {
   it('clears the pick when a different patient is selected and does not offer an ungranted account', async () => {
     mountAdmin()
     await waitFor(() => expect(mocks.load).toHaveBeenCalledWith(patientA.id))
-    choose('Assigned Staff', 'Alex External · External Staff')
+    choose('Assigned Staff', /Alex External/)
     fireEvent.change(screen.getByLabelText('Patient *'), { target: { value: 'Two' } })
     fireEvent.click(screen.getByRole('button', { name: 'Patient Two' }))
     await waitFor(() => expect(mocks.load).toHaveBeenCalledWith(patientB.id))
+    // Clinic Visit is shared: with nobody external to offer, there is no assignee to choose.
+    expect(screen.queryByRole('combobox', { name: 'Assigned Staff' })).toBeNull()
+    choose('Type', 'Home Visit')
     openSelect('Assigned Staff')
     expect(screen.queryByRole('option', { name: /Alex External/ })).toBeNull()
     expect(screen.getByRole('option', { name: 'Unassigned' })).toBeTruthy()
+  })
+
+  it('hides the assignee picker on a shared type while the patient has no External Staff', async () => {
+    mocks.load.mockResolvedValue({ ok: true, profiles: [] })
+    mountAdmin()
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledWith(patientA.id))
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Type' }).textContent).toContain('Clinic Visit'))
+    expect(screen.queryByRole('combobox', { name: 'Assigned Staff' })).toBeNull()
+    expect(screen.queryByText(/Share this patient from their profile/)).toBeNull()
+  })
+
+  it('tags each assignee so Staff and External Staff are told apart', async () => {
+    mountAdmin()
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledWith(patientA.id))
+    choose('Type', 'Home Visit')
+    openSelect('Assigned Staff')
+    expect(screen.getByRole('option', { name: /^Clinic Admin\s*\(Admin\)$/ })).toBeTruthy()
+    expect(screen.getByRole('option', { name: /^Alex External\s*\(External Staff\)$/ })).toBeTruthy()
   })
 
   it('preserves a historical external assignee on a note edit after access was revoked', async () => {

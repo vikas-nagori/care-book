@@ -6,6 +6,7 @@ import { getCurrentProfile } from '@/lib/auth'
 import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
 import { Sidebar } from '@/components/layout/sidebar'
 import { BottomNav } from '@/components/layout/bottom-nav'
+import { ResumeRefresh } from '@/components/layout/resume-refresh'
 import { Toaster } from '@/components/ui/toaster'
 import { ServiceWorkerRegistration } from '@/components/layout/service-worker-registration'
 import { TimezoneSync } from '@/components/layout/timezone-sync'
@@ -53,8 +54,10 @@ export default async function RootLayout({
       <body className="overflow-hidden font-sans">
         <TimezoneSync />
         <div className="flex h-dvh overflow-hidden">
-          {!isExternalStaff && <Sidebar canViewBilling={access.canViewBilling} />}
-          <main className={`h-full min-w-0 flex-1 overflow-y-auto overscroll-contain ${isExternalStaff ? '' : 'pb-bottom-nav md:pb-0'}`}>
+          {isExternalStaff
+            ? <Sidebar variant="external" />
+            : <Sidebar canViewBilling={access.canViewBilling} />}
+          <main className="h-full min-w-0 flex-1 overflow-y-auto overscroll-contain pb-bottom-nav md:pb-0">
             {currentProfile && !isExternalStaff ? (
               <GuidedTourProvider role={currentProfile.role}>{children}</GuidedTourProvider>
             ) : (
@@ -62,7 +65,8 @@ export default async function RootLayout({
             )}
           </main>
         </div>
-        {!isExternalStaff && <BottomNav canViewBilling={access.canViewBilling} />}
+        {isExternalStaff ? <BottomNav variant="external" /> : <BottomNav canViewBilling={access.canViewBilling} />}
+        {currentProfile && <ResumeRefresh />}
         <ServiceWorkerRegistration />
         <Toaster />
         <Analytics />

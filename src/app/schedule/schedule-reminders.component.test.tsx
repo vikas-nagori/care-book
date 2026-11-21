@@ -2,7 +2,7 @@ import React from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 const mocks = vi.hoisted(() => ({ refresh: vi.fn(), push: vi.fn() }))
-vi.mock('next/navigation', () => ({ useRouter: () => mocks }))
+vi.mock('next/navigation', () => ({ useRouter: () => mocks, useSearchParams: () => new URLSearchParams() }))
 vi.mock('./appointment-form', () => ({ AppointmentForm: () => <p>Appointment form</p> }))
 vi.mock('./reminder-dialog', () => ({ ReminderDialog: ({ open }: { open: boolean }) => open ? <p>Reminder form</p> : null }))
 import { ScheduleView } from './schedule-view'

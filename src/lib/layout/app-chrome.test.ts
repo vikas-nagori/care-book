@@ -17,5 +17,7 @@ test('shouldHideAppChrome keeps chrome visible on standard app pages', () => {
 })
 
 test('the External Staff workspace hides clinic navigation', () => {
-  assert.equal(shouldHideAppChrome('/external'), true)
+  // External Staff get the shared sidebar / bottom bar with their own destinations.
+  assert.equal(shouldHideAppChrome('/external'), false)
+  assert.equal(shouldHideAppChrome('/external/patients'), false)
 })

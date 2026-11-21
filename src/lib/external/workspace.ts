@@ -1,5 +1,7 @@
 import { addCalendarDays } from '../timezone.ts'
-import type { ExternalAppointment, ExternalAppointmentType, ExternalBookingRequest, ExternalPatient, ExternalWorkspace } from './types'
+import type {
+  ExternalAppointment, ExternalAppointmentType, ExternalAppointmentUpdate, ExternalBookingRequest, ExternalPatient, ExternalWorkspace,
+} from './types'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const BOOKING_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d(?::00)?$/
@@ -46,11 +48,12 @@ function projectPatient(value: unknown): ExternalPatient | null {
 
 export function projectExternalAppointment(value: unknown): ExternalAppointment | null {
   if (!isRecord(value)) return null
-  const { id, patient_id, patient_name, date, time, duration_minutes, type, status } = value
+  const { id, patient_id, patient_name, appointment_type_id, date, time, duration_minutes, type, status } = value
   if (typeof id !== 'string' || typeof patient_id !== 'string' || typeof patient_name !== 'string' || typeof type !== 'string') return null
+  if (typeof appointment_type_id !== 'string') return null
   if (!isExternalDate(date) || typeof time !== 'string' || !DISPLAY_TIME.test(time) || !isDisplayDuration(duration_minutes)) return null
   if (status !== 'scheduled' && status !== 'completed' && status !== 'cancelled') return null
-  return { id, patient_id, patient_name, date, time, duration_minutes, type, status }
+  return { id, patient_id, patient_name, appointment_type_id, date, time, duration_minutes, type, status }
 }
 
 function projectAppointmentType(value: unknown): ExternalAppointmentType | null {
@@ -79,4 +82,13 @@ export function parseExternalBookingRequest(value: unknown): ExternalBookingRequ
   if (typeof appointment_type_id !== 'string' || !UUID.test(appointment_type_id)) return null
   if (!isExternalDate(date) || typeof time !== 'string' || !BOOKING_TIME.test(time) || !isBookingDuration(duration_minutes)) return null
   return { id, patient_id, appointment_type_id, date, time, duration_minutes }
+}
+
+export function parseExternalAppointmentUpdate(value: unknown): ExternalAppointmentUpdate | null {
+  if (!isRecord(value) || Object.keys(value).length !== 6) return null
+  const { id, appointment_type_id, date, time, duration_minutes, status } = value
+  if (typeof id !== 'string' || !UUID.test(id) || typeof appointment_type_id !== 'string' || !UUID.test(appointment_type_id)) return null
+  if (!isExternalDate(date) || typeof time !== 'string' || !BOOKING_TIME.test(time) || !isBookingDuration(duration_minutes)) return null
+  if (status !== 'scheduled' && status !== 'cancelled') return null
+  return { id, appointment_type_id, date, time, duration_minutes, status }
 }

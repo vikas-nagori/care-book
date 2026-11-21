@@ -10,10 +10,14 @@ test('external staff land in their workspace from login or a clinic page', () =>
 })
 
 test('external staff can reach their workspace and the explicit authentication flows', () => {
-  for (const path of ['/external', '/auth/callback', '/auth/complete-invite', '/auth/change-password', '/auth/update-password']) {
+  for (const path of ['/external', '/external/patients', '/external/account', '/auth/callback', '/auth/complete-invite', '/auth/change-password', '/auth/update-password']) {
     assert.equal(resolveExternalStaffRoute('external_staff', path, 'GET'), null)
   }
   assert.equal(resolveExternalStaffRoute('external_staff', '/external', 'POST'), null)
+  assert.equal(resolveExternalStaffRoute('external_staff', '/external/patients', 'POST'), null)
+  // A look-alike prefix is not the workspace.
+  assert.equal(resolveExternalStaffRoute('external_staff', '/externalx', 'GET'), '/external')
+  assert.equal(resolveExternalStaffRoute('external_staff', '/externalx', 'POST'), 'forbidden')
 })
 
 test('external staff cannot invoke a clinic API, internal server action or unknown auth route', () => {
@@ -32,6 +36,8 @@ test('external staff may report sanitized client telemetry but no other API', ()
   assert.equal(resolveExternalStaffRoute('external_staff', '/api/telemetry', 'POST'), null)
   assert.equal(resolveExternalStaffRoute('external_staff', '/api/telemetry', 'GET'), 'forbidden')
   assert.equal(resolveExternalStaffRoute('external_staff', '/api/telemetry/other', 'POST'), 'forbidden')
+  assert.equal(resolveExternalStaffRoute('external_staff', '/api/version', 'GET'), null)
+  assert.equal(resolveExternalStaffRoute('external_staff', '/api/version', 'POST'), 'forbidden')
 })
 
 test('a readable role is used as-is', () => {

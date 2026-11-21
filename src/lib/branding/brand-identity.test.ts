@@ -69,15 +69,12 @@ test('brand identity appears only on the approved chrome and auth surfaces', () 
   const inviteSource = readSource('src/app/auth/complete-invite/complete-invite-form.tsx')
   const updatePasswordSource = readSource('src/app/auth/update-password/update-password-form.tsx')
   const changePasswordSource = readSource('src/app/auth/change-password/change-password-form.tsx')
-  // External Staff get their own chrome in place of the sidebar.
-  const externalShellSource = readSource('src/app/external/workspace-shell.tsx')
 
   assert.deepEqual(brandedSourcePaths, [
     'src/app/auth/change-password/change-password-form.tsx',
     'src/app/auth/complete-invite/complete-invite-form.tsx',
     'src/app/auth/update-password/update-password-form.tsx',
     'src/app/clinic-onboarding/clinic-onboarding-form.tsx',
-    'src/app/external/workspace-shell.tsx',
     'src/app/login/page.tsx',
     'src/components/brand/brand.tsx',
     'src/components/layout/sidebar.tsx',
@@ -89,7 +86,6 @@ test('brand identity appears only on the approved chrome and auth surfaces', () 
   assert.match(inviteSource, /<BrandLockup/)
   assert.match(updatePasswordSource, /<BrandLockup/)
   assert.match(changePasswordSource, /<BrandLockup/)
-  assert.equal((externalShellSource.match(/<BrandLockup/g) ?? []).length, 1)
   assert.doesNotMatch(
     brandedSourcePaths.map((path) => readSource(path)).join('\n'),
     /\bpriority\b/,
