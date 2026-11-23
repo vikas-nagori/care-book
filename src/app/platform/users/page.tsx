@@ -35,7 +35,7 @@ export default async function PlatformUsersPage() {
       clinic_name: clinic?.name ?? null,
       clinic_status: clinic?.status ?? null,
       has_pending_invite:
-        pendingInviteUserIds.has(row.id) || pendingInviteEmails.has(row.email),
+        pendingInviteUserIds.has(row.id) || (row.email !== null && pendingInviteEmails.has(row.email)),
     }
   })
 

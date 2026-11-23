@@ -38,7 +38,7 @@ const PENDING_INVITE = {
   updated_at: '2026-11-21T00:00:00.000Z',
 } as UserInvite
 
-const CREDENTIALS = { email: 'asha@example.com', tempPassword: 'Abcdef23456789' }
+const CREDENTIALS = { mobileNumber: '9876543210', email: 'asha@example.com', tempPassword: 'Abcdef23456789' }
 
 describe('invite UI', () => {
   beforeEach(() => {
@@ -54,7 +54,7 @@ describe('invite UI', () => {
     render(<InviteForm />)
 
     fireEvent.change(screen.getByLabelText('Invitee name'), { target: { value: 'Asha Patel' } })
-    fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '9876543210' } })
+    fireEvent.change(screen.getByLabelText(/^Mobile number/), { target: { value: '9876543210' } })
     fireEvent.change(screen.getByLabelText('Invite email'), { target: { value: 'asha@example.com' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create Login' }))
 
@@ -65,6 +65,26 @@ describe('invite UI', () => {
       expect.objectContaining({ email: 'asha@example.com', role: 'staff' })
     )
     expect(screen.queryByText(/email link/i)).toBeNull()
+    // The mobile number is the login the admin hands over.
+    expect(screen.getByTestId('temp-login-mobile').textContent).toBe('98765 43210')
+  })
+
+  it('creates a login without an email', async () => {
+    mocks.createUserInvite.mockResolvedValue({
+      success: true,
+      invite: { ...PENDING_INVITE, email: null },
+      credentials: { ...CREDENTIALS, email: null },
+    })
+    render(<InviteForm />)
+
+    fireEvent.change(screen.getByLabelText('Invitee name'), { target: { value: 'Asha Patel' } })
+    fireEvent.change(screen.getByLabelText(/^Mobile number/), { target: { value: '9876543210' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create Login' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('temp-password').textContent).toBe(CREDENTIALS.tempPassword)
+    })
+    expect(mocks.createUserInvite).toHaveBeenCalledWith(expect.objectContaining({ mobileNumber: '9876543210', email: null }))
   })
 
   it('issues and shows a new temporary password for a pending invite', async () => {

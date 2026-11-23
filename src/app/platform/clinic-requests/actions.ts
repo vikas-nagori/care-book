@@ -1,5 +1,6 @@
 'use server'
 
+import { normalizeMobileNumber, toAuthPhone } from '@/lib/auth/mobile-number'
 import { revalidatePath } from 'next/cache'
 import {
   getInviteErrorMessage,
@@ -89,11 +90,14 @@ export async function approveClinicOnboardingRequest(
     // No invite email: the owner gets a one-time temporary password that the platform admin
     // shares with them directly. must_change_password forces a new password on first login.
     const tempPassword = generateTempPassword()
+    // The owner signs in with their mobile number; the request form already requires a valid one.
+    const ownerMobileNumber = normalizeMobileNumber(request.owner_mobile_number)
     const { data: inviteUserData, error: inviteUserError } =
       await adminSupabase.auth.admin.createUser({
         email: normalizedOwnerEmail,
-        password: tempPassword,
         email_confirm: true,
+        ...(ownerMobileNumber ? { phone: toAuthPhone(ownerMobileNumber), phone_confirm: true } : {}),
+        password: tempPassword,
         app_metadata: { [MUST_CHANGE_PASSWORD_FLAG]: true },
       })
 
@@ -146,7 +150,7 @@ export async function approveClinicOnboardingRequest(
         // The onboarding request already collected these, and completeInvitedSignup reads the
         // profile's name and mobile from the invite — without them the owner accepts as unnamed.
         full_name: request.owner_full_name?.trim() || null,
-        mobile_number: request.owner_mobile_number?.trim() || null,
+        mobile_number: ownerMobileNumber ?? (request.owner_mobile_number?.trim() || null),
         auth_user_id: inviteUserData.user?.id ?? null,
         invited_by: platformUser.id,
         accepted_at: null,
@@ -199,6 +203,7 @@ export async function approveClinicOnboardingRequest(
       success: true,
       request: updatedRequest as ClinicOnboardingRequest,
       ownerCredentials: {
+        mobileNumber: ownerMobileNumber,
         email: normalizedOwnerEmail,
         tempPassword,
       },

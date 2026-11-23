@@ -1,5 +1,6 @@
 'use client'
 
+import { accountContactLabel } from '@/lib/auth/mobile-number'
 import { USER_ROLE_LABELS } from '@/lib/user-role'
 
 import { useState } from 'react'
@@ -63,7 +64,7 @@ export function UserInvitesList({
 
     toast({
       title: 'New temporary password',
-      description: `The previous temporary password for ${result.invite.email} no longer works.`,
+      description: `The previous temporary password for ${accountContactLabel(result.invite)} no longer works.`,
     })
     setCredentials(result.credentials)
     router.refresh()
@@ -86,7 +87,7 @@ export function UserInvitesList({
 
     toast({
       title: 'Invite revoked',
-      description: `${result.invite.email} can no longer sign in.`,
+      description: `${accountContactLabel(result.invite)} can no longer sign in.`,
     })
     router.refresh()
     setBusyInviteId(null)
@@ -115,7 +116,7 @@ export function UserInvitesList({
             <section key={invite.id} className="space-y-3 rounded-lg border border-[var(--ph-line)] p-3.5">
               <div className="flex items-start justify-between gap-3">
                 <p className="min-w-0 break-all text-sm font-semibold text-[var(--ph-ink)]">
-                  {invite.email}
+                  {accountContactLabel(invite)}
                 </p>
                 <Badge className="shrink-0" variant={getInviteBadgeVariant(invite.status)}>
                   {invite.status}
@@ -129,7 +130,7 @@ export function UserInvitesList({
                 <div className="grid grid-cols-2 gap-2">
                   <Button
                     type="button"
-                    aria-label={`New temporary password for ${invite.email}`}
+                    aria-label={`New temporary password for ${accountContactLabel(invite)}`}
                     variant="outline"
                     className="h-11"
                     disabled={isBusy}
@@ -139,7 +140,7 @@ export function UserInvitesList({
                   </Button>
                   <Button
                     type="button"
-                    aria-label={`Revoke invite to ${invite.email}`}
+                    aria-label={`Revoke invite to ${accountContactLabel(invite)}`}
                     variant="ghost"
                     className="h-11"
                     disabled={isBusy}
@@ -181,7 +182,7 @@ export function UserInvitesList({
 
                   return (
                     <TableRow key={invite.id}>
-                      <TableCell className="font-medium">{invite.email}</TableCell>
+                      <TableCell className="font-medium">{accountContactLabel(invite)}</TableCell>
                       <TableCell>
                         <Badge variant={invite.role === 'admin' ? 'default' : 'secondary'}>
                           {USER_ROLE_LABELS[invite.role]}
@@ -196,7 +197,7 @@ export function UserInvitesList({
                           <div className="flex justify-end gap-2">
                             <Button
                               type="button"
-                              aria-label={`New temporary password for ${invite.email}`}
+                              aria-label={`New temporary password for ${accountContactLabel(invite)}`}
                               variant="outline"
                               size="sm"
                               disabled={isBusy}
@@ -206,7 +207,7 @@ export function UserInvitesList({
                             </Button>
                             <Button
                               type="button"
-                              aria-label={`Revoke invite to ${invite.email}`}
+                              aria-label={`Revoke invite to ${accountContactLabel(invite)}`}
                               variant="ghost"
                               size="sm"
                               disabled={isBusy}

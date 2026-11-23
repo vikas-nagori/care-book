@@ -300,7 +300,8 @@ export type ProfileStatus = 'active' | 'blocked' | 'deleted'
 export type Profile = {
   id: string
   clinic_id: string | null
-  email: string
+  /** Optional since mobile-number sign-in: a login may have only a mobile number. */
+  email: string | null
   role: UserRole
   full_name: string | null
   mobile_number: string | null
@@ -336,7 +337,7 @@ export type UserInviteStatus = 'pending' | 'accepted' | 'revoked'
 export type UserInvite = {
   id: string
   clinic_id: string
-  email: string
+  email: string | null
   role: UserRole
   status: UserInviteStatus
   full_name: string | null
@@ -497,7 +498,7 @@ export type RefundInput = {
 }
 
 export type CreateUserInviteInput = {
-  email: string
+  email?: string | null
   role: UserRole
   fullName: string
   mobileNumber: string
@@ -526,7 +527,9 @@ export type ManageClinicOnboardingRequestInput = {
 }
 
 export type OwnerCredentials = {
-  email: string
+  /** The login: the 10-digit mobile number. Null only for a legacy email-only account. */
+  mobileNumber: string | null
+  email: string | null
   /** Shown once to the admin who issued it; never persisted or logged. */
   tempPassword: string
 }

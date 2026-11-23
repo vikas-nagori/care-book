@@ -1,5 +1,6 @@
 'use client'
 
+import { formatMobileNumber } from '@/lib/auth/mobile-number'
 import { useFormStatus } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,7 +16,7 @@ function SubmitButton({ children, variant }: { children: React.ReactNode; varian
 export function ConsentForm({ request, clientName, profile, clinicName }: {
   request: AuthorizeRequest
   clientName: string
-  profile: { email: string; full_name: string | null; role: string }
+  profile: { email: string | null; mobile_number?: string | null; full_name: string | null; role: string }
   clinicName: string
 }) {
   const scopeLabels = request.scopes
@@ -36,8 +37,8 @@ export function ConsentForm({ request, clientName, profile, clinicName }: {
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="rounded-md border p-4 text-sm">
-          <p className="font-medium">{profile.full_name || profile.email}</p>
-          <p className="text-muted-foreground">{profile.email} · {profile.role} · {clinicName}</p>
+          <p className="font-medium">{profile.full_name || profile.email || formatMobileNumber(profile.mobile_number)}</p>
+          <p className="text-muted-foreground">{[profile.email ?? formatMobileNumber(profile.mobile_number), profile.role, clinicName].filter(Boolean).join(' · ')}</p>
         </div>
         <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-900/60 dark:bg-amber-950/30">
           <p className="font-medium">Check this is an app you trust</p>

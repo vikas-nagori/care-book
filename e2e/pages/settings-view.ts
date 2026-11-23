@@ -93,7 +93,7 @@ export class SettingsView {
   async inviteUser(input: { name: string; phone: string; email: string }): Promise<string> {
     await this.openSection('Invite User')
     await this.page.getByLabel('Invitee name', { exact: true }).fill(input.name)
-    await this.page.getByLabel('Mobile number', { exact: true }).fill(input.phone)
+    await this.page.getByLabel(/^Mobile number/).fill(input.phone)
     await this.page.getByLabel('Invite email', { exact: true }).fill(input.email)
     await this.page.getByRole('button', { name: 'Create Login', exact: true }).click()
     return this.takeTempPassword()

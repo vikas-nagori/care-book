@@ -39,9 +39,12 @@ async function upsertClinic(db: SupabaseClient, clinic: { id: string; name: stri
 }
 
 /** Create the auth user if missing (idempotent), returning its id. */
-async function ensureAuthUser(db: SupabaseClient, email: string): Promise<string> {
+async function ensureAuthUser(db: SupabaseClient, email: string, mobile: string): Promise<string> {
+  const phone = mobile
   const { data, error } = await db.auth.admin.createUser({
     email,
+    phone,
+    phone_confirm: true,
     password: PASSWORD,
     email_confirm: true,
   })
@@ -52,14 +55,21 @@ async function ensureAuthUser(db: SupabaseClient, email: string): Promise<string
     const { data: list, error: listError } = await db.auth.admin.listUsers({ page, perPage: 200 })
     if (listError) throw new Error(`listUsers: ${listError.message}`)
     const found = list.users.find((u) => u.email?.toLowerCase() === email.toLowerCase())
-    if (found) return found.id
+    if (found) {
+      // A stack seeded before mobile sign-in: attach the number so the account can sign in with it.
+      if (found.phone !== phone) {
+        const { error: phoneError } = await db.auth.admin.updateUserById(found.id, { phone, phone_confirm: true })
+        if (phoneError) throw new Error(`attach phone to ${email}: ${phoneError.message}`)
+      }
+      return found.id
+    }
     if (list.users.length < 200) break
   }
   throw new Error(`could not create or find auth user ${email}: ${error?.message ?? 'unknown'}`)
 }
 
 async function seedAccount(db: SupabaseClient, account: Account): Promise<string> {
-  const id = await ensureAuthUser(db, account.email)
+  const id = await ensureAuthUser(db, account.email, account.mobile)
   // The handle_new_user trigger creates a profile on signup; pin its role/clinic/status here.
   const { error } = await db.from('profiles').upsert(
     {
@@ -69,6 +79,7 @@ async function seedAccount(db: SupabaseClient, account: Account): Promise<string
       clinic_id: account.clinicId,
       status: 'active',
       full_name: account.email.split('@')[0],
+      mobile_number: account.mobile,
     },
     { onConflict: 'id' },
   )

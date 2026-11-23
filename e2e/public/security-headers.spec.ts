@@ -70,8 +70,8 @@ test('the app boots and hydrates with no CSP violations', async ({ page }) => {
   // Hydration is the proof: the nonced bootstrap has to run, and 'strict-dynamic' has to carry
   // that trust to every chunk it loads, or this button never becomes interactive.
   await expect(page.getByRole('button', { name: 'Sign In', exact: true })).toBeEnabled()
-  await page.getByLabel('Email').fill('csp-probe@example.com')
-  await expect(page.getByLabel('Email')).toHaveValue('csp-probe@example.com')
+  await page.getByLabel('Mobile number', { exact: true }).fill('9000000999')
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('9000000999')
 
   expect(violations).toEqual([])
 })

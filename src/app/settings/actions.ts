@@ -1,15 +1,18 @@
 'use server'
 
+import { quoteFilterValue } from '@/lib/supabase/postgrest-filter'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { isActiveMcpProfile } from '@/lib/mcp/access'
 import { getCurrentProfile } from '@/lib/auth'
+import { normalizeMobileNumber, toAuthPhone } from '@/lib/auth/mobile-number'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   closeRevokedInviteeAccount,
+  verifyInviteeAccountForClinic,
   getInviteErrorMessage,
   provisionInviteeAccount,
   syncInvitedProfile,
@@ -566,6 +569,7 @@ export async function createUserInvite(
 
     const adminSupabase = createAdminClient()
     const email = validation.values.email
+    const mobileNumber = validation.values.mobileNumber
     const clinicId = profile.clinic_id
     if (!clinicId) {
       return {
@@ -604,17 +608,27 @@ export async function createUserInvite(
       }
     }
 
-    const [{ data: existingInvite, error: inviteLookupError }, { data: existingProfile, error: profileLookupError }] =
+    // The mobile number is the login, so it is what identifies "the same person" across invites
+    // and existing users. An email, when given, must not belong to someone else either.
+    const contactFilter = email
+      ? `mobile_number.eq.${quoteFilterValue(mobileNumber)},email.eq.${quoteFilterValue(email)}`
+      : `mobile_number.eq.${quoteFilterValue(mobileNumber)}`
+    const [{ data: existingInvites, error: inviteLookupError }, { data: existingProfiles, error: profileLookupError }] =
       await Promise.all([
         adminSupabase
           .from('user_invites')
           .select('*')
-          .eq('email', email)
+          .or(contactFilter)
           .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        adminSupabase.from('profiles').select('id, email, status').eq('email', email).maybeSingle(),
+          .limit(5),
+        adminSupabase.from('profiles').select('id, email, status, mobile_number').or(contactFilter).limit(5),
       ])
+    const existingInvite = existingInvites?.[0] ?? null
+    const existingProfile = existingProfiles?.[0] ?? null
+    // Number and email pointing at two different people is never a re-invite of either.
+    const contactsSplit =
+      new Set((existingProfiles ?? []).map((row) => row.id)).size > 1 ||
+      new Set((existingInvites ?? []).map((row) => row.auth_user_id ?? row.id)).size > 1
 
     if (inviteLookupError) {
       logger.error('settings/createUserInvite/inviteLookup', inviteLookupError, { email })
@@ -634,17 +648,19 @@ export async function createUserInvite(
       }
     }
 
-    const collision = getInviteCollisionResult({
-      currentClinicId: clinicId,
-      existingInvite,
-      existingProfile,
-    })
+    const collision = contactsSplit
+      ? 'conflict'
+      : getInviteCollisionResult({
+          currentClinicId: clinicId,
+          existingInvite,
+          existingProfile,
+        })
 
     if (collision === 'already_pending') {
       return {
         success: false,
         errorCode: 'INVITE_ALREADY_PENDING',
-        message: 'A pending invite already exists for this email address.',
+        message: 'A pending invite already exists for this mobile number.',
       }
     }
 
@@ -652,7 +668,7 @@ export async function createUserInvite(
       return {
         success: false,
         errorCode: 'INVITE_USER_ALREADY_ACTIVE',
-        message: 'This email address already belongs to an active user.',
+        message: 'This mobile number already belongs to an active user.',
       }
     }
 
@@ -660,16 +676,30 @@ export async function createUserInvite(
       return {
         success: false,
         errorCode: 'INVITE_EMAIL_UNAVAILABLE',
-        message: 'This email address cannot be invited.',
+        message: 'This mobile number or email cannot be invited.',
       }
     }
 
     // No invite email (they were not reliably arriving): the invitee gets a one-time temporary
     // password that the admin shares directly, and must set their own on first login.
+    const reusedAuthUserId =
+      collision === 'reuse_revoked_invite' ? existingInvite?.auth_user_id ?? null : null
+    if (reusedAuthUserId) {
+      const check = await verifyInviteeAccountForClinic(adminSupabase, reusedAuthUserId, clinicId)
+      if (!check.ok) {
+        logger.warn('settings/createUserInvite/reuseRefused', null, { reason: check.reason })
+        return {
+          success: false,
+          errorCode: 'INVITE_EMAIL_UNAVAILABLE',
+          message: 'This mobile number or email cannot be invited.',
+        }
+      }
+    }
+
     const account = await provisionInviteeAccount(adminSupabase, {
       email,
-      existingAuthUserId:
-        collision === 'reuse_revoked_invite' ? existingInvite?.auth_user_id ?? null : null,
+      mobileNumber,
+      existingAuthUserId: reusedAuthUserId,
     })
 
     if (account.error) {
@@ -693,7 +723,7 @@ export async function createUserInvite(
       // Captured here so the password-setup screen never re-asks for them: completeInvitedSignup
       // sources the profile's name and mobile from this record.
       full_name: validation.values.fullName,
-      mobile_number: validation.values.mobileNumber,
+      mobile_number: mobileNumber,
       auth_user_id: account.authUserId,
       external_staff_id: externalStaffId,
       invited_by: profile.id,
@@ -753,7 +783,7 @@ export async function createUserInvite(
       }
     }
 
-    if (externalStaffId) {
+    if (externalStaffId && email) {
       const { error: externalStaffUpdateError } = await adminSupabase
         .from('external_staff')
         .update({ email })
@@ -774,7 +804,7 @@ export async function createUserInvite(
     return {
       success: true,
       invite: invite as UserInvite,
-      credentials: { email, tempPassword: account.tempPassword },
+      credentials: { mobileNumber, email, tempPassword: account.tempPassword },
     }
   } catch (error) {
     logger.error('settings/createUserInvite/unexpected', error, input)
@@ -918,19 +948,48 @@ export async function issueInviteTempPassword(
       }
     }
 
+    const inviteMobileNumber = normalizeMobileNumber(invite.mobile_number)
+    if (!inviteMobileNumber) {
+      return {
+        success: false,
+        errorCode: 'INVITE_INVALID_MOBILE',
+        message: 'This invite has no valid mobile number. Revoke it and invite again with one.',
+      }
+    }
+
+    // Only this clinic's own account (or a revoked, clinic-less placeholder) may be reset: never
+    // one found by an unscoped lookup, never another clinic's user, never a platform admin.
     let authUserId: string | null = invite.auth_user_id
-    if (!authUserId) {
+    if (!authUserId && invite.email) {
       const { data: invitedProfile } = await adminSupabase
         .from('profiles')
         .select('id')
         .eq('email', invite.email)
+        .or(`clinic_id.eq.${profile.clinic_id},clinic_id.is.null`)
         .maybeSingle()
       authUserId = invitedProfile?.id ?? null
+    }
+    if (authUserId) {
+      const check = profile.clinic_id
+        ? await verifyInviteeAccountForClinic(adminSupabase, authUserId, profile.clinic_id)
+        : ({ ok: false, reason: 'other_clinic' } as const)
+      if (!check.ok) {
+        logger.warn('settings/issueInviteTempPassword/resetRefused', null, {
+          inviteId: invite.id,
+          reason: check.reason,
+        })
+        return {
+          success: false,
+          errorCode: 'INVITE_TEMP_PASSWORD_FAILED',
+          message: 'A new password cannot be issued for this invite.',
+        }
+      }
     }
 
     // An invite with no auth identity yet gets one created now.
     const account = await provisionInviteeAccount(adminSupabase, {
       email: invite.email,
+      mobileNumber: inviteMobileNumber,
       existingAuthUserId: authUserId,
     })
 
@@ -986,7 +1045,7 @@ export async function issueInviteTempPassword(
     return {
       success: true,
       invite: updatedInvite as UserInvite,
-      credentials: { email: invite.email, tempPassword: account.tempPassword },
+      credentials: { mobileNumber: inviteMobileNumber, email: invite.email, tempPassword: account.tempPassword },
     }
   } catch (error) {
     logger.error('settings/issueInviteTempPassword/unexpected', error, input)
@@ -1048,6 +1107,24 @@ export async function revokeUserInvite(
     // The invitee may already hold a working temporary password, so flipping the status alone
     // would leave them a live clinic account. Close it first: if that fails the invite stays
     // pending, so the admin can simply revoke again.
+    if (pendingInvite.auth_user_id) {
+      // Close only an account that is this clinic's own; another clinic's user or a platform
+      // admin is never banned through an invite row.
+      const check = profile.clinic_id
+        ? await verifyInviteeAccountForClinic(adminSupabase, pendingInvite.auth_user_id, profile.clinic_id)
+        : ({ ok: false, reason: 'other_clinic' } as const)
+      if (!check.ok && check.reason !== 'not_found') {
+        logger.warn('settings/revokeUserInvite/closeRefused', null, {
+          inviteId: pendingInvite.id,
+          reason: check.reason,
+        })
+        return {
+          success: false,
+          errorCode: 'INVITE_REVOKE_FAILED',
+          message: 'This invite cannot be revoked here. Contact support.',
+        }
+      }
+    }
     if (pendingInvite.auth_user_id) {
       const { error: closeError } = await closeRevokedInviteeAccount(
         adminSupabase,
@@ -1148,8 +1225,23 @@ export async function changeOwnPassword(
     // Re-authenticate on the session-less client so a borrowed open session cannot silently
     // take over the account, and so this sign-in never touches the caller's cookies.
     const verifyClient = createServerAuthClient()
+    // Re-check with whichever identifier the account signs in with: email when it has one (works
+    // even where phone sign-in is off), else its mobile number.
+    const mobileNumber = normalizeMobileNumber(profile.mobile_number)
+    const identifier = profile.email
+      ? { email: profile.email }
+      : mobileNumber
+        ? { phone: toAuthPhone(mobileNumber) }
+        : null
+    if (!identifier) {
+      return {
+        success: false,
+        errorCode: 'PASSWORD_CURRENT_INVALID',
+        message: 'Your current password is incorrect.',
+      }
+    }
     const { error: verifyError } = await verifyClient.auth.signInWithPassword({
-      email: profile.email,
+      ...identifier,
       password: input.currentPassword,
     })
 

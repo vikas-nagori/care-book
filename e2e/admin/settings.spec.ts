@@ -100,13 +100,14 @@ test('creates temporary staff without sending an invite', async ({ page, factory
   await guards.assertClean()
 })
 
-async function signInAs(browser: Browser, email: string, password: string) {
+async function signInAs(browser: Browser, mobileNumber: string, password: string) {
   // `browser.newContext()` inherits the project's storageState (the admin session), so the
   // invitee's context must start explicitly signed out.
   const context = await browser.newContext({ storageState: { cookies: [], origins: [] } })
   const page = await context.newPage()
   await page.goto('http://localhost:3000/login')
-  await page.getByLabel('Email').fill(email)
+  // Invitees sign in with the mobile number the admin entered — the login the invite creates.
+  await page.getByLabel('Mobile number', { exact: true }).fill(mobileNumber)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   return { context, page }
@@ -158,7 +159,7 @@ test('invites a user with a temp password, re-issues it, revokes it, and re-invi
 
   // Revoking closes the account: no clinic, and sign-in is refused even with the live password.
   expect(await factory.findProfileById(authUserId)).toMatchObject({ clinic_id: null, role: 'staff' })
-  const revoked = await signInAs(browser, email, secondPassword)
+  const revoked = await signInAs(browser, phone, secondPassword)
   await expect(revoked.page.locator('p.text-destructive')).toBeVisible({ timeout: 15_000 })
   expect(new URL(revoked.page.url()).pathname).toBe('/login')
   await revoked.context.close()
@@ -169,7 +170,7 @@ test('invites a user with a temp password, re-issues it, revokes it, and re-invi
   await expect.poll(async () => (await factory.findInviteByEmail(email))?.status).toBe('pending')
   expect((await factory.findInviteByEmail(email))?.auth_user_id).toBe(authUserId)
   expect(await factory.findProfileById(authUserId)).toMatchObject({ clinic_id: CLINIC_A.id, role: 'staff' })
-  const reinvited = await signInAs(browser, email, reinvitePassword)
+  const reinvited = await signInAs(browser, phone, reinvitePassword)
   await reinvited.page.waitForURL('**/auth/change-password', { timeout: 15_000 })
   await reinvited.context.close()
   await guards.assertClean()
@@ -188,7 +189,7 @@ test('an invited user signs in with the temp password and must set their own', a
   const authUserId = (await factory.findInviteByEmail(email))!.auth_user_id!
 
   // Middleware forces the change page before anything else.
-  const invitee = await signInAs(browser, email, tempPassword)
+  const invitee = await signInAs(browser, phone, tempPassword)
   const inviteeGuards = attachErrorGuards(invitee.page)
   await invitee.page.waitForURL('**/auth/change-password', { timeout: 15_000 })
 

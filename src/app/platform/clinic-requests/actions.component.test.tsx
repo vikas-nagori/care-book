@@ -101,9 +101,12 @@ describe('approveClinicOnboardingRequest', () => {
     if (!result.success) return
     const [payload] = mocks.createUser.mock.calls[0] as [Record<string, unknown>]
     expect(result.ownerCredentials).toEqual({
+      mobileNumber: '9999999999',
       email: 'owner@example.com',
       tempPassword: payload.password,
     })
+    // The owner's login is their mobile number, confirmed because the admin hands it over.
+    expect(payload).toEqual(expect.objectContaining({ phone: '9999999999', phone_confirm: true }))
   })
 
   it('promotes the trigger-created placeholder profile to admin of the new clinic', async () => {

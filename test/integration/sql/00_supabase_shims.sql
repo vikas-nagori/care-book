@@ -19,10 +19,12 @@ $$;
 
 create schema if not exists auth;
 
--- Minimal auth.users: the migrations only read id + email (002 handle_new_user, 004 backfill).
+-- Minimal auth.users: the migrations read id + email (002 handle_new_user, 004 backfill) and,
+-- since mobile-number login, phone (unique, `91XXXXXXXXXX`, as Supabase Auth stores it).
 create table if not exists auth.users (
   id uuid primary key default gen_random_uuid(),
   email text unique,
+  phone text unique,
   raw_app_meta_data jsonb not null default '{}'::jsonb,
   created_at timestamptz default now()
 );

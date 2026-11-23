@@ -1,4 +1,5 @@
 import { attachErrorGuards } from '../support/assertions'
+import { useEmailSignIn } from '../support/login'
 import { test, expect } from '../support/factories'
 
 test('submits a representative clinic onboarding request', async ({ page, factory }) => {
@@ -34,12 +35,42 @@ test('shows invalid login and accepts valid credentials for a disposable local u
   const user = await factory.createAuthUser({ clinicId: clinic.id })
 
   await page.goto('/login')
-  await page.getByLabel('Email').fill(user.email)
+  // Mobile number is the default sign-in: the 10 digits, spaces allowed.
+  await page.getByLabel('Mobile number', { exact: true }).fill(`${user.mobileNumber.slice(0, 5)} ${user.mobileNumber.slice(5)}`)
   await page.getByLabel('Password').fill('incorrect-e2e-password')
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
-  await expect(page.getByText('Invalid login credentials', { exact: true })).toBeVisible()
+  await expect(page.getByText('Mobile number or password is incorrect.', { exact: true })).toBeVisible()
 
   // The negative control intentionally receives a 400 from GoTrue; guard the successful retry.
+  const guards = attachErrorGuards(page)
+  await page.getByLabel('Password').fill(user.password)
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+  await expect(page).toHaveURL('http://localhost:3000/')
+  await guards.assertClean()
+})
+
+test('refuses anything but the 10-digit mobile number before calling Auth', async ({ page }) => {
+  await page.goto('/login')
+  for (const typed of ['12345', '+91 90000 00001', '09000000001']) {
+    await page.getByLabel('Mobile number', { exact: true }).fill(typed)
+    await page.getByLabel('Password').fill('anything-at-all')
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+    await expect(page.getByText('Enter your 10-digit mobile number, without +91 or 0.', { exact: true })).toBeVisible()
+  }
+  await expect(page).toHaveURL(/\/login/)
+})
+
+test('still signs in with email for accounts that have one', async ({ page, factory }) => {
+  const clinic = await factory.createClinic()
+  const user = await factory.createAuthUser({ clinicId: clinic.id })
+
+  await page.goto('/login')
+  await useEmailSignIn(page)
+  await page.getByLabel('Email', { exact: true }).fill(user.email)
+  await page.getByLabel('Password').fill('incorrect-e2e-password')
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+  await expect(page.getByText('Email or password is incorrect.', { exact: true })).toBeVisible()
+
   const guards = attachErrorGuards(page)
   await page.getByLabel('Password').fill(user.password)
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
@@ -87,7 +118,8 @@ test('completes a real pending invite and signs in with the new password', async
     mobile_number: mobileNumber,
     role: 'staff',
   })
-  await page.getByLabel('Email').fill(pending.email)
+  await useEmailSignIn(page)
+  await page.getByLabel('Email', { exact: true }).fill(pending.email)
   await page.getByLabel('Password').fill(newPassword)
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   await expect(page).toHaveURL('http://localhost:3000/')
@@ -136,7 +168,8 @@ test('updates a password through a real local recovery action link', async ({ pa
 
   await context.clearCookies()
   await page.goto('/login')
-  await page.getByLabel('Email').fill(user.email)
+  await useEmailSignIn(page)
+  await page.getByLabel('Email', { exact: true }).fill(user.email)
   await page.getByLabel('Password').fill(newPassword)
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   await expect(page).toHaveURL('http://localhost:3000/')
@@ -149,7 +182,7 @@ test('changes the password from Settings with current-password verification, no 
   const user = await factory.createAuthUser({ clinicId: clinic.id })
 
   await page.goto('/login')
-  await page.getByLabel('Email').fill(user.email)
+  await page.getByLabel('Mobile number', { exact: true }).fill(user.mobileNumber)
   await page.getByLabel('Password').fill(user.password)
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   await expect(page).toHaveURL('http://localhost:3000/')
@@ -170,7 +203,7 @@ test('changes the password from Settings with current-password verification, no 
   // The new password signs in through the real login form — proof the change stuck.
   await page.getByRole('button', { name: 'Logout', exact: true }).click()
   await page.waitForURL('**/login**', { timeout: 15_000 })
-  await page.getByLabel('Email').fill(user.email)
+  await page.getByLabel('Mobile number', { exact: true }).fill(user.mobileNumber)
   await page.getByLabel('Password').fill(newPassword)
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   await expect(page).toHaveURL('http://localhost:3000/')

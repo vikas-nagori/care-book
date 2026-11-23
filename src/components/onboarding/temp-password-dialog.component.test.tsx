@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 import { TempPasswordDialog } from './temp-password-dialog'
 
-const CREDENTIALS = { email: 'owner@example.com', tempPassword: 'Abcdef23456789' }
+const CREDENTIALS = { mobileNumber: null, email: 'owner@example.com', tempPassword: 'Abcdef23456789' }
 
 function setViewport(desktop: boolean) {
   Object.defineProperty(window, 'matchMedia', {

@@ -58,8 +58,8 @@ export async function loadActiveExternalProfiles(
   ])
 
   const revokedIds = new Set(revokedInvites.map((invite) => invite.auth_user_id))
-  const revokedEmails = new Set(revokedInvites.filter((invite) => !invite.auth_user_id).map((invite) => invite.email.toLowerCase()))
+  const revokedEmails = new Set(revokedInvites.filter((invite) => !invite.auth_user_id && invite.email).map((invite) => invite.email!.toLowerCase()))
   return (candidates as ExternalProfileOption[])
-    .filter((profile) => !revokedIds.has(profile.id) && !revokedEmails.has(profile.email.toLowerCase()))
-    .sort((left, right) => (left.full_name || left.email).localeCompare(right.full_name || right.email))
+    .filter((profile) => !revokedIds.has(profile.id) && !(profile.email && revokedEmails.has(profile.email.toLowerCase())))
+    .sort((left, right) => (left.full_name || left.email || '').localeCompare(right.full_name || right.email || ''))
 }

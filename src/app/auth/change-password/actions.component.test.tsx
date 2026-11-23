@@ -54,13 +54,14 @@ function flaggedUser(mustChange = true) {
 }
 
 function adminClient() {
-  const inviteEq2 = vi.fn(() => ({ maybeSingle: mocks.inviteRow }))
+  // .or(auth_user_id | email).eq('status','pending').order().limit().maybeSingle()
+  const inviteEq2 = vi.fn(() => ({ order: () => ({ limit: () => ({ maybeSingle: mocks.inviteRow }) }) }))
   const inviteEq1 = vi.fn(() => ({ eq: inviteEq2 }))
   const inviteUpdateEq2 = vi.fn(async () => mocks.inviteUpdate())
   const inviteUpdateEq1 = vi.fn(() => ({ eq: inviteUpdateEq2 }))
   const tables: Record<string, unknown> = {
     user_invites: {
-      select: () => ({ eq: inviteEq1 }),
+      select: () => ({ or: inviteEq1 }),
       update: (payload: unknown) => {
         mocks.inviteUpdatePayload(payload)
         return { eq: inviteUpdateEq1 }

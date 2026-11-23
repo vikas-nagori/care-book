@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { buildTempPasswordShareText, isShareCancelled } from './temp-password-share.ts'
 
-const CREDENTIALS = { email: 'asha@example.com', tempPassword: 'Abcdef23456789' }
+const CREDENTIALS = { mobileNumber: null, email: 'asha@example.com', tempPassword: 'Abcdef23456789' }
 
 test('share text carries the sign-in link, email and temporary password', () => {
   assert.equal(
@@ -16,6 +16,12 @@ test('share text carries the sign-in link, email and temporary password', () => 
       'You’ll set your own password after signing in.',
     ].join('\n')
   )
+})
+
+test('share text names the mobile number as the login when there is one', () => {
+  const text = buildTempPasswordShareText({ ...CREDENTIALS, mobileNumber: '9511219264' }, 'https://care-book.co')
+  assert.match(text, /^Mobile number: 95112 19264$/m)
+  assert.doesNotMatch(text, /Email:/)
 })
 
 test('a cancelled share sheet is not treated as a failure', () => {

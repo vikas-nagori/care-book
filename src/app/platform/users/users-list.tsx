@@ -1,5 +1,6 @@
 'use client'
 
+import { accountContactLabel } from '@/lib/auth/mobile-number'
 import { USER_ROLE_LABELS } from '@/lib/user-role'
 
 import { useState } from 'react'
@@ -26,6 +27,15 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
   const superadmins = new Set(superadminIds)
 
   async function issuePassword(user: PlatformUserSummary) {
+    // For someone already signed in, this replaces the password they use today.
+    if (
+      !user.has_pending_invite &&
+      !window.confirm(
+        `Replace ${user.full_name || accountContactLabel(user)}'s password with a temporary one? Their current password stops working.`
+      )
+    ) {
+      return
+    }
     setTempPasswordBusyId(user.id)
     const result = await issueTempPassword({ userId: user.id })
     setTempPasswordBusyId(null)
@@ -101,7 +111,7 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
             <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{user.full_name || user.email}</span>
+                  <span className="font-medium">{user.full_name || accountContactLabel(user)}</span>
                   <Badge variant="outline">{USER_ROLE_LABELS[user.role]}</Badge>
                   {isSuperadmin ? <Badge variant="secondary">superadmin</Badge> : null}
                   {user.has_pending_invite ? <Badge variant="secondary">invite pending</Badge> : null}
@@ -110,18 +120,18 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
                   {clinicInactive ? <Badge variant="destructive">clinic blocked</Badge> : null}
                 </div>
                 <div className="mt-1 truncate text-sm text-muted-foreground">
-                  {user.email} · {user.clinic_name ?? 'No clinic'}
+                  {accountContactLabel(user)} · {user.clinic_name ?? 'No clinic'}
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {user.has_pending_invite && !isDeleted ? (
+                {!isDeleted && !isSuperadmin ? (
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
                     onClick={() => issuePassword(user)}
                     disabled={tempPasswordBusyId === user.id}
-                    aria-label={`Issue temp password for ${user.email}`}
+                    aria-label={`Issue temp password for ${accountContactLabel(user)}`}
                   >
                     {tempPasswordBusyId === user.id ? (
                       <Loader2 className="mr-1 animate-spin" size={14} />
@@ -135,7 +145,7 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
                   variant="outline"
                   onClick={() => sendReset(user)}
                   disabled={resetBusyId === user.id || isDeleted}
-                  aria-label={`Send reset for ${user.email}`}
+                  aria-label={`Send reset for ${accountContactLabel(user)}`}
                 >
                   {resetBusyId === user.id ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
                   Send reset
@@ -151,7 +161,7 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
                     variant={isBlocked ? 'default' : 'destructive'}
                     onClick={() => toggle(user)}
                     disabled={isBusy}
-                    aria-label={`${isBlocked ? 'Unblock' : 'Block'} user ${user.email}`}
+                    aria-label={`${isBlocked ? 'Unblock' : 'Block'} user ${accountContactLabel(user)}`}
                   >
                     {isBusy ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
                     {isBlocked ? 'Unblock' : 'Block'}
