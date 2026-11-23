@@ -1,5 +1,6 @@
 'use client'
 
+import { formatMobileNumber } from '@/lib/auth/mobile-number'
 import { useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
@@ -64,7 +65,7 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
 
     toast({
       title: 'User invited',
-      description: `Share the temporary password with ${result.invite.email}.`,
+      description: `Share the temporary password with ${result.invite.full_name || formatMobileNumber(result.invite.mobile_number)}.`,
     })
     setCredentials(result.credentials)
     setEmail('')
@@ -90,7 +91,7 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor={mobileId}>Mobile number</Label>
+            <Label htmlFor={mobileId}>Mobile number (used to sign in)</Label>
             <Input
               id={mobileId}
               value={mobileNumber}
@@ -102,7 +103,7 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor={emailId}>Email</Label>
+            <Label htmlFor={emailId}>Email (optional)</Label>
             <Input
               id={emailId}
               aria-label="Invite email"
@@ -110,7 +111,6 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="staff@example.com"
-              required
             />
           </div>
           <div className="space-y-2">

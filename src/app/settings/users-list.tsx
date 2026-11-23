@@ -1,5 +1,6 @@
 'use client'
 
+import { accountContactLabel } from '@/lib/auth/mobile-number'
 import { USER_ROLE_LABELS } from '@/lib/user-role'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -43,7 +44,7 @@ export function UsersList({
               </Badge>
             </div>
             <div className="space-y-0.5 text-xs text-muted-foreground">
-              <p className="break-all">{profile.email}</p>
+              <p className="break-all">{accountContactLabel(profile)}</p>
               {profile.mobile_number?.trim() && <p>{profile.mobile_number}</p>}
             </div>
           </section>
@@ -75,7 +76,7 @@ export function UsersList({
                     <TableCell className="font-medium">
                       {profile.full_name?.trim() || 'Not added yet'}
                     </TableCell>
-                    <TableCell>{profile.email}</TableCell>
+                    <TableCell>{profile.email ?? '—'}</TableCell>
                     <TableCell>{profile.mobile_number?.trim() || 'Not added yet'}</TableCell>
                     <TableCell>
                       <Badge variant={profile.role === 'admin' ? 'default' : 'secondary'}>

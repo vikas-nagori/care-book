@@ -31,6 +31,8 @@ export type Account = {
   /** Short slug used for the storageState filename and Playwright project name. */
   slug: string
   email: string
+  /** 10-digit mobile number: the account's sign-in (auth.users.phone holds exactly this). */
+  mobile: string
   role: Role
   clinicId: string
   /** True for the /platform super-admin (email must be in PLATFORM_ADMIN_EMAILS). */
@@ -43,21 +45,21 @@ function account(a: Omit<Account, 'storageState'>): Account {
 }
 
 /** Clinic A admin — full access incl. Billing. */
-export const ADMIN = account({ slug: 'admin', email: 'admin@carebook.test', role: 'admin', clinicId: CLINIC_A.id })
+export const ADMIN = account({ slug: 'admin', mobile: '9000000001', email: 'admin@carebook.test', role: 'admin', clinicId: CLINIC_A.id })
 /** Clinic A staff — no Billing, appointment visibility narrowed. */
-export const STAFF = account({ slug: 'staff', email: 'staff@carebook.test', role: 'staff', clinicId: CLINIC_A.id })
+export const STAFF = account({ slug: 'staff', mobile: '9000000002', email: 'staff@carebook.test', role: 'staff', clinicId: CLINIC_A.id })
 /** Second Clinic A staff — used to assert one staff can't see another's private appointments. */
-export const STAFF2 = account({ slug: 'staff2', email: 'staff2@carebook.test', role: 'staff', clinicId: CLINIC_A.id })
+export const STAFF2 = account({ slug: 'staff2', mobile: '9000000003', email: 'staff2@carebook.test', role: 'staff', clinicId: CLINIC_A.id })
 /** External practitioner with explicitly shared patient access. */
-export const EXTERNAL = account({ slug: 'external', email: 'external@carebook.test', role: 'external_staff', clinicId: CLINIC_A.id })
+export const EXTERNAL = account({ slug: 'external', mobile: '9000000004', email: 'external@carebook.test', role: 'external_staff', clinicId: CLINIC_A.id })
 /** External practitioner with no patients shared by default. */
-export const EXTERNAL_EMPTY = account({ slug: 'external-empty', email: 'external-empty@carebook.test', role: 'external_staff', clinicId: CLINIC_A.id })
+export const EXTERNAL_EMPTY = account({ slug: 'external-empty', mobile: '9000000005', email: 'external-empty@carebook.test', role: 'external_staff', clinicId: CLINIC_A.id })
 /** Platform super-admin — gated by email allowlist, not clinic role. */
-export const PLATFORM = account({ slug: 'platform', email: 'platform-admin@carebook.test', role: 'admin', clinicId: CLINIC_A.id, platformAdmin: true })
+export const PLATFORM = account({ slug: 'platform', mobile: '9000000006', email: 'platform-admin@carebook.test', role: 'admin', clinicId: CLINIC_A.id, platformAdmin: true })
 /** Dedicated platform identity whose session may be globally revoked by the sign-out test. */
-export const PLATFORM_SIGNOUT = account({ slug: 'platform-signout', email: 'platform-signout@carebook.test', role: 'admin', clinicId: CLINIC_A.id, platformAdmin: true })
+export const PLATFORM_SIGNOUT = account({ slug: 'platform-signout', mobile: '9000000007', email: 'platform-signout@carebook.test', role: 'admin', clinicId: CLINIC_A.id, platformAdmin: true })
 /** Clinic B admin — for tenant-isolation checks. */
-export const CLINIC_B_ADMIN = account({ slug: 'clinic-b-admin', email: 'admin-b@carebook.test', role: 'admin', clinicId: CLINIC_B.id })
+export const CLINIC_B_ADMIN = account({ slug: 'clinic-b-admin', mobile: '9000000008', email: 'admin-b@carebook.test', role: 'admin', clinicId: CLINIC_B.id })
 
 /** Every account seeded into auth + profiles. */
 export const ALL_ACCOUNTS: Account[] = [ADMIN, STAFF, STAFF2, EXTERNAL, EXTERNAL_EMPTY, PLATFORM, PLATFORM_SIGNOUT, CLINIC_B_ADMIN]

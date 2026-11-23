@@ -71,6 +71,8 @@ export type E2EOnboardingRequestRow = Row & {
 export type E2EAuthResource = {
   id: string
   email: string
+  /** 10-digit mobile number; the account signs in with it. */
+  mobileNumber: string
   password: string
   profile: E2EProfileRow
 }
@@ -719,8 +721,11 @@ export class E2EFactory {
   }): Promise<E2EAuthResource> {
     const email = (input.email ?? this.uniqueEmail('user')).trim().toLowerCase()
     const password = input.password ?? PASSWORD
+    const mobileNumber = input.mobileNumber ?? this.uniqueMobile()
     const { data, error } = await this.db.auth.admin.createUser({
       email,
+      phone: mobileNumber,
+      phone_confirm: true,
       password,
       email_confirm: true,
     })
@@ -737,7 +742,7 @@ export class E2EFactory {
         email,
         role: input.role ?? 'staff',
         full_name: input.fullName ?? this.uniqueName('user'),
-        mobile_number: input.mobileNumber ?? this.uniqueMobile(),
+        mobile_number: mobileNumber,
         status: input.status ?? 'active',
         updated_at: new Date().toISOString(),
       })
@@ -748,7 +753,7 @@ export class E2EFactory {
       throw new Error(`factory update auth profile: ${profileError?.message ?? 'profile was not returned'}`)
     }
 
-    return { id: data.user.id, email, password, profile: profile as E2EProfileRow }
+    return { id: data.user.id, email, mobileNumber, password, profile: profile as E2EProfileRow }
   }
 
   async createUserInvite(input: {

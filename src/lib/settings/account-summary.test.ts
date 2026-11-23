@@ -24,8 +24,8 @@ test('getAccountSummaryItems returns the expected read-only account fields', () 
 
   assert.deepEqual(result, [
     { label: 'Name', value: 'Asha Patel' },
+    { label: 'Mobile', value: '98765 43210' },
     { label: 'Email', value: 'admin@example.com' },
-    { label: 'Mobile', value: '9876543210' },
     { label: 'Role', value: 'Admin' },
   ])
 })
@@ -39,8 +39,16 @@ test('getAccountSummaryItems falls back when optional profile details are missin
 
   assert.deepEqual(result, [
     { label: 'Name', value: 'Not added yet' },
-    { label: 'Email', value: 'admin@example.com' },
     { label: 'Mobile', value: 'Not added yet' },
+    { label: 'Email', value: 'admin@example.com' },
     { label: 'Role', value: 'Admin' },
+  ])
+})
+
+test('getAccountSummaryItems shows a mobile-only account without an email', () => {
+  const items = getAccountSummaryItems({ ...baseProfile, email: null, mobile_number: '9511219264' })
+  assert.deepEqual(items.slice(1, 3), [
+    { label: 'Mobile', value: '95112 19264' },
+    { label: 'Email', value: 'Not added yet' },
   ])
 })

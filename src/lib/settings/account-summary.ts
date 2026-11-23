@@ -1,5 +1,6 @@
 import type { Profile } from '../supabase/types'
 
+import { formatMobileNumber } from '../auth/mobile-number.ts'
 import { USER_ROLE_LABELS } from '../user-role.ts'
 
 type AccountSummaryItem = {
@@ -15,8 +16,8 @@ function getDisplayValue(value: string | null | undefined) {
 export function getAccountSummaryItems(profile: Profile): AccountSummaryItem[] {
   return [
     { label: 'Name', value: getDisplayValue(profile.full_name) },
-    { label: 'Email', value: profile.email },
-    { label: 'Mobile', value: getDisplayValue(profile.mobile_number) },
+    { label: 'Mobile', value: profile.mobile_number ? formatMobileNumber(profile.mobile_number) : 'Not added yet' },
+    { label: 'Email', value: getDisplayValue(profile.email) },
     { label: 'Role', value: USER_ROLE_LABELS[profile.role] },
   ]
 }

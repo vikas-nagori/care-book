@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   profileUpdatePayload: vi.fn(),
   profileLookup: vi.fn(),
   profileUpsert: vi.fn(),
+  getUserById: vi.fn(),
   calls: [] as string[],
 }))
 
@@ -32,6 +33,7 @@ const PENDING_INVITE = {
   id: 'invite-1',
   clinic_id: CLINIC_ID,
   email: 'asha@example.com',
+  mobile_number: '9876543210',
   role: 'staff',
   status: 'pending',
   auth_user_id: AUTH_ID,
@@ -40,7 +42,7 @@ const PENDING_INVITE = {
 // A chainable query stub: every filter returns itself, and the terminal call resolves `result`.
 function chain(result: () => unknown) {
   const query: Record<string, unknown> = {}
-  for (const method of ['eq', 'select', 'order', 'limit']) query[method] = () => query
+  for (const method of ['eq', 'or', 'select', 'order', 'limit']) query[method] = () => query
   query.maybeSingle = result
   query.single = result
   return query
@@ -69,7 +71,9 @@ function adminClient() {
 
   mocks.createAdminClient.mockReturnValue({
     from: vi.fn((table: string) => tables[table]),
-    auth: { admin: { createUser: mocks.createUser, updateUserById: mocks.updateUserById } },
+    auth: {
+      admin: { createUser: mocks.createUser, updateUserById: mocks.updateUserById, getUserById: mocks.getUserById },
+    },
   })
 }
 
@@ -81,7 +85,9 @@ describe('invite temp-password management', () => {
     mocks.inviteLookup.mockResolvedValue({ data: PENDING_INVITE, error: null })
     mocks.inviteUpdate.mockResolvedValue({ data: { ...PENDING_INVITE }, error: null })
     mocks.profileUpdate.mockResolvedValue({ error: null })
-    mocks.profileLookup.mockResolvedValue({ data: null, error: null })
+    // The invitee's own profile, attached to this clinic (what verifyInviteeAccountForClinic reads).
+    mocks.profileLookup.mockResolvedValue({ data: { id: AUTH_ID, clinic_id: CLINIC_ID }, error: null })
+    mocks.getUserById.mockResolvedValue({ data: { user: { id: AUTH_ID, email: 'asha@example.com' } }, error: null })
     mocks.profileUpsert.mockResolvedValue({ error: null })
     mocks.createUser.mockResolvedValue({ data: { user: { id: AUTH_ID } }, error: null })
     mocks.updateUserById.mockImplementation(async (_id: string, attrs: Record<string, unknown>) => {
@@ -98,6 +104,8 @@ describe('invite temp-password management', () => {
       expect(mocks.updateUserById).toHaveBeenCalledWith(
         AUTH_ID,
         expect.objectContaining({
+          phone: '9876543210',
+          phone_confirm: true,
           email_confirm: true,
           app_metadata: { must_change_password: true },
         })
@@ -106,7 +114,7 @@ describe('invite temp-password management', () => {
       expect(result).toEqual(
         expect.objectContaining({
           success: true,
-          credentials: { email: 'asha@example.com', tempPassword: password },
+          credentials: { mobileNumber: '9876543210', email: 'asha@example.com', tempPassword: password },
         })
       )
       expect(mocks.createUser).not.toHaveBeenCalled()
@@ -126,12 +134,13 @@ describe('invite temp-password management', () => {
 
     it('creates the login for a legacy invite that never got an auth identity', async () => {
       mocks.inviteLookup.mockResolvedValue({ data: { ...PENDING_INVITE, auth_user_id: null }, error: null })
+      mocks.profileLookup.mockResolvedValue({ data: null, error: null })
 
       const result = await issueInviteTempPassword({ inviteId: 'invite-1' })
 
       expect(result.success).toBe(true)
       expect(mocks.createUser).toHaveBeenCalledWith(
-        expect.objectContaining({ email: 'asha@example.com', email_confirm: true })
+        expect.objectContaining({ phone: '9876543210', email: 'asha@example.com', email_confirm: true })
       )
       expect(mocks.profileUpsert).toHaveBeenCalledWith(
         expect.objectContaining({ id: AUTH_ID, clinic_id: CLINIC_ID, role: 'staff' }),
@@ -140,6 +149,22 @@ describe('invite temp-password management', () => {
       expect(mocks.inviteUpdatePayload).toHaveBeenCalledWith(
         expect.objectContaining({ auth_user_id: AUTH_ID })
       )
+    })
+
+    it('never resets an account attached to another clinic, whatever the invite row says', async () => {
+      mocks.profileLookup.mockResolvedValue({ data: { id: AUTH_ID, clinic_id: 'clinic-2' }, error: null })
+      const result = await issueInviteTempPassword({ inviteId: 'invite-1' })
+      expect(result).toEqual(expect.objectContaining({ success: false }))
+      expect(mocks.updateUserById).not.toHaveBeenCalled()
+    })
+
+    it('never resets a platform admin', async () => {
+      vi.stubEnv('PLATFORM_ADMIN_EMAILS', 'root@example.com')
+      mocks.profileLookup.mockResolvedValue({ data: { id: AUTH_ID, clinic_id: null }, error: null })
+      mocks.getUserById.mockResolvedValue({ data: { user: { id: AUTH_ID, email: 'root@example.com' } }, error: null })
+      const result = await issueInviteTempPassword({ inviteId: 'invite-1' })
+      expect(result).toEqual(expect.objectContaining({ success: false }))
+      expect(mocks.updateUserById).not.toHaveBeenCalled()
     })
 
     it('is admin-only', async () => {
@@ -175,6 +200,14 @@ describe('invite temp-password management', () => {
 
       expect(result).toEqual(expect.objectContaining({ success: false }))
       expect(mocks.inviteUpdatePayload).not.toHaveBeenCalled()
+    })
+
+    it('never bans an account attached to another clinic', async () => {
+      mocks.profileLookup.mockResolvedValue({ data: { id: AUTH_ID, clinic_id: 'clinic-2' }, error: null })
+      const result = await revokeUserInvite({ inviteId: 'invite-1' })
+      expect(result).toEqual(expect.objectContaining({ success: false, errorCode: 'INVITE_REVOKE_FAILED' }))
+      expect(mocks.profileUpdatePayload).not.toHaveBeenCalled()
+      expect(mocks.updateUserById).not.toHaveBeenCalled()
     })
 
     it('refuses a non-pending invite without touching any account', async () => {

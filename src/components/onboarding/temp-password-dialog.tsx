@@ -1,5 +1,6 @@
 'use client'
 
+import { formatMobileNumber } from '@/lib/auth/mobile-number'
 import { useState, useSyncExternalStore } from 'react'
 import { Check, Copy, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -102,8 +103,19 @@ export function TempPasswordDialog({ credentials, onClose }: TempPasswordDialogP
   const body = credentials && (
     <div className="space-y-3">
       <div className="rounded-[12px] border border-[var(--ph-line)] bg-[var(--ph-surface)] p-3.5">
-        <p className="text-[11.5px] text-[var(--ph-ink-4)]">Email</p>
-        <p className="break-all text-[14px] font-medium text-[var(--ph-ink)]">{credentials.email}</p>
+        {credentials.mobileNumber ? (
+          <>
+            <p className="text-[11.5px] text-[var(--ph-ink-4)]">Mobile number (sign-in)</p>
+            <p data-testid="temp-login-mobile" className="text-[14px] font-medium text-[var(--ph-ink)]">
+              {formatMobileNumber(credentials.mobileNumber)}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-[11.5px] text-[var(--ph-ink-4)]">Email</p>
+            <p className="break-all text-[14px] font-medium text-[var(--ph-ink)]">{credentials.email}</p>
+          </>
+        )}
         <p className="mt-3 text-[11.5px] text-[var(--ph-ink-4)]">Temporary password</p>
         <p
           data-testid="temp-password"

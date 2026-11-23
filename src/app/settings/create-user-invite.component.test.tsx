@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   inviteInsertPayload: vi.fn(),
   existingInvite: vi.fn(),
   existingProfile: vi.fn(),
+  profileById: vi.fn(),
+  getUserById: vi.fn(),
 }))
 
 // `@/lib/onboarding/invite-server` stays unmocked so the real syncInvitedProfile runs.
@@ -28,12 +30,18 @@ import { createUserInvite } from './actions'
 const CLINIC_ID = 'clinic-1'
 const NEW_AUTH_ID = 'invited-auth-1'
 
+// The lookups by mobile number (or email) return lists; the single-row mocks stand for "the match".
+const asList = async (single: () => Promise<{ data: unknown; error: unknown }>) => {
+  const { data, error } = await single()
+  return { data: data ? [data] : [], error }
+}
+
 function adminClient() {
   const tables: Record<string, unknown> = {
     user_invites: {
       select: () => ({
-        eq: () => ({
-          order: () => ({ limit: () => ({ maybeSingle: mocks.existingInvite }) }),
+        or: () => ({
+          order: () => ({ limit: () => asList(mocks.existingInvite) }),
         }),
       }),
       insert: (payload: unknown) => {
@@ -49,7 +57,11 @@ function adminClient() {
       },
     },
     profiles: {
-      select: () => ({ eq: () => ({ maybeSingle: mocks.existingProfile }) }),
+      select: () => ({
+        or: () => ({ limit: () => asList(mocks.existingProfile) }),
+        // verifyInviteeAccountForClinic reads the reused account's profile by id.
+        eq: () => ({ maybeSingle: mocks.profileById }),
+      }),
       upsert: mocks.profileUpsert,
     },
   }
@@ -61,6 +73,7 @@ function adminClient() {
         inviteUserByEmail: mocks.inviteUserByEmail,
         createUser: mocks.createUser,
         updateUserById: mocks.updateUserById,
+        getUserById: mocks.getUserById,
       },
     },
   })
@@ -88,16 +101,20 @@ describe('createUserInvite', () => {
     mocks.createUser.mockResolvedValue({ data: { user: { id: NEW_AUTH_ID } }, error: null })
     mocks.updateUserById.mockResolvedValue({ data: { user: { id: NEW_AUTH_ID } }, error: null })
     mocks.profileUpsert.mockResolvedValue({ error: null })
+    mocks.profileById.mockResolvedValue({ data: { id: NEW_AUTH_ID, clinic_id: null }, error: null })
+    mocks.getUserById.mockResolvedValue({ data: { user: { id: NEW_AUTH_ID, email: 'new.user@example.com' } }, error: null })
     mocks.inviteInsert.mockResolvedValue({ data: { id: 'invite-1' }, error: null })
     adminClient()
   })
 
-  it('creates a confirmed login with a temp password instead of sending an invite email', async () => {
+  it('creates a confirmed mobile-number login with a temp password instead of sending an invite email', async () => {
     const result = await invite('staff')
 
     expect(mocks.inviteUserByEmail).not.toHaveBeenCalled()
     expect(mocks.createUser).toHaveBeenCalledWith(
       expect.objectContaining({
+        phone: '9999999999',
+        phone_confirm: true,
         email: 'new.user@example.com',
         email_confirm: true,
         app_metadata: { must_change_password: true },
@@ -107,7 +124,7 @@ describe('createUserInvite', () => {
     expect(result).toEqual(
       expect.objectContaining({
         success: true,
-        credentials: { email: 'new.user@example.com', tempPassword: password },
+        credentials: { mobileNumber: '9999999999', email: 'new.user@example.com', tempPassword: password },
       })
     )
     expect(password).toMatch(/^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{14}$/)
@@ -195,11 +212,47 @@ describe('createUserInvite', () => {
     expect(mocks.updateUserById).toHaveBeenCalledWith(
       NEW_AUTH_ID,
       expect.objectContaining({
+        phone: '9999999999',
+        phone_confirm: true,
         email_confirm: true,
         ban_duration: 'none',
         app_metadata: { must_change_password: true },
       })
     )
+  })
+
+  it("refuses to re-arm a revoked invite's account that now belongs to another clinic", async () => {
+    mocks.existingInvite.mockResolvedValue({
+      data: { id: 'old-invite', clinic_id: CLINIC_ID, status: 'revoked', auth_user_id: 'victim-1' },
+      error: null,
+    })
+    mocks.profileById.mockResolvedValue({ data: { id: 'victim-1', clinic_id: 'clinic-2' }, error: null })
+    mocks.getUserById.mockResolvedValue({ data: { user: { id: 'victim-1', email: 'victim@example.com' } }, error: null })
+
+    const result = await invite('staff')
+
+    expect(result).toEqual(expect.objectContaining({ success: false, errorCode: 'INVITE_EMAIL_UNAVAILABLE' }))
+    expect(mocks.updateUserById).not.toHaveBeenCalled()
+    expect(mocks.createUser).not.toHaveBeenCalled()
+  })
+
+  it('creates a mobile-only login when no email is given', async () => {
+    const result = await createUserInvite({ fullName: 'No Email', mobileNumber: '95112 19264', role: 'staff' })
+
+    expect(result.success).toBe(true)
+    const args = mocks.createUser.mock.calls[0][0]
+    expect(args).toEqual(expect.objectContaining({ phone: '9511219264', phone_confirm: true }))
+    expect(args).not.toHaveProperty('email')
+    expect(mocks.inviteInsertPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ email: null, mobile_number: '9511219264' })
+    )
+  })
+
+  it('rejects a mobile number that cannot be a login', async () => {
+    const result = await createUserInvite({ fullName: 'Bad', mobileNumber: '12345', role: 'staff' })
+
+    expect(result).toEqual(expect.objectContaining({ success: false, errorCode: 'INVITE_INVALID_INPUT' }))
+    expect(mocks.createUser).not.toHaveBeenCalled()
   })
 
   it('reports a failure to create the login without saving an invite', async () => {

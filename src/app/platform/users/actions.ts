@@ -6,7 +6,7 @@ import { isPlatformAdminEmail } from '@/lib/platform/access'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { getAppOrigin } from '@/lib/onboarding/invite-server'
-import { normalizeEmail } from '@/lib/onboarding/invite-helpers'
+import { normalizeMobileNumber, toAuthPhone } from '@/lib/auth/mobile-number'
 import { generateTempPassword } from '@/lib/onboarding/temp-password'
 import { MUST_CHANGE_PASSWORD_FLAG } from '@/lib/security/forced-password-change'
 import { logger } from '@/lib/logger'
@@ -302,11 +302,12 @@ export async function issueTempPassword(
     const adminSupabase = createAdminClient()
     const { data: target, error: lookupError } = await adminSupabase
       .from('profiles')
-      .select('id, email, status')
+      .select('id, email, status, mobile_number')
       .eq('id', input.userId)
       .maybeSingle()
 
-    if (lookupError || !target?.email) {
+    const targetMobileNumber = normalizeMobileNumber(target?.mobile_number)
+    if (lookupError || !target || (!target.email && !targetMobileNumber)) {
       logger.error('platform/issueTempPassword/lookup', lookupError, { userId: input.userId })
       return {
         success: false,
@@ -323,36 +324,14 @@ export async function issueTempPassword(
       }
     }
 
-    // A temp password may only be issued while the user has never set their own password —
-    // their invite is still pending. Once they complete first login, re-issuing would clobber
-    // a real password, so it is refused.
-    let { data: pendingInvite } = await adminSupabase
-      .from('user_invites')
-      .select('id')
-      .eq('auth_user_id', input.userId)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (!pendingInvite) {
-      const { data: byEmail } = await adminSupabase
-        .from('user_invites')
-        .select('id')
-        .eq('email', normalizeEmail(target.email))
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      pendingInvite = byEmail
-    }
-
-    if (!pendingInvite) {
+    // Mobile-number logins have no reset email, so the platform admin is the recovery path for a
+    // forgotten password: a temp password can be issued to anyone except a platform admin. The
+    // user is forced to choose a new password at their next sign-in.
+    if (isPlatformAdminEmail(target.email)) {
       return {
         success: false,
         errorCode: 'TEMP_PASSWORD_NOT_ELIGIBLE',
-        message:
-          'This user has already set their own password. Ask them to change it themselves, or use a reset link.',
+        message: 'Platform admins change their own password from Settings.',
       }
     }
 
@@ -362,7 +341,9 @@ export async function issueTempPassword(
     // admin handing the password to the owner directly is the address verification here.
     const { error: updateError } = await adminSupabase.auth.admin.updateUserById(input.userId, {
       password: tempPassword,
-      email_confirm: true,
+      ...(target.email ? { email_confirm: true } : {}),
+      // Attach the profile's number as the login if the account predates mobile sign-in.
+      ...(targetMobileNumber ? { phone: toAuthPhone(targetMobileNumber), phone_confirm: true } : {}),
       app_metadata: { [MUST_CHANGE_PASSWORD_FLAG]: true },
     })
 
@@ -371,13 +352,16 @@ export async function issueTempPassword(
       return {
         success: false,
         errorCode: 'TEMP_PASSWORD_ISSUE_FAILED',
-        message: 'Unable to issue a temporary password right now.',
+        message:
+          (updateError as { code?: string }).code === 'phone_exists'
+            ? 'This mobile number already belongs to another account.'
+            : 'Unable to issue a temporary password right now.',
       }
     }
 
     return {
       success: true,
-      credentials: { email: target.email, tempPassword },
+      credentials: { mobileNumber: targetMobileNumber, email: target.email, tempPassword },
     }
   } catch (error) {
     logger.error('platform/issueTempPassword/unexpected', error, { userId: input.userId })

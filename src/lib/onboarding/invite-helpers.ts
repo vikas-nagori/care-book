@@ -1,5 +1,6 @@
 import type { UserRole } from '../supabase/types'
 import { isUserRole } from '../user-role.ts'
+import { MOBILE_NUMBER_INVALID_MESSAGE, normalizeMobileNumber } from '../auth/mobile-number.ts'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 export const DEFAULT_INVITE_NEXT_PATH = '/auth/complete-invite'
@@ -16,7 +17,16 @@ type ValidationSuccess<T> = {
 }
 
 export type InviteInput = {
-  email: string
+  /** Optional since mobile-number sign-in; an empty string means "no email". */
+  email?: string | null
+  role: UserRole
+  fullName: string
+  mobileNumber: string
+}
+
+/** A validated invite: the 10-digit mobile number is the login, email is optional. */
+export type ValidatedInvite = {
+  email: string | null
   role: UserRole
   fullName: string
   mobileNumber: string
@@ -25,7 +35,7 @@ export type InviteInput = {
 export type InviteCollisionInput = {
   currentClinicId: string
   existingInvite: { clinic_id: string; status: 'pending' | 'accepted' | 'revoked' } | null
-  existingProfile: { id: string; email: string; status: 'active' | 'blocked' | 'deleted' } | null
+  existingProfile: { id: string; email: string | null; status: 'active' | 'blocked' | 'deleted' } | null
 }
 
 export type InviteCollisionResult =
@@ -125,10 +135,10 @@ export function getInviteCollisionResult({
 
 export function validateInviteInput(
   input: InviteInput
-): ValidationSuccess<InviteInput> | ValidationFailure {
-  const email = normalizeEmail(input.email)
+): ValidationSuccess<ValidatedInvite> | ValidationFailure {
+  const email = input.email?.trim() ? normalizeEmail(input.email) : null
 
-  if (!EMAIL_PATTERN.test(email)) {
+  if (email !== null && !EMAIL_PATTERN.test(email)) {
     return {
       success: false,
       errorCode: 'INVITE_INVALID_EMAIL',
@@ -153,12 +163,21 @@ export function validateInviteInput(
     }
   }
 
-  const mobileNumber = input.mobileNumber.trim()
-  if (!mobileNumber) {
+  if (!input.mobileNumber?.trim()) {
     return {
       success: false,
       errorCode: 'INVITE_MISSING_MOBILE',
       message: 'Enter the mobile number.',
+    }
+  }
+
+  // The mobile number is the login, so it must be one Auth can match at sign-in.
+  const mobileNumber = normalizeMobileNumber(input.mobileNumber)
+  if (!mobileNumber) {
+    return {
+      success: false,
+      errorCode: 'INVITE_INVALID_MOBILE',
+      message: MOBILE_NUMBER_INVALID_MESSAGE,
     }
   }
 

@@ -1,5 +1,6 @@
 'use server'
 
+import { quoteFilterValue } from '@/lib/supabase/postgrest-filter'
 import { logger } from '@/lib/logger'
 import { validateInviteCompletionInput, normalizeEmail } from '@/lib/onboarding/invite-helpers'
 import { getInviteErrorMessage } from '@/lib/onboarding/invite-server'
@@ -81,12 +82,19 @@ export async function completeForcedPasswordChange(
     // approval: sync the name/mobile captured on the onboarding request and mark the invite
     // accepted. Non-fatal — the password is already changed, so a failure here must not force
     // the user back through the form.
-    const normalizedEmail = normalizeEmail(user.email)
+    // Invites made since mobile sign-in carry the account id (and may have no email at all); older
+    // owner invites are found by email.
+    const normalizedEmail = user.email ? normalizeEmail(user.email) : null
+    const inviteMatch = normalizedEmail
+      ? `auth_user_id.eq.${user.id},email.eq.${quoteFilterValue(normalizedEmail)}`
+      : `auth_user_id.eq.${user.id}`
     const { data: invite, error: inviteError } = await adminSupabase
       .from('user_invites')
       .select('*')
-      .eq('email', normalizedEmail)
+      .or(inviteMatch)
       .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle()
 
     if (inviteError) {

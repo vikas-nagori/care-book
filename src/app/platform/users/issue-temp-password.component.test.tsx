@@ -16,7 +16,9 @@ vi.mock('next/headers', () => ({ headers: vi.fn() }))
 vi.mock('@/lib/platform/server', () => ({
   requirePlatformAdminUser: mocks.requirePlatformAdminUser,
 }))
-vi.mock('@/lib/platform/access', () => ({ isPlatformAdminEmail: () => false }))
+vi.mock('@/lib/platform/access', () => ({
+  isPlatformAdminEmail: (email: string | null) => email === 'root@example.com',
+}))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }))
 vi.mock('@/lib/onboarding/invite-server', () => ({ getAppOrigin: vi.fn() }))
@@ -84,23 +86,47 @@ describe('issueTempPassword', () => {
     // sign-in with the issued password fails with "Email not confirmed".
     expect(payload.email_confirm).toBe(true)
     expect(result.credentials).toEqual({
+      mobileNumber: null,
       email: 'Owner@Example.com',
       tempPassword: payload.password,
     })
   })
 
-  it('falls back to matching the pending invite by email', async () => {
+  it('attaches the profile mobile number as the login and returns it', async () => {
+    mocks.profileRow.mockResolvedValue({
+      data: { id: USER_ID, email: null, status: 'active', mobile_number: '95112 19264' },
+      error: null,
+    })
+
+    const result = await issueTempPassword({ userId: USER_ID })
+
+    const payload = mocks.updateUserById.mock.calls[0][1] as Record<string, unknown>
+    expect(payload).toEqual(expect.objectContaining({ phone: '9511219264', phone_confirm: true }))
+    expect(payload).not.toHaveProperty('email_confirm')
+    expect(result).toEqual(
+      expect.objectContaining({ success: true, credentials: expect.objectContaining({ mobileNumber: '9511219264' }) })
+    )
+  })
+
+  it('also recovers a user who has already set their own password (no pending invite)', async () => {
+    // Mobile-number logins have no reset email, so the platform admin is the recovery path.
     mocks.inviteByUser.mockResolvedValue({ data: null, error: null })
-    mocks.inviteByEmail.mockResolvedValue({ data: { id: 'invite-1' }, error: null })
+    mocks.inviteByEmail.mockResolvedValue({ data: null, error: null })
 
     const result = await issueTempPassword({ userId: USER_ID })
 
     expect(result.success).toBe(true)
+    expect(mocks.updateUserById).toHaveBeenCalledWith(
+      USER_ID,
+      expect.objectContaining({ app_metadata: { must_change_password: true } })
+    )
   })
 
-  it('refuses once the user has set their own password (no pending invite)', async () => {
-    mocks.inviteByUser.mockResolvedValue({ data: null, error: null })
-    mocks.inviteByEmail.mockResolvedValue({ data: null, error: null })
+  it('refuses a platform admin', async () => {
+    mocks.profileRow.mockResolvedValue({
+      data: { id: USER_ID, email: 'root@example.com', status: 'active' },
+      error: null,
+    })
 
     const result = await issueTempPassword({ userId: USER_ID })
 

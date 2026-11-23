@@ -1,4 +1,5 @@
 import { attachErrorGuards } from '../support/assertions'
+import { useEmailSignIn } from '../support/login'
 import { test, expect } from '../support/factories'
 
 function isFutureBan(bannedUntil: string | undefined): boolean {
@@ -58,7 +59,8 @@ test('approves a request, issues a temp password, and walks the owner through fi
   const ownerPage = await ownerContext.newPage()
   const ownerGuards = attachErrorGuards(ownerPage)
   await ownerPage.goto('http://localhost:3000/login')
-  await ownerPage.getByLabel('Email').fill(email)
+  await useEmailSignIn(ownerPage)
+  await ownerPage.getByLabel('Email', { exact: true }).fill(email)
   await ownerPage.getByLabel('Password').fill(tempPassword)
   await ownerPage.getByRole('button', { name: 'Sign In', exact: true }).click()
   await ownerPage.waitForURL('**/auth/change-password', { timeout: 15_000 })
@@ -120,7 +122,8 @@ test('re-issues a temp password for a user who never completed first login', asy
   const userContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
   const userPage = await userContext.newPage()
   await userPage.goto('http://localhost:3000/login')
-  await userPage.getByLabel('Email').fill(pending.email)
+  await useEmailSignIn(userPage)
+  await userPage.getByLabel('Email', { exact: true }).fill(pending.email)
   await userPage.getByLabel('Password').fill(tempPassword)
   await userPage.getByRole('button', { name: 'Sign In', exact: true }).click()
   await userPage.waitForURL('**/auth/change-password', { timeout: 15_000 })
