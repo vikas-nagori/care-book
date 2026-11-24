@@ -132,6 +132,8 @@ test('M-7 a resume with no signal does not crash or sign out, and the screen cat
   await page.goto(`/schedule?date=${date}`)
   const heading = page.getByRole('heading', { name: 'Schedule', exact: true }).filter({ visible: true })
   await expect(heading).toBeVisible()
+  // The heading is server-rendered; wait for hydration so the resume listener is attached.
+  await page.waitForLoadState('networkidle')
 
   const patient = await factory.createPatient()
   await factory.createAppointment({ patientId: patient.id, date, time: '10:55' })

@@ -116,6 +116,8 @@ test('bringing the app back after a while shows changes made meanwhile, without 
   await page.clock.install()
   await page.goto(`/schedule?date=${date}`)
   await expect(scheduleHeading(page)).toBeVisible()
+  // The heading is server-rendered; wait for hydration so the resume listener is attached.
+  await page.waitForLoadState('networkidle')
 
   // Someone else books while the phone is in a pocket.
   const patient = await factory.createPatient()
@@ -138,6 +140,8 @@ test('M-1 a resume onto a newer build reloads once, signed in on the same screen
   await page.clock.install()
   await page.goto(`/schedule?date=${date}`)
   await expect(scheduleHeading(page)).toBeVisible()
+  // The heading is server-rendered; wait for hydration so the resume listener is attached.
+  await page.waitForLoadState('networkidle')
   const loads = countLoads(page)
 
   const newer = await serveAppVersion(page, `${E2E_APP_VERSION}-next`)
@@ -176,6 +180,8 @@ for (const failure of ['http-500', 'abort'] as const) {
     await page.clock.install()
     await page.goto(`/schedule?date=${date}`)
     await expect(scheduleHeading(page)).toBeVisible()
+    // The heading is server-rendered; wait for hydration so the resume listener is attached.
+    await page.waitForLoadState('networkidle')
     const loads = countLoads(page)
 
     let checks: () => number

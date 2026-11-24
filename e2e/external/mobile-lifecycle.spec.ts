@@ -141,6 +141,8 @@ test('M-15 (M-1) a resume onto a newer build reloads /external once, signed in, 
   await page.clock.install()
   await page.goto(`/external?date=${date}`)
   await expect(heading(page)).toBeVisible()
+  // The heading is server-rendered; wait for hydration so the resume listener is attached.
+  await page.waitForLoadState('networkidle')
   let loads = 0
   page.on('load', () => { loads += 1 })
 
