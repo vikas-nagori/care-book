@@ -121,11 +121,11 @@ test('M-7 with no signal, a booking is held for a check, keeps the input, and bo
 })
 
 test('M-7 a resume with no signal does not crash or sign out, and the screen catches up once back online', async ({ page, context, factory }) => {
-  // NEW-M7 (found by this package, no G-id yet): resume-refresh.tsx calls router.refresh() even
-  // when the version check failed for lack of signal; the RSC fetch fails, Next falls back to a
-  // full browser navigation, and with no signal the phone is left on a blank error page instead
-  // of the app it was showing.
-  test.fail(true, 'NEW-M7: a resume with no signal navigates away to the browser offline page')
+  // G-21 (was NEW-M7): resume-refresh.tsx used to call router.refresh() even when the version
+  // check failed for lack of signal; the RSC fetch failed, Next fell back to a full browser
+  // navigation, and with no signal the phone was left on a blank error page instead of the app it
+  // was showing. Now a resume with no connection leaves the screen alone and catches up when the
+  // connection is back.
   const guards = offlineGuards(page)
   const date = clinicDate(163)
   await page.clock.install()
@@ -134,20 +134,32 @@ test('M-7 a resume with no signal does not crash or sign out, and the screen cat
   await expect(heading).toBeVisible()
   // The heading is server-rendered; wait for hydration so the resume listener is attached.
   await page.waitForLoadState('networkidle')
+  let loads = 0
+  page.on('load', () => { loads += 1 })
 
   const patient = await factory.createPatient()
   await factory.createAppointment({ patientId: patient.id, date, time: '10:55' })
+  const same = await serveAppVersion(page, E2E_APP_VERSION)
   await context.setOffline(true)
   await backgroundApp(page, { minutes: 2, clockAlreadyInstalled: true })
   await expect(heading).toBeVisible()
   await expect(page).toHaveURL(`/schedule?date=${date}`)
+  // Nothing was attempted while offline, so nothing could fail over to a full page load.
+  expect(same.count()).toBe(0)
+  await expect(page.getByText(patient.name as string, { exact: true })).toHaveCount(0)
 
+  // Signal is back: the app catches up on its own, without another trip to the background.
   await context.setOffline(false)
-  const same = await serveAppVersion(page, E2E_APP_VERSION)
-  await backgroundApp(page, { minutes: 2, clockAlreadyInstalled: true })
   await expect(page.getByText(patient.name as string, { exact: true }).filter({ visible: true }).first()).toBeVisible()
   await expect(page).toHaveURL(`/schedule?date=${date}`)
   expect(same.count()).toBe(1)
+
+  // And the next resume works as usual.
+  await backgroundApp(page, { minutes: 2, clockAlreadyInstalled: true })
+  await expect.poll(() => same.count()).toBe(2)
+  await expect(heading).toBeVisible()
+  await expect(page).not.toHaveURL(/\/login/)
+  expect(loads).toBe(0)
   await guards.assertClean()
 })
 

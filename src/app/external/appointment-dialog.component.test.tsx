@@ -50,7 +50,7 @@ describe('ExternalAppointmentDialog', () => {
       id: appointment.id, appointment_type_id: types[1].id, date: '2030-01-12', time: '10:00',
       duration_minutes: 45, status: 'scheduled',
     }))
-    expect(props.onSaved).toHaveBeenCalledWith('Appointment updated', '2030-01-12')
+    expect(props.onSaved).toHaveBeenCalledWith('Appointment updated', '2030-01-12', appointment)
   })
 
   it('cancels after confirmation by restating the stored appointment', async () => {
@@ -62,7 +62,7 @@ describe('ExternalAppointmentDialog', () => {
       id: appointment.id, appointment_type_id: appointment.appointment_type_id, date: '2030-01-10', time: '10:00',
       duration_minutes: 45, status: 'cancelled',
     }))
-    expect(props.onSaved).toHaveBeenCalledWith('Appointment cancelled', '2030-01-10')
+    expect(props.onSaved).toHaveBeenCalledWith('Appointment cancelled', '2030-01-10', appointment)
   })
 
   it('shows the server message and hands access loss back to the page', async () => {

@@ -78,6 +78,15 @@ export async function getCurrentProfile(): Promise<Profile | null> {
   return profile
 }
 
+/**
+ * The signed-in user, if any, whatever their profile row says. Read-only and shares the cached
+ * lookup with getCurrentProfile(): a blocked account's own profile row is hidden by RLS, so this
+ * is how the layout tells "signed in but unavailable" from "signed out".
+ */
+export async function getSignedInUser(): Promise<{ id: string; email: string | null } | null> {
+  return (await loadCurrentProfile()).user
+}
+
 export async function requireAdmin(): Promise<Profile> {
   return requireRole(['admin'])
 }

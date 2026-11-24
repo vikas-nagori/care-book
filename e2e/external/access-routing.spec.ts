@@ -59,6 +59,50 @@ test('External Staff are refused clinic writes and platform pages', async ({ pag
   await guards.assertClean()
 })
 
+// G-26: a blocked account's own profile row is hidden by RLS, so the root layout used to see "no
+// profile" and draw the clinic navigation (Dashboard, Schedule, Patients, Settings) around the
+// Account unavailable notice, the error screen and every other page. Every clinic link only
+// bounced back to /external. The error boundary (src/app/error.tsx) renders inside the same root
+// layout, so it shows exactly the navigation checked here; the not-found screen stands in for it
+// as a framework screen that a blocked user can reach on purpose.
+const CLINIC_NAV_LINKS = ['Dashboard', 'Schedule', 'Patients', 'Billing', 'Settings'] as const
+
+async function expectNoClinicNavigation(page: Page) {
+  for (const name of CLINIC_NAV_LINKS) {
+    await expect(page.getByRole('link', { name, exact: true }), `"${name}" navigation link`).toHaveCount(0)
+  }
+  for (const href of ['/', '/schedule', '/patients', '/billing', '/settings']) {
+    await expect(page.locator(`a[href="${href}"]`), `link to ${href}`).toHaveCount(0)
+  }
+}
+
+test('a blocked External Staff account is never shown the clinic navigation', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page, {
+    expectedFailures: EXTERNAL_OBSERVABILITY_REDIRECT_NOISE,
+    expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }, { pathname: '/external/no-such-page', status: 404 }],
+  })
+  await blockedExternalUser(page, factory)
+
+  const missing = await page.goto('/external/no-such-page')
+  expect(missing?.status()).toBe(404)
+  await expect(page.getByText('This page could not be found', { exact: false })).toBeVisible()
+  await expectNoClinicNavigation(page)
+
+  for (const path of ['/external', '/external/patients', '/external/account']) {
+    await page.goto(path)
+    await expect(page.getByText('Account unavailable', { exact: true })).toBeVisible()
+    await expectNoClinicNavigation(page)
+    await expectNoLeakedNulls(page)
+  }
+
+  // A clinic route still lands on the notice, and nothing on it leads back into the clinic.
+  await page.goto('/schedule')
+  await expect(page).toHaveURL(/\/external$/)
+  await expect(page.getByText('Account unavailable', { exact: true })).toBeVisible()
+  await expectNoClinicNavigation(page)
+  await guards.assertClean()
+})
+
 /** A disposable External Staff login, signed in on `page`, then blocked behind its back. */
 async function blockedExternalUser(page: Page, factory: E2EFactory) {
   const user = await factory.createAuthUser({ clinicId: CLINIC_A.id, role: 'external_staff' })
