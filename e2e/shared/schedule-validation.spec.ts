@@ -263,7 +263,6 @@ function adminOnly(testInfo: TestInfo) {
 
 test('C-3: clearing the session fee on Edit is refused with a message and the stored fee is kept', async ({ page, factory }, testInfo) => {
   adminOnly(testInfo)
-  testInfo.fail(true, 'C-3 (behaviour change, own fix branch): Edit Appointment saves a cleared fee as NULL')
   const guards = guardsFor(page)
   const patient = await factory.createPatient()
   const appointment = await factory.createAppointment({ patientId: patient.id, date: clinicDate(88), time: '08:45', fee: 800 })

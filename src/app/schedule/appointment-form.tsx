@@ -173,6 +173,9 @@ export function AppointmentForm({
   )
   // A fee the admin typed stays until they change the patient or type.
   const feeTouched = useRef(false)
+  // Edit only: did the admin change the fee field at all? A legacy row saved before fees were
+  // required has a NULL fee and stays editable as long as nobody touches the field (C-3).
+  const feeEdited = useRef(false)
   const [feeFromHistory, setFeeFromHistory] = useState(false)
   const [appointmentDate, setAppointmentDate] = useState(appointment?.date || defaultDate || '')
   const [repeatAppointment, setRepeatAppointment] = useState(false)
@@ -583,6 +586,17 @@ export function AppointmentForm({
         toast({
           title: 'Session fee required',
           description: 'Choose a type with a default rate or enter a session fee before booking.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      // Decision D4c: an admin may not clear a fee on Edit; 0 is a valid free session.
+      if (appointment && canViewPaymentSignals && normalizedFee === null && (appointment.fee != null || feeEdited.current)) {
+        reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'SCHEDULE_MISSING_FIELDS' })
+        toast({
+          title: 'Session fee required',
+          description: 'Enter a session fee, or 0 for a free session.',
           variant: 'destructive',
         })
         return
@@ -1043,6 +1057,7 @@ export function AppointmentForm({
             value={fee}
             onChange={(e) => {
               feeTouched.current = true
+              feeEdited.current = true
               setFeeFromHistory(false)
               setFee(e.target.value)
             }}
