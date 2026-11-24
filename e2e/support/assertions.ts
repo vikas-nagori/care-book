@@ -87,16 +87,20 @@ export function attachErrorGuards(page: Page, options: {
   const consoleErrors: string[] = []
   const observabilityRedirectTargets = new Set<string>()
 
-  // WebKit rejects the old document's in-flight RSC prefetches as "access control checks" while a
-  // reload or navigation tears it down, and reports them as uncaught. The user never sees that
+  // WebKit rejects the old document's in-flight RSC fetches ("… due to access control checks",
+  // "Load failed") while a reload or navigation tears it down, and reports them as uncaught. The user never sees that
   // document again, so ignore exactly that error shape right after a main-frame navigation starts.
+  // Observed 1–3 ms after the navigation request; the window stays tight so a real failure that
+  // merely happens soon after a page load is still reported.
+  const UNLOAD_ABORT_WINDOW_MS = 1_000
   let mainFrameNavigationAt = -Infinity
   page.on('request', (request) => {
     if (request.isNavigationRequest() && request.frame() === page.mainFrame()) mainFrameNavigationAt = Date.now()
   })
   page.on('pageerror', (error) => {
-    const abortedByUnload = /[?&]_rsc=\S* due to access control checks\.$/.test(error.message)
-      && Date.now() - mainFrameNavigationAt < 10_000
+    const abortedByUnload = (/[?&]_rsc=\S* due to access control checks\.$/.test(error.message)
+      || error.message === 'Load failed')
+      && Date.now() - mainFrameNavigationAt < UNLOAD_ABORT_WINDOW_MS
     if (!abortedByUnload) pageErrors.push(error.stack ?? error.message)
   })
   page.on('response', (response) => {
@@ -124,6 +128,10 @@ export function attachErrorGuards(page: Page, options: {
     const expectedFailure = options.expectedFailures?.some(({ url, text }) =>
       url.test(message.location().url) && text.test(message.text()))
     if (expectedFailure) return
+    // Next's console report of the same WebKit teardown abort (see the pageerror handler above).
+    const rscAbortedByUnload = /^Failed to fetch RSC payload for \S+\. Falling back to browser navigation\. TypeError: (?:Load failed|.*access control checks\.)$/.test(message.text())
+      && Date.now() - mainFrameNavigationAt < UNLOAD_ABORT_WINDOW_MS
+    if (rscAbortedByUnload) return
     if (!isKnownNonAppConsoleError(message, observabilityRedirectTargets)) consoleErrors.push(message.text())
   })
 
