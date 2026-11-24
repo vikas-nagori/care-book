@@ -87,7 +87,14 @@ export async function blockUser(input: ManageUserBlockInput): Promise<ManageUser
       return { success: false, errorCode: error.code ?? 'USER_BLOCK_FAILED', message: error.message }
     }
 
-    await setBan(adminSupabase, input.userId, BAN_DURATION)
+    // The ban is what signs them out; without it the block is only cosmetic, so say so.
+    if (!(await setBan(adminSupabase, input.userId, BAN_DURATION))) {
+      return {
+        success: false,
+        errorCode: 'USER_BAN_FAILED',
+        message: 'The user could not be signed out. Try blocking them again.',
+      }
+    }
 
     revalidatePath('/platform/users')
     return { success: true, status: 'blocked' }
@@ -111,12 +118,21 @@ export async function sendPasswordReset(input: ManageUserBlockInput): Promise<Se
       .eq('id', input.userId)
       .maybeSingle()
 
-    if (lookupError || !target?.email) {
+    if (lookupError || !target) {
       logger.error('platform/sendPasswordReset/lookup', lookupError, input)
       return {
         success: false,
         errorCode: lookupError?.code ?? 'USER_NOT_FOUND',
         message: 'User was not found.',
+      }
+    }
+
+    // Mobile-number accounts have no address to email a link to; the temp password is their reset.
+    if (!target.email) {
+      return {
+        success: false,
+        errorCode: 'USER_HAS_NO_EMAIL',
+        message: 'This user has no email address. Issue a temporary password instead.',
       }
     }
 

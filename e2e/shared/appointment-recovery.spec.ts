@@ -221,3 +221,39 @@ test('an outage that outlasts automatic resends unlocks Retry same booking with 
   expect(rows[0]).toMatchObject({ date, time: '16:45:00', notes })
   expect(pageErrors).toEqual([])
 })
+
+// S-28: the session ended while the form was open (cookies gone). The booking API answers 401 and
+// the form must say to sign in again instead of hanging or claiming the booking is unconfirmed.
+test('a booking sent after the session ended asks to sign in again and leaves the form usable', async ({ page, factory }, testInfo) => {
+  testInfo.skip(testInfo.project.name !== 'admin-mobile', 'one signed-out booking proof is enough: admin-mobile')
+  // G-18 (new, found by this test; needs its own fix): middleware answers the signed-out POST with
+  // a redirect to /login, the booking client (redirect: 'error') treats it as a dropped connection,
+  // resends it three times and ends on "Booking not confirmed", which tells the user to check a
+  // booking that was never sent. The handler's own 401 "Sign in again…" answer is unreachable.
+  testInfo.fail(true, 'G-18: a signed-out booking shows "Booking not confirmed" instead of asking to sign in again')
+  const guards = attachErrorGuards(page, { expectedHttpErrors: [
+    { pathname: BOOKINGS, status: 401 },
+    { pathname: '/api/telemetry', status: 401 },
+    { pathname: '/api/telemetry', status: 429 },
+  ] })
+  const patient = await factory.createPatient()
+  const type = await factory.findAppointmentType(true)
+  const date = clinicDate(111)
+  const notes = factory.uniqueName('signed-out-booking')
+  factory.watchUiAppointments({ patientId: patient.id, notes })
+  await page.goto('/schedule/new')
+  await fillBooking(page, type.name, patient.name as string, date, '17:25', notes)
+
+  await page.context().clearCookies()
+  const book = page.getByRole('button', { name: 'Book Appointment', exact: true })
+  await book.tap()
+  const notifications = page.getByRole('region', { name: 'Notifications (F8)' })
+  await expect(notifications.getByText('Appointment not booked', { exact: true })).toBeVisible()
+  await expect(notifications).toContainText('Sign in again to manage appointments.')
+  await expect(book).toBeEnabled()
+  await expect(page.getByLabel('Notes', { exact: true })).toBeEnabled()
+  await expect(page.getByLabel('Notes', { exact: true })).toHaveValue(notes)
+  await expect(page.getByRole('alert').filter({ hasText: 'Booking not confirmed' })).toHaveCount(0)
+  expect(await factory.findAppointments({ patientId: patient.id, notes })).toEqual([])
+  await guards.assertClean()
+})

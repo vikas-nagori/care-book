@@ -6,14 +6,17 @@
 // must not leak the NULLs as "null"/"undefined" text or `tel:null` links (expectNoLeakedNulls).
 // When a form gains an optional field, leave it blank here.
 
-import type { Page, TestInfo } from '@playwright/test'
+import type { Locator, Page, TestInfo } from '@playwright/test'
 import { AppointmentForm } from '../pages/appointment-form'
 import { PatientForm } from '../pages/patient-form'
 import { SessionNoteForm } from '../pages/session-note-form'
 import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { clinicDate } from '../support/clinic-date'
 import { test, expect } from '../support/factories'
-import { IOS_TAG, projectRole } from '../support/mobile'
+import { CLINIC_A } from '../support/accounts'
+import { formatMobileNumber } from '../../src/lib/auth/mobile-number'
+import { AppointmentDetail } from '../pages/appointment-detail'
+import { IOS_TAG, isMobileProject, projectRole } from '../support/mobile'
 
 function guardsFor(page: Page) {
   // Rapid matrix runs share a user across devices and can reach the intentional telemetry budget.
@@ -32,6 +35,42 @@ async function visitEveryPatientTab(page: Page, patientId: string, testInfo: Tes
     await expect(trigger).toHaveAttribute('aria-selected', 'true')
     await expectNoLeakedNulls(page)
   }
+}
+
+/**
+ * Every screen that renders one appointment: the day view, the week view (desktop only: phones
+ * have no Week toggle), the detail page with its Edit dialog opened, and the dashboard.
+ */
+async function visitEveryAppointmentScreen(
+  page: Page,
+  testInfo: TestInfo,
+  input: { appointmentId: string; date: string; patientName: string },
+) {
+  const chip = page.locator(`a[href="/schedule/${input.appointmentId}"]`).filter({ visible: true })
+  await page.goto(`/schedule?date=${input.date}`)
+  await expect(chip).toBeVisible()
+  await expectNoLeakedNulls(page)
+  if (!isMobileProject(testInfo)) {
+    await page.getByRole('button', { name: 'Week', exact: true }).click()
+    await expect(chip).toBeVisible()
+    await expectNoLeakedNulls(page)
+  }
+
+  await page.goto(`/schedule/${input.appointmentId}`)
+  await expect(page.getByText(input.patientName, { exact: true }).filter({ visible: true }).first()).toBeVisible()
+  await expectNoLeakedNulls(page)
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  const edit = page.getByRole('dialog', { name: 'Edit Appointment' })
+  await expect(edit).toBeVisible()
+  await expectNoLeakedNulls(page, { scope: edit })
+  await page.keyboard.press('Escape')
+  await expect(edit).toBeHidden()
+
+  await page.goto('/')
+  if (input.date === clinicDate()) {
+    await expect(page.locator(`a[href="/schedule/${input.appointmentId}"]`).filter({ visible: true }).first()).toBeVisible()
+  }
+  await expectNoLeakedNulls(page)
 }
 
 /** Back on the Profile tab, where the age would render, with its content mounted. */
@@ -95,6 +134,10 @@ test('a patient created inline while booking, with the age left blank, renders o
   await expect.poll(async () => (await factory.findPatientByName(name))?.name).toBe(name)
   const patient = await factory.findPatientByName(name)
   expect(patient).toMatchObject({ dob: null, age_years: null, age_recorded_on: null, email: null, gender: null })
+  // S-5: the booking it came with renders on the appointment's own screens too.
+  const [appointment] = await factory.findAppointments({ patientId: patient!.id, date })
+  expect(appointment).toMatchObject({ notes: null, time: '21:40:00' })
+  await visitEveryAppointmentScreen(page, testInfo, { appointmentId: appointment.id, date, patientName: name })
 
   await page.goto('/patients')
   await page.getByPlaceholder('Search by name or phone…').fill(name)
@@ -120,15 +163,7 @@ test('an appointment booked with only required fields renders on schedule, detai
   const [appointment] = await factory.findAppointments({ patientId: patient.id, date })
   expect(appointment).toMatchObject({ notes: null, duration_minutes: 45, time: '21:35:00' })
 
-  await page.goto(`/schedule?date=${date}`)
-  await expect(page.getByRole('link', { name: new RegExp(patient.name as string) }).filter({ visible: true }).first()).toBeVisible()
-  await expectNoLeakedNulls(page)
-
-  await page.goto(`/schedule/${appointment.id}`)
-  await expect(page.getByText(patient.name as string, { exact: true }).filter({ visible: true }).first()).toBeVisible()
-  await expectNoLeakedNulls(page)
-
-  await page.goto('/')
+  await visitEveryAppointmentScreen(page, testInfo, { appointmentId: appointment.id, date, patientName: patient.name as string })
   await expectNoLeakedNulls(page)
 
   await visitEveryPatientTab(page, patient.id, testInfo)
@@ -204,5 +239,150 @@ test('a reminder with only a title and date renders on the schedule and dashboar
 
   await page.goto('/')
   await expectNoLeakedNulls(page)
+  await guards.assertClean()
+})
+
+// --- Appointment, note and assignee cases (plan 5.2) ---------------------------------------
+
+// S-2: edit-to-blank. Notes back to NULL, a cleared duration back to the 45-minute default.
+test('an appointment edited back to no notes and no duration renders on every appointment screen', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
+  const guards = guardsFor(page)
+  const patient = await factory.createPatient({ phone: null })
+  const date = clinicDate(0)
+  const appointment = await factory.createAppointment({ patientId: patient.id, date, time: '06:25', duration_minutes: 60 })
+  expect(appointment.notes).not.toBeNull()
+
+  const detail = new AppointmentDetail(page)
+  await detail.goto(appointment.id)
+  const form = await detail.openEdit()
+  await form.clear('notes')
+  await form.clear('duration')
+  await form.submitUpdate()
+  await expect(detail.editDialog()).toBeHidden()
+
+  await expect.poll(async () => (await factory.findAppointments({ patientId: patient.id }))[0]?.notes ?? null).toBeNull()
+  expect((await factory.findAppointments({ patientId: patient.id }))[0]).toMatchObject({ notes: null, duration_minutes: 45 })
+  await expectNoLeakedNulls(page)
+
+  await visitEveryAppointmentScreen(page, testInfo, { appointmentId: appointment.id, date, patientName: patient.name as string })
+  await visitEveryPatientTab(page, patient.id, testInfo)
+  await guards.assertClean()
+})
+
+// S-4: a restricted type booked with "Unassigned" (the form preselects the booker).
+test('a restricted appointment booked as Unassigned renders on every appointment screen', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
+  const guards = guardsFor(page)
+  const patient = await factory.createPatient({ phone: null })
+  const sharedType = await factory.findAppointmentType(true)
+  const privateType = await factory.findAppointmentType(false)
+  const date = clinicDate(0)
+
+  await page.goto('/schedule/new')
+  const form = new AppointmentForm(page, sharedType.name)
+  await form.fill({ patientName: patient.name as string, date, time: '21:25', appointmentTypeName: privateType.name, assignedStaffLabel: 'Unassigned' })
+  await expect(page.getByLabel('Assigned Staff', { exact: true })).toContainText('Unassigned')
+  await form.submitAndExpectBooked()
+
+  const [appointment] = await factory.findAppointments({ patientId: patient.id, date })
+  expect(appointment).toMatchObject({ appointment_type_id: privateType.id, type_is_shared: false, assigned_to: null, external_staff_id: null, external_profile_id: null, notes: null })
+  await expectNoLeakedNulls(page)
+  await visitEveryAppointmentScreen(page, testInfo, { appointmentId: appointment.id, date, patientName: patient.name as string })
+  await guards.assertClean()
+})
+
+// S-27: a note emptied field by field must not leave an empty card behind.
+test('G-17g: a session note cleared of every field leaves no empty Session Notes card', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
+  testInfo.fail(true, 'G-17g: a blank session note still renders an empty "Session Notes" card')
+  const guards = guardsFor(page)
+  const patient = await factory.createPatient({ phone: null })
+  const appointment = await factory.createAppointment({
+    patientId: patient.id, date: clinicDate(-48), time: '14:40', status: 'completed', notes: null,
+  })
+  await factory.createSessionNote({
+    appointmentId: appointment.id,
+    subjective: factory.uniqueName('s'), objective: factory.uniqueName('o'), assessment: factory.uniqueName('a'),
+    plan: factory.uniqueName('p'), exercises_prescribed: factory.uniqueName('e'),
+  })
+
+  const detail = new AppointmentDetail(page)
+  await detail.goto(appointment.id)
+  await expect(detail.notesCard()).toBeVisible()
+  const form = await detail.openNotes()
+  await form.clearAll()
+  await form.save('Notes updated')
+  expect((await factory.findSessionNotes(appointment.id))[0]).toMatchObject({
+    subjective: null, objective: null, assessment: null, plan: null, exercises_prescribed: null,
+  })
+
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Edit Notes', exact: true })).toBeVisible()
+  await expectNoLeakedNulls(page)
+  await expect(detail.notesCard()).toHaveCount(0)
+  await guards.assertClean()
+})
+
+test('G-17g: an Objective-only session note renders without a leading separator', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
+  testInfo.fail(true, 'G-17g: the Session Notes card draws a separator above its first section when Subjective is blank')
+  const guards = guardsFor(page)
+  const patient = await factory.createPatient({ phone: null })
+  const appointment = await factory.createAppointment({
+    patientId: patient.id, date: clinicDate(-49), time: '14:50', status: 'completed', notes: null,
+  })
+  const objective = factory.uniqueName('objective-only')
+  await factory.createSessionNote({ appointmentId: appointment.id, objective })
+
+  const detail = new AppointmentDetail(page)
+  await detail.goto(appointment.id)
+  const card = detail.notesCard()
+  await expect(card.getByText(objective, { exact: true })).toBeVisible()
+  await expectNoLeakedNulls(page)
+  // The first thing under the card title is the Objective heading, not a divider line.
+  const firstBlock = await card.getByText('Objective', { exact: true }).evaluate((label) => {
+    const content = label.parentElement!.parentElement!
+    const first = content.firstElementChild
+    return first ? { orientation: first.getAttribute('data-orientation'), text: first.textContent } : null
+  })
+  expect(firstBlock?.orientation ?? null, `first block: ${JSON.stringify(firstBlock)}`).toBeNull()
+  await guards.assertClean()
+})
+
+// S-30 / G-2: a pending mobile-only Staff invitee has no name or email on their profile yet.
+test('a pending mobile-only Staff invitee is never offered as a blank assignee', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
+  testInfo.skip(projectRole(testInfo) !== 'admin', 'admin books for other staff')
+  const guards = guardsFor(page)
+  const invitee = await factory.createAuthUser({ clinicId: CLINIC_A.id, role: 'staff', email: null, fullName: null })
+  const inviteeName = factory.uniqueName('pending-invitee')
+  await factory.createUserInvite({
+    clinicId: CLINIC_A.id, email: null, authUserId: invitee.id, fullName: inviteeName, mobileNumber: invitee.mobileNumber,
+  })
+  const privateType = await factory.findAppointmentType(false)
+  const sharedType = await factory.findAppointmentType(true)
+  const tagOnly = /^\s*\((Staff|Admin)\)$/
+
+  async function expectNamedOptions(scope?: Locator) {
+    const form = new AppointmentForm(page, sharedType.name, scope)
+    // The dialog focuses the patient search, whose suggestion list covers the Type select on
+    // desktop; a click elsewhere in the dialog closes it.
+    if (scope) await scope.getByRole('heading', { name: 'New Appointment' }).click()
+    await form.chooseType(privateType.name)
+    await (scope ?? page).getByLabel('Assigned Staff', { exact: true }).click()
+    // Positive control: the picker is open and lists named staff.
+    await expect(page.getByRole('option', { name: /^staff2\s*\(Staff\)$/ })).toBeVisible()
+    await expect(page.getByRole('option', { name: tagOnly }), 'an assignee option with only a role tag').toHaveCount(0)
+    // Shown by the invite's name, or not offered until they accept: never blank, never a bare number.
+    await expect(page.getByRole('option', { name: new RegExp(formatMobileNumber(invitee.mobileNumber)) })).toHaveCount(0)
+    await expectNoLeakedNulls(page)
+    await page.keyboard.press('Escape')
+  }
+
+  await page.goto('/schedule/new')
+  await expect(page.getByLabel('Patient *', { exact: true })).toBeVisible()
+  await expectNamedOptions()
+
+  await page.goto('/')
+  await page.getByRole('button', { name: isMobileProject(testInfo) ? 'New appt' : 'New appointment', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'New Appointment' })
+  await expect(dialog.getByLabel('Patient *', { exact: true })).toBeVisible()
+  await expectNamedOptions(dialog)
   await guards.assertClean()
 })

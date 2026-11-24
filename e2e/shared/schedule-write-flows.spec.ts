@@ -1,5 +1,6 @@
 import { format, getDay, parseISO } from 'date-fns'
 import type { Page } from '@playwright/test'
+import { AppointmentDetail } from '../pages/appointment-detail'
 import { AppointmentForm } from '../pages/appointment-form'
 import { SessionNoteForm, type SessionNoteFormData } from '../pages/session-note-form'
 import { STAFF, STAFF2 } from '../support/accounts'
@@ -333,5 +334,182 @@ test('refuses an inline patient age that is not whole years from 0 to 120', asyn
   await expect(notifications).toContainText('Age must be a whole number between 0 and 120.')
   await expect(page).toHaveURL(/\/schedule\/new/)
   expect(await factory.findPatientByName(name)).toBeNull()
+  await guards.assertClean()
+})
+
+// --- S-6 -------------------------------------------------------------------------------------
+
+test('creates an inline patient with every optional field and a new referring doctor while booking', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const name = factory.uniqueName('inline-full-patient')
+  const doctorName = factory.uniqueName('inline-doctor')
+  factory.watchUiPatient(name)
+  const sharedType = await factory.findAppointmentType(true)
+  const date = clinicDate(73)
+  const details = {
+    phone: factory.uniqueMobile(),
+    email: factory.uniqueEmail('inline-patient'),
+    age: '37',
+    gender: 'Female' as const,
+    address: factory.uniqueName('address'),
+    medicalHistory: factory.uniqueName('history'),
+    notes: factory.uniqueName('patient-notes'),
+  }
+
+  await page.goto('/schedule/new')
+  const form = new AppointmentForm(page, sharedType.name)
+  await form.fill({
+    patientName: name, date, time: '08:30',
+    newPatient: { ...details, newReferringDoctor: { name: doctorName, specialty: 'Orthopaedics', address: factory.uniqueName('clinic-street') } },
+  })
+  await form.submitAndExpectBooked()
+  await expect(page.getByText('Patient added and appointment booked', { exact: true })).toBeVisible()
+
+  await expect.poll(async () => (await factory.findPatientByName(name))?.name).toBe(name)
+  const doctors = await factory.findDoctors({ name: doctorName })
+  expect(doctors).toHaveLength(1)
+  expect(doctors[0]).toMatchObject({ name: doctorName, specialty: 'Orthopaedics' })
+  const patient = await factory.findPatientByName(name)
+  expect(patient).toMatchObject({
+    phone: details.phone,
+    email: details.email,
+    age_years: 37,
+    gender: 'female',
+    address: details.address,
+    medical_history: details.medicalHistory,
+    notes: details.notes,
+    referral_source: 'doctor',
+    referred_by_doctor_id: doctors[0].id,
+  })
+  expect(await factory.findAppointments({ patientId: patient!.id, date })).toHaveLength(1)
+
+  await page.goto(`/patients/${patient!.id}`)
+  const main = page.getByRole('main')
+  for (const text of [details.email, details.address, details.medicalHistory, details.notes]) {
+    await expect(main.getByText(text, { exact: true }).filter({ visible: true }).first()).toBeVisible()
+  }
+  await expect(main.getByText(new RegExp(doctorName)).filter({ visible: true }).first()).toBeVisible()
+  await expect(page.getByTestId('patient-age')).toHaveText('Age 37 years')
+  await guards.assertClean()
+})
+
+// --- S-7 -------------------------------------------------------------------------------------
+
+test('books a weekly series of three and reports how many were booked', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const sharedType = await factory.findAppointmentType(true)
+  const firstDate = clinicDate(92)
+  const notes = factory.uniqueName('weekly-series')
+  factory.watchUiAppointments({ patientId: patient.id, notes })
+
+  await page.goto('/schedule/new')
+  const form = new AppointmentForm(page, sharedType.name)
+  await form.fill({ patientName: patient.name as string, date: firstDate, time: '07:35', notes })
+  await form.enableWeeklyRepeat(WEEKDAY_LABELS[getDay(parseISO(firstDate))], 3)
+  await expect(page.getByTestId('backdated-status-hint')).toHaveCount(0)
+  await form.submitAndExpectBooked(3)
+  await expect(page.getByText('3 appointments booked', { exact: true })).toBeVisible()
+
+  const rows = await factory.findAppointments({ patientId: patient.id, notes })
+  expect(rows.map((row) => row.date)).toEqual([firstDate, clinicDate(99), clinicDate(106)])
+  expect(rows.every((row) => row.status === 'scheduled' && row.time === '07:35:00')).toBe(true)
+  await guards.assertClean()
+})
+
+test('a weekly series that starts in the past warns first and saves past sessions as completed', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const sharedType = await factory.findAppointmentType(true)
+  const firstDate = clinicDate(-8)
+  const notes = factory.uniqueName('backdated-series')
+  factory.watchUiAppointments({ patientId: patient.id, notes })
+
+  await page.goto('/schedule/new')
+  const form = new AppointmentForm(page, sharedType.name)
+  await form.fill({ patientName: patient.name as string, date: firstDate, time: '07:40', notes })
+  await form.enableWeeklyRepeat(WEEKDAY_LABELS[getDay(parseISO(firstDate))], 3)
+  await expect(page.getByTestId('backdated-status-hint'))
+    .toHaveText('2 of these dates have already passed — those sessions will be saved as completed.')
+  await form.submitAndExpectBooked(3)
+
+  const rows = await factory.findAppointments({ patientId: patient.id, notes })
+  expect(rows.map((row) => [row.date, row.status])).toEqual([
+    [firstDate, 'completed'],
+    [clinicDate(-1), 'completed'],
+    [clinicDate(6), 'scheduled'],
+  ])
+  await guards.assertClean()
+})
+
+// --- S-19 ------------------------------------------------------------------------------------
+
+test('cancels a scheduled appointment, reopens a completed one, and offers Delete only while scheduled', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const scheduled = await factory.createAppointment({ patientId: patient.id, date: clinicDate(69), time: '10:35' })
+  const completed = await factory.createAppointment({ patientId: patient.id, date: clinicDate(-4), time: '10:45', status: 'completed' })
+  const detail = new AppointmentDetail(page)
+  const statusOf = async (id: string) => (await factory.findAppointments({ patientId: patient.id })).find((row) => row.id === id)?.status
+
+  await detail.goto(scheduled.id)
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible()
+  await detail.setStatus('Scheduled', 'Cancelled')
+  await expect.poll(() => statusOf(scheduled.id)).toBe('cancelled')
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0)
+
+  await detail.goto(completed.id)
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0)
+  await detail.setStatus('Completed', 'Scheduled')
+  await expect.poll(() => statusOf(completed.id)).toBe('scheduled')
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible()
+  await guards.assertClean()
+})
+
+test('a delete confirmed after another session completed the appointment is refused and keeps it', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const appointment = await factory.createAppointment({ patientId: patient.id, date: clinicDate(69), time: '10:55' })
+  const detail = new AppointmentDetail(page)
+  await detail.goto(appointment.id)
+  const confirm = await detail.openDelete()
+
+  // Someone else marks it completed while this tab still shows "Scheduled".
+  await factory.updateAppointment(appointment.id, { status: 'completed' })
+  await confirm.click()
+  // includeHidden: the open alertdialog marks the toast region aria-hidden.
+  const notifications = page.getByRole('region', { name: 'Notifications (F8)', includeHidden: true })
+  await expect(notifications).toContainText('Only scheduled appointments can be deleted.')
+  await expect(confirm).toBeEnabled()
+  await expect(page).toHaveURL(`/schedule/${appointment.id}`)
+  expect((await factory.findAppointments({ patientId: patient.id }))[0]).toMatchObject({ id: appointment.id, status: 'completed' })
+  await guards.assertClean()
+})
+
+// --- S-26 (decision D4b) ---------------------------------------------------------------------
+
+test('C-2: a cancelled slot can be booked again for the same patient, date and time', async ({ page, factory }, testInfo) => {
+  testInfo.fail(true, 'C-2 (behaviour change, own fix branch): a cancelled appointment still blocks its slot')
+  const guards = attachErrorGuards(page, true)
+  const patient = await factory.createPatient()
+  const sharedType = await factory.findAppointmentType(true)
+  const date = clinicDate(74)
+  const cancelled = await factory.createAppointment({ patientId: patient.id, appointmentTypeId: sharedType.id, date, time: '13:05' })
+  const detail = new AppointmentDetail(page)
+  await detail.goto(cancelled.id)
+  await detail.setStatus('Scheduled', 'Cancelled')
+  const notes = factory.uniqueName('rebooked-slot')
+  factory.watchUiAppointments({ patientId: patient.id, notes })
+
+  await page.goto('/schedule/new')
+  const form = new AppointmentForm(page, sharedType.name)
+  await form.fill({ patientName: patient.name as string, date, time: '13:05', notes })
+  await form.submitAndExpectBooked()
+
+  const rows = await factory.findAppointments({ patientId: patient.id, date, time: '13:05' })
+  expect(rows.map((row) => row.status).sort()).toEqual(['cancelled', 'scheduled'])
+  expect(rows.find((row) => row.id === cancelled.id)?.status).toBe('cancelled')
+  await page.goto(`/schedule?date=${date}`)
+  await expect(page.getByRole('link', { name: new RegExp(patient.name as string) }).filter({ visible: true })).toHaveCount(2)
   await guards.assertClean()
 })

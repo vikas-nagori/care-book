@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   maybeSingle: vi.fn(),
   update: vi.fn(),
   updateUserById: vi.fn(),
+  createServerClient: vi.fn(),
 }))
 
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }))
@@ -18,11 +19,11 @@ vi.mock('@/lib/platform/access', () => ({
   isPlatformAdminEmail: (email: string) => email === 'platform@example.com',
 }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
-vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }))
+vi.mock('@/lib/supabase/server', () => ({ createClient: mocks.createServerClient }))
 vi.mock('@/lib/onboarding/invite-server', () => ({ getAppOrigin: vi.fn() }))
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError } }))
 
-import { softDeleteUser, unblockUser } from './actions'
+import { blockUser, sendPasswordReset, softDeleteUser, unblockUser } from './actions'
 
 function adminClient() {
   const neq = vi.fn().mockResolvedValue({ error: null })
@@ -108,5 +109,56 @@ describe('softDeleteUser', () => {
     expect(result).toEqual(expect.objectContaining({ success: false, errorCode: 'USER_DELETED' }))
     expect(mocks.update).not.toHaveBeenCalled()
     expect(mocks.updateUserById).not.toHaveBeenCalled()
+  })
+})
+
+// G-9: these used to answer "User was not found." for a mobile-only account, and report
+// "User blocked" while the user was still signed in because the ban had failed.
+describe('platform user actions report what actually happened', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.requirePlatformAdminUser.mockResolvedValue({ id: 'platform-admin', email: 'platform@example.com' })
+    mocks.updateUserById.mockResolvedValue({ error: null })
+    adminClient()
+  })
+
+  it('tells the admin a mobile-only user has no email for a reset link', async () => {
+    mocks.maybeSingle.mockResolvedValue({ data: { id: 'user-1', email: null, status: 'active' }, error: null })
+
+    const result = await sendPasswordReset({ userId: 'user-1' })
+
+    expect(result).toEqual({
+      success: false,
+      errorCode: 'USER_HAS_NO_EMAIL',
+      message: 'This user has no email address. Issue a temporary password instead.',
+    })
+    expect(mocks.createServerClient).not.toHaveBeenCalled()
+  })
+
+  it('still answers "not found" for a user that does not exist', async () => {
+    mocks.maybeSingle.mockResolvedValue({ data: null, error: null })
+
+    const result = await sendPasswordReset({ userId: 'missing' })
+
+    expect(result).toEqual(expect.objectContaining({ success: false, errorCode: 'USER_NOT_FOUND', message: 'User was not found.' }))
+  })
+
+  it('does not report a block as done when the Auth ban fails', async () => {
+    mocks.maybeSingle.mockResolvedValue({ data: { id: 'user-1', email: 'user@example.com', status: 'active' }, error: null })
+    mocks.updateUserById.mockResolvedValue({ error: { message: 'auth unavailable' } })
+
+    const result = await blockUser({ userId: 'user-1' })
+
+    expect(result).toEqual(expect.objectContaining({ success: false, errorCode: 'USER_BAN_FAILED' }))
+    expect(mocks.revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('reports a block once the user is banned', async () => {
+    mocks.maybeSingle.mockResolvedValue({ data: { id: 'user-1', email: 'user@example.com', status: 'active' }, error: null })
+
+    const result = await blockUser({ userId: 'user-1' })
+
+    expect(result).toEqual({ success: true, status: 'blocked' })
+    expect(mocks.updateUserById).toHaveBeenCalledWith('user-1', { ban_duration: '876000h' })
   })
 })

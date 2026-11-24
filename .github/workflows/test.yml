@@ -186,21 +186,11 @@ jobs:
       - name: E2E tests
         # Playwright's webServer serves the build from the previous step (E2E_PREBUILT) with .env.e2e.
         # Setup projects re-run in every shard, which is required — each shard seeds its own stack.
-        # The iPhone project needs WebKit, so it is left out here and runs on shard 1 below.
+        # The iPhone project needs WebKit, so it is left out here and runs in the `e2e-ios` job.
         env:
           E2E_PREBUILT: '1'
           E2E_SKIP_IOS: '1'
         run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ env.SHARD_TOTAL }}
-
-      - name: iPhone (WebKit) E2E tests
-        # Only the @ios subset runs on WebKit (playwright.config.ts `mobile-ios`). Installing WebKit
-        # on one runner keeps the other shards' boot time unchanged.
-        if: matrix.shard == 1
-        env:
-          E2E_PREBUILT: '1'
-        run: |
-          npx playwright install --with-deps webkit
-          npm run test:e2e -- --project=mobile-ios
 
       - name: Stop local Supabase
         if: always()
@@ -220,15 +210,92 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # Single check that gates on every shard. Branch protection requires the `e2e` check by name
-  # (.github/BRANCH_PROTECTION.md); sharding must not change what an administrator has to select.
+  # iPhone (WebKit) run: only the @ios subset (playwright.config.ts `mobile-ios`). It gets its own
+  # runner, in parallel with the shards, so no shard pays for the WebKit install and the extra
+  # project on top of its slice. The setup mirrors a shard's: same Supabase services, same overlap
+  # of the boot with the browser install and `next build`, same prebuilt serve. The `setup` project
+  # it depends on seeds and signs in on Playwright's default browser (Chromium), so this runner
+  # needs Chromium as well as WebKit.
+  e2e-ios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Separate key from the shards' Chromium-only cache: a cache entry is immutable once saved, so
+      # sharing the key would leave this job restoring an entry without WebKit in it.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-ios-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Start local Supabase, install the browsers, and build the app
+        # Same overlap as a shard: `supabase start` runs in the background while the browser
+        # install and `next build` run in the foreground.
+        env:
+          PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+        run: |
+          npx supabase start -x studio,imgproxy,inbucket,edge-runtime,realtime,storage,meta,vector,analytics,functions > supabase-start.log 2>&1 &
+          supabase_pid=$!
+
+          if [ "$PLAYWRIGHT_CACHE_HIT" = 'true' ]; then
+            # The browser binaries are cached but their apt dependencies are not part of that cache.
+            npx playwright install-deps chromium webkit
+          else
+            npx playwright install --with-deps chromium webkit
+          fi
+
+          npm run build:e2e
+
+          if ! wait "$supabase_pid"; then
+            cat supabase-start.log
+            echo '::error::supabase start failed'
+            exit 1
+          fi
+          cat supabase-start.log
+
+      - name: iPhone (WebKit) E2E tests
+        # `--project=mobile-ios` also runs its `setup` dependency, which seeds this runner's stack.
+        env:
+          E2E_PREBUILT: '1'
+        run: npm run test:e2e -- --project=mobile-ios
+
+      - name: Stop local Supabase
+        if: always()
+        run: npx supabase stop --no-backup || true
+
+      # Like the shards, upload the report only on failure to stay inside the artifact quota.
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-ios
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # Single check that gates on every shard and the iPhone run. Branch protection requires the `e2e`
+  # check by name (.github/BRANCH_PROTECTION.md); regrouping the browser jobs must not change what
+  # an administrator has to select.
   e2e:
     runs-on: ubuntu-latest
-    needs: e2e-shard
+    needs: [e2e-shard, e2e-ios]
     if: always()
     steps:
-      - name: Require every shard to pass
+      - name: Require every shard and the iPhone run to pass
+        env:
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          result='${{ needs.e2e-shard.result }}'
-          echo "e2e-shard result: $result"
-          [ "$result" = 'success' ] || exit 1
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success")' >/dev/null

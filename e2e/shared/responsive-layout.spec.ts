@@ -1,9 +1,12 @@
-import { test, expect, type Page, type TestInfo } from '@playwright/test'
+import type { Page, TestInfo } from '@playwright/test'
 import { addDays, format, parseISO, startOfWeek } from 'date-fns'
 
-import { attachErrorGuards } from '../support/assertions'
+import { ADMIN, STAFF } from '../support/accounts'
+import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { clinicDate } from '../support/clinic-date'
+import { test, expect } from '../support/factories'
 import { SEED } from '../support/ids'
+import { projectRole } from '../support/mobile'
 
 function isMobileProject(testInfo: TestInfo) {
   return testInfo.project.name.endsWith('-mobile')
@@ -254,5 +257,63 @@ test('new and detail pages expose the breakpoint-appropriate header and Back aff
     await expect(page.getByRole('heading', { name: 'Appointment', exact: true })).toBeVisible()
   }
 
+  await guards.assertClean()
+})
+
+// S-24: the desktop Week view and the phone's type-filter chips.
+test('the desktop Week view shows the week\'s appointments and reminders; phone type chips filter the day', async ({ page, factory }, testInfo) => {
+  const guards = attachErrorGuards(page, { expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }] })
+  const patient = await factory.createPatient()
+  const sharedType = await factory.findAppointmentType(true)
+  const privateType = await factory.findAppointmentType(false)
+  // Restricted rows are visible to staff only when they are the assignee.
+  const me = await factory.findProfileByEmail(projectRole(testInfo) === 'admin' ? ADMIN.email : STAFF.email)
+  const date = clinicDate(137)
+  const shared = await factory.createAppointment({
+    patientId: patient.id, appointmentTypeId: sharedType.id, type: sharedType.name, date, time: '09:15',
+  })
+  const restricted = await factory.createAppointment({
+    patientId: patient.id, appointmentTypeId: privateType.id, type: privateType.name, date, time: '11:15', assigned_to: me.id,
+  })
+  const reminder = await factory.createReminder({ date, time: '10:00' })
+  const chipFor = (id: string) => page.locator(`a[href="/schedule/${id}"]`).filter({ visible: true })
+
+  await page.goto(`/schedule?date=${date}`)
+  await assertMdBreakpoint(page, testInfo)
+  await expect(chipFor(shared.id)).toBeVisible()
+  await expect(chipFor(restricted.id)).toBeVisible()
+
+  if (!isMobileProject(testInfo)) {
+    await page.getByRole('button', { name: 'Week', exact: true }).click()
+    // Week chips read "<time> <first name>"; the day timeline is gone.
+    await expect(chipFor(shared.id)).toContainText('9:15 AM')
+    await expect(chipFor(restricted.id)).toContainText('11:15 AM')
+    await expect(page.getByRole('button').filter({ hasText: reminder.title }).filter({ visible: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Filters', exact: true })).toHaveCount(0)
+    await expectNoLeakedNulls(page)
+    await page.getByRole('button', { name: 'Day', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Filters', exact: true })).toBeVisible()
+    await guards.assertClean()
+    return
+  }
+
+  await expect(page.getByRole('button', { name: 'Week', exact: true })).toBeHidden()
+  const all = page.getByRole('button', { name: 'All', exact: true })
+  const restrictedChip = page.getByRole('button', { name: privateType.name, exact: true })
+  await expect(all).toHaveAttribute('aria-pressed', 'true')
+  await restrictedChip.click()
+  await expect(restrictedChip).toHaveAttribute('aria-pressed', 'true')
+  await expect(chipFor(restricted.id)).toBeVisible()
+  await expect(chipFor(shared.id)).toHaveCount(0)
+  await all.click()
+  await expect(chipFor(shared.id)).toBeVisible()
+  await expectNoLeakedNulls(page)
+
+  // A day with nothing booked offers only "All" and says so.
+  const emptyDate = clinicDate(377)
+  await page.goto(`/schedule?date=${emptyDate}`)
+  await expect(page.getByText('No appointments on this day.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'All', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: privateType.name, exact: true })).toHaveCount(0)
   await guards.assertClean()
 })
