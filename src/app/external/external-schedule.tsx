@@ -68,23 +68,31 @@ export function ExternalSchedule({ workspace, selectedDate: initialDate, todayDa
   const [booking, setBooking] = useState<HTMLButtonElement | null>(null)
   const [opened, setOpened] = useState<{ appointment: ExternalAppointment; trigger: HTMLElement } | null>(null)
   const [denied, setDenied] = useState<ExternalWorkspace | null>(null)
+  // Rows the server returned from a save, shown until the refreshed workspace replaces this one.
+  // Without them a dialog reopened before the refresh lands holds the old slot, and Cancel
+  // (which restates the stored slot) is refused.
+  const [saved, setSaved] = useState<{ workspace: ExternalWorkspace; rows: Map<string, ExternalAppointment> } | null>(null)
   const canBook = workspace.patients.length > 0 && workspace.appointment_types.length > 0 && denied !== workspace
+  const currentAppointments = useMemo(() => {
+    const rows = saved?.workspace === workspace ? saved.rows : null
+    return rows ? workspace.appointments.map((a) => rows.get(a.id) ?? a) : workspace.appointments
+  }, [saved, workspace])
 
   const selected = parseISO(selectedDate)
   const weekStart = startOfWeek(selected, { weekStartsOn: 1 })
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
   const weekKeys = weekDays.map((day) => format(day, 'yyyy-MM-dd'))
 
-  const appointments = useMemo<LocalAppointment[]>(() => workspace.appointments.map((appointment) => {
+  const appointments = useMemo<LocalAppointment[]>(() => currentAppointments.map((appointment) => {
     const slot = toViewerSlot(appointment, timeZone)
     return { ...appointment, local_date: slot.date, local_time: slot.time }
-  }), [workspace.appointments, timeZone])
+  }), [currentAppointments, timeZone])
   // The shared grid lays out by `date`/`time`; give it the viewer-local values.
   const placed = appointments.map((a) => ({ ...a, date: a.local_date, time: a.local_time }))
   const dayItems = placed.filter((a) => a.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time))
   const weekItems = placed.filter((a) => weekKeys.includes(a.date))
   const countOn = (date: string) => countScheduleAppointmentsOnDate(placed, date)
-  const original = (id: string) => workspace.appointments.find((a) => a.id === id)!
+  const original = (id: string) => currentAppointments.find((a) => a.id === id)!
 
   function go(date: string, nextView: CalendarView = view) {
     select(date, nextView)
@@ -107,6 +115,15 @@ export function ExternalSchedule({ workspace, selectedDate: initialDate, todayDa
     toast({ title: message })
     if (date !== selectedDate) go(date)
     router.refresh()
+  }
+
+  function afterSave(message: string, date: string, appointment: ExternalAppointment) {
+    setSaved((previous) => {
+      const rows = new Map(previous?.workspace === workspace ? previous.rows : [])
+      rows.set(appointment.id, appointment)
+      return { workspace, rows }
+    })
+    afterChange(message, date)
   }
 
   const newButton = (
@@ -234,7 +251,7 @@ export function ExternalSchedule({ workspace, selectedDate: initialDate, todayDa
           timeZone={timeZone}
           returnFocus={opened.trigger}
           onClose={() => setOpened(null)}
-          onSaved={afterChange}
+          onSaved={afterSave}
           onDenied={onDenied}
         />
       )}

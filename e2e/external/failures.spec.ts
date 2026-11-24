@@ -375,7 +375,7 @@ test('a held booking, save or cancel shows its pending label, locks the dialog a
   await hold.release()
   await expect(dialog.dialog).toBeHidden()
   await expect.poll(async () => (await appointmentsOf(patient.id))[0].duration_minutes).toBe(40)
-  // Reopen only once the refreshed chip shows the new length (see NEW-X1 below for why).
+  // The chip shows the new length as soon as the save returns (G-20).
   await expect(scheduleChip(page, patient.name).filter({ hasText: '40m' })).toBeVisible()
 
   // Cancel.
@@ -399,12 +399,12 @@ test('a held booking, save or cancel shows its pending label, locks the dialog a
   await guards.assertClean()
 })
 
-// NEW-X1 (found by this package, no G-id yet): after Save changes the dialog's appointment comes
-// from the page's workspace, which is only replaced when router.refresh() lands. Reopened in that
-// window, the dialog still holds the old slot, and Cancel restates it exactly, so the server
-// refuses it with "These appointment details could not be saved…". The refresh is held here so
-// the window is deterministic. Correct behaviour pinned; remove test.fail once fixed.
-test.fail('NEW-X1: cancelling right after a reschedule, before the screen refreshes, cancels the appointment', async ({ page, factory }, testInfo) => {
+// G-20 (was NEW-X1): the dialog's appointment used to come only from the page's workspace, which
+// is replaced when router.refresh() lands. Reopened in that window, the dialog held the old slot,
+// and Cancel restates it exactly, so the server refused it with "These appointment details could
+// not be saved…". The page now shows the row the save returned until the refresh arrives. The
+// refresh is held here so the window is deterministic.
+test('cancelling right after a reschedule, before the screen refreshes, cancels the appointment', async ({ page, factory }, testInfo) => {
   const { patient, type } = await sharedPatient(factory)
   const date = clinicDate(11)
   await factory.createExternalBooking({ patientId: patient.id, date, time: '18:00', appointmentTypeId: type.id })
@@ -419,7 +419,10 @@ test.fail('NEW-X1: cancelling right after a reschedule, before the screen refres
     await expect(page.getByText('Appointment updated', { exact: true }).filter({ visible: true })).toBeVisible()
     await expect.poll(async () => (await appointmentsOf(patient.id))[0].duration_minutes).toBe(50)
 
+    // The chip already shows the saved length although the refresh is still held.
+    await expect(scheduleChip(page, patient.name).filter({ hasText: '50m' })).toBeVisible()
     dialog = await ExternalAppointmentDialog.open(page, testInfo, patient.name)
+    await expect(dialog.duration).toHaveValue('50')
     await press(dialog.startCancel, testInfo)
     await press(dialog.confirmCancel, testInfo)
     await expect(dialog.dialog).toBeHidden()
