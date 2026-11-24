@@ -103,11 +103,13 @@ test('creates temporary staff without sending an invite', async ({ page, factory
   await guards.assertClean()
 })
 
-async function signInAs(browser: Browser, mobileNumber: string, password: string) {
+async function signInAs(browser: Browser, mobileNumber: string, password: string, options: { skipTour?: boolean } = {}) {
   // `browser.newContext()` inherits the project's storageState (the admin session), so the
   // invitee's context must start explicitly signed out.
   const context = await browser.newContext({ storageState: { cookies: [], origins: [] } })
   const page = await context.newPage()
+  // A first sign-in opens the guided tour, a modal that hides the app from assistive tech.
+  if (options.skipTour) await page.addInitScript(() => window.localStorage.setItem('care-book:guided-tour-seen', 'true'))
   await page.goto('http://localhost:3000/login')
   // Invitees sign in with the mobile number the admin entered — the login the invite creates.
   await page.getByLabel('Mobile number', { exact: true }).fill(mobileNumber)
@@ -477,7 +479,7 @@ test('SA-6: an Admin invited by mobile only signs in, sets a password and gets t
   const invite = await factory.findInviteByMobile(phone)
   expect(invite).toMatchObject({ email: null, role: 'admin', status: 'pending', full_name: name })
 
-  const invitee = await signInAs(browser, phone, tempPassword)
+  const invitee = await signInAs(browser, phone, tempPassword, { skipTour: true })
   const inviteeGuards = attachErrorGuards(invitee.page)
   await completeFirstLogin(invitee.page, `E2e-${factory.token}-Adm1n`)
   await expect(invitee.page).toHaveURL('http://localhost:3000/')

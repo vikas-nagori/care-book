@@ -105,7 +105,13 @@ test('SA-1: a mobile-only Staff invitee who has signed in renders cleanly in Set
   await expect(page.getByRole('heading', { name: 'Settings', exact: true }).filter({ visible: true })).toBeVisible()
   await leakCheckEverySection(page)
   await settings.openSection('Active Users')
-  await expect(settings.sectionScope('Active Users').getByText(name, { exact: true }).filter({ visible: true })).toBeVisible()
+  // Desktop renders the Invites and Active Users tables side by side: match the Users row, whose
+  // name cell is the name alone.
+  const userRow = settings.isMobile()
+    ? settings.sectionScope('Active Users').locator('section').filter({ hasText: name })
+    : page.getByRole('row').filter({ has: page.getByRole('cell', { name, exact: true }) })
+  await expect(userRow).toBeVisible()
+  await expectNoLeakedNulls(page, { scope: userRow })
 
   // Booked to them: the schedule chip, the appointment detail and the dashboard.
   const booking = await bookRestricted(factory, { assigned_to: profileId })
