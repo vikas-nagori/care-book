@@ -2,9 +2,17 @@
 // that motivated the E2E suite; the remaining cases exercise the critical write paths.
 
 import { format, parseISO } from 'date-fns'
-import { BillingEntryForm } from '../pages/billing-entry-form'
-import { attachErrorGuards } from '../support/assertions'
-import { expandAllDateGroups } from '../support/date-groups'
+import {
+  BillingEntryForm,
+  openBillingTab,
+  paymentActionButton,
+  refundHistoryRow,
+  revealAllRows,
+} from '../pages/billing-entry-form'
+import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
+import { expandAllDateGroups, expandDateGroup } from '../support/date-groups'
+import { expectedFaultConsoleErrors } from '../support/fault-injection'
+import { isMobileProject } from '../support/mobile'
 import { clinicDate } from '../support/clinic-date'
 import { test, expect } from '../support/factories'
 import { SEED } from '../support/ids'
@@ -411,4 +419,174 @@ test('Package session history shows one row per session after a scheduled sessio
   await expect(page.getByText('Released', { exact: true })).toHaveCount(0)
   await expect(page.getByText('reconciled: appointment or package eligibility changed')).toHaveCount(0)
   await guards.assertClean()
+})
+
+/** A date as the received drill-down's accordion headers render it, e.g. "18 Sep". */
+function dayLabel(date = clinicDate()): string {
+  return format(parseISO(date), 'dd MMM')
+}
+
+// B-5. A partial refund and its reversal through the audited dialog. The Refund and Cancel buttons
+// are separate desktop and mobile twins on each payment row; getByRole picks the one this viewport
+// shows, and exactly one of each is visible.
+test('refunds part of a payment, shows it in the ledger and the received metric, then reverses it', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient({ phone: null })
+  const name = patient.name as string
+  const payment = await factory.createPayment({ patientId: patient.id, amount: 1000, date: clinicDate() })
+  const refundReason = factory.uniqueName('refund-reason')
+
+  await page.goto('/billing?tab=payments')
+  await openBillingTab(page, 'Payments')
+  await revealAllRows(page)
+  const refund = paymentActionButton(page, 'Refund', name, 1000)
+  const cancel = paymentActionButton(page, 'Cancel', name, 1000)
+  await expect(refund).toHaveCount(1)
+  await expect(cancel).toHaveCount(1)
+
+  // Method and date keep their defaults (UPI, today).
+  const form = new BillingEntryForm(page)
+  await form.refundPayment(name, 1000, { refundAmount: 400, reason: refundReason })
+
+  const row = page.locator('div').filter({ has: refund }).filter({ hasText: name }).last()
+  await expect(row).toContainText('Partially refunded')
+  await expect(cancel).toHaveCount(0)
+  await expect(refund).toHaveCount(1)
+  const history = refundHistoryRow(page, refundReason)
+  await expect(history).toContainText('₹400')
+  await expect(history).toContainText('Refunded')
+  await expectNoLeakedNulls(page)
+
+  await expect.poll(() => factory.findRefunds({ paymentId: payment.id })).toHaveLength(1)
+  const [refundRow] = await factory.findRefunds({ paymentId: payment.id })
+  expect(refundRow).toMatchObject({ amount: 400, reason: refundReason, refund_method: 'upi', refund_date: clinicDate() })
+
+  // The received drill-down nets the refund out as its own negative row.
+  await page.goto('/billing/metrics/received-this-month')
+  await expandDateGroup(page.getByTestId('date-group-header').filter({ hasText: dayLabel() }).first())
+  const refundLine = page.getByTestId('date-group-list').locator('div')
+    .filter({ hasText: name }).filter({ hasText: /refund/i }).filter({ hasText: '₹' }).last()
+  await expect(refundLine).toContainText('-400')
+  await expectNoLeakedNulls(page)
+
+  await page.goto('/billing?tab=payments')
+  await form.reverseRefund(refundReason, 400, factory.uniqueName('reverse-reason'))
+  await expect(refundHistoryRow(page, refundReason)).toContainText('Reversed')
+  await expect(cancel).toHaveCount(1)
+  await expect(page.locator('div').filter({ has: cancel }).filter({ hasText: name }).last()).toContainText('Received')
+  const { data: reversals, error } = await adminClient().from('refund_reversals').select('refund_id').eq('refund_id', refundRow.id)
+  expect(error).toBeNull()
+  expect(reversals).toHaveLength(1)
+  await expectNoLeakedNulls(page)
+  await guards.assertClean()
+})
+
+// B-14. The `?new=1` deep link (the phone dashboard's "New billing" quick action) opens the entry
+// dialog; closing it puts the URL back to the tab without `new`.
+test('/billing?new=1 opens the entry dialog, closing it cleans the URL, and the phone dashboard links to it', async ({ page }, testInfo) => {
+  const guards = attachErrorGuards(page)
+  await page.goto('/billing?new=1&tab=payments')
+  const dialog = page.getByRole('dialog', { name: 'New Billing Entry' })
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(page).toHaveURL(/\/billing\?tab=payments$/)
+  // The modal hid the page from the accessibility tree; now the requested tab is the open one.
+  await expect(page.getByRole('heading', { name: /^Payments · \d+$/ })).toBeVisible()
+
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+  const quickAction = page.getByRole('link', { name: 'New billing', exact: true })
+  if (!isMobileProject(testInfo)) {
+    // The quick-action grid is phone-only; desktop opens the dialog from /billing itself.
+    await expect(quickAction.filter({ visible: true })).toHaveCount(0)
+    await guards.assertClean()
+    return
+  }
+  await quickAction.click()
+  await expect(page).toHaveURL(/\/billing\?new=1$/)
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(page).toHaveURL(/\/billing$/)
+  await guards.assertClean()
+})
+
+/** The previous clinic month as `YYYY-MM`. */
+function previousMonth(): string {
+  const [year, month] = clinicDate().split('-').map(Number)
+  return new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 7)
+}
+
+// B-15. "Previous month only" PDF names its month; a dropped or failed PDF request leaves the
+// dialog usable with a message and a working retry.
+test('a previous-month payment PDF carries the month in its filename', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient({ phone: null })
+  await factory.createAppointment({
+    patientId: patient.id, date: `${previousMonth()}-15`, time: '10:05', fee: 800, status: 'completed', payment_status: 'unpaid',
+  })
+
+  await page.goto(`/billing/payment-due/${patient.id}`)
+  await page.getByRole('button', { name: 'Share payment PDF', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Generate payment PDF' })
+  await dialog.getByRole('radio', { name: /Previous month only/ }).check()
+  const download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: 'Generate PDF', exact: true }).click()
+  expect((await download).suggestedFilename()).toMatch(new RegExp(`^payment-summary-.*-regular-${previousMonth()}\\.pdf$`))
+  await expect(dialog).toContainText('PDF downloaded and ready to share.')
+  await guards.assertClean()
+})
+
+test.describe('payment PDF failures', () => {
+  test.use({ serviceWorkers: 'block' })
+
+  test('payment PDF generation recovers from a dropped connection and from a server error', async ({ page, factory }) => {
+    const patient = await factory.createPatient({ phone: null })
+    const pdfUrl = `/api/billing/payment-due/${patient.id}/pdf`
+    const guards = attachErrorGuards(page, { expectedFailures: expectedFaultConsoleErrors('server-action') })
+    await factory.createAppointment({
+      patientId: patient.id, date: clinicDate(-2), time: '10:15', fee: 800, status: 'completed', payment_status: 'unpaid',
+    })
+
+    await page.goto(`/billing/payment-due/${patient.id}`)
+    await page.getByRole('button', { name: 'Share payment PDF', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Generate payment PDF' })
+    const generate = dialog.getByRole('button', { name: /^(Generate PDF|Generating…)$/ })
+
+    let aborted = 0
+    await page.route((url) => url.pathname === pdfUrl, async (route) => {
+      aborted += 1
+      await route.abort('failed')
+    })
+    await generate.click()
+    await expect(dialog.getByRole('alert')).toHaveText('Could not generate the payment PDF. Check your connection and try again.')
+    await expect(generate).toHaveAccessibleName('Generate PDF')
+    await expect(generate).toBeEnabled()
+    expect(aborted).toBe(1)
+    await page.unrouteAll({ behavior: 'wait' })
+
+    let failed = 0
+    await page.route((url) => url.pathname === pdfUrl, async (route) => {
+      failed += 1
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ errorCode: 'STATEMENT_UNAVAILABLE', message: 'E2E injected PDF failure' }),
+      })
+    })
+    await generate.click()
+    await expect(dialog.getByRole('alert')).toHaveText('E2E injected PDF failure')
+    await expect(generate).toHaveAccessibleName('Generate PDF')
+    await expect(generate).toBeEnabled()
+    expect(failed).toBe(1)
+    await page.unrouteAll({ behavior: 'wait' })
+
+    const download = page.waitForEvent('download')
+    await generate.click()
+    expect((await download).suggestedFilename()).toMatch(/^payment-summary-.*\.pdf$/)
+    await expect(dialog).toContainText('PDF downloaded and ready to share.')
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
+    await guards.assertClean()
+  })
 })
