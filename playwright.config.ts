@@ -22,7 +22,11 @@ export default defineConfig({
   forbidOnly: CI,
   retries: CI ? 1 : 0,
   workers: 1,
-  reporter: CI ? [['html', { open: 'never' }], ['github']] : [['html', { open: 'never' }], ['list']],
+  // CI also writes a JSON report: the workflow turns it into per-project test time on the job summary
+  // (scripts/e2e-timing-summary.mjs), which is what the CI split is weighted by.
+  reporter: CI
+    ? [['html', { open: 'never' }], ['github'], ['json', { outputFile: 'test-results/e2e-results.json' }]]
+    : [['html', { open: 'never' }], ['list']],
 
   use: {
     baseURL: 'http://localhost:3000',
