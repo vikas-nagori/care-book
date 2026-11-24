@@ -273,18 +273,27 @@ html, body {
 .ph-nav-link.active svg { opacity: 1; color: var(--ph-accent); }
 
 /* ===== Tabs ===== */
+/* On a 320 px phone the four billing tabs are wider than the screen. The strip scrolls sideways
+   inside itself instead of widening the page (which made the New Billing Entry dialog, sized to
+   the page, run its Save button off-screen: G-22). The base line is an inset shadow, not a
+   border, so the active tab's underline is not clipped by the scroll box. */
 .ph-tabs {
   display: flex;
   gap: 2px;
-  border-bottom: 1px solid var(--ph-line);
+  box-shadow: inset 0 -1px 0 var(--ph-line);
   margin-bottom: 16px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.ph-tabs::-webkit-scrollbar { display: none; }
 .ph-tab {
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 8px 14px;
   font-size: 12.5px;
   color: var(--ph-ink-3);
   border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
   cursor: pointer;
   font-weight: 500;
   transition: color 0.12s;

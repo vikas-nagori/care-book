@@ -6,6 +6,8 @@ import { buildV2PaymentBalanceRows } from '@/lib/billing/v2-balances'
 import { CLINIC_TIME_ZONE, getZonedCalendarContext, getZonedDate } from '@/lib/timezone'
 import { getUserTimeZone } from '@/lib/timezone/server'
 import { fetchAllRows } from '@/lib/supabase/fetch-all'
+import { orderedPackages, orderedPayments, readAllByIds } from '@/lib/billing/billing-pages'
+import type { PackageBillingBalanceV2, PatientBillingBalanceV2 } from '@/lib/supabase/types'
 import { billedTotalForMonth, countLinkedSessions, monthKeyOf, type BilledMonthTotalsRow } from '@/lib/billing/billing-overview-totals'
 
 const PAGE_SIZE = 50
@@ -40,26 +42,33 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     { data: monthRefunds, error: monthRefundsError },
     { data: recentRefunds, error: recentRefundsError },
   ] = await Promise.all([
-    supabase.from('packages').select('*, patient:patients(id, name)', { count: 'exact' }).order('created_at', { ascending: false }).range(0, PAGE_SIZE - 1),
-    supabase
-      .from('payments')
-      .select('*, patient:patients(id, name), package:packages(id, name)', { count: 'exact' })
-      .order('date', { ascending: false })
-      .range(0, PAGE_SIZE - 1),
-    supabase.from('patients').select('id, name').order('name'),
+    // Same total order (date column, then id) as "Load more" in billing-view, so no row is shown
+    // twice or skipped at the page boundary.
+    orderedPackages(supabase, { count: 'exact' }).range(0, PAGE_SIZE - 1),
+    orderedPayments(supabase, { count: 'exact' }).range(0, PAGE_SIZE - 1),
+    // Whole-clinic reads go through fetchAllRows: an un-ranged select stops at PostgREST's 1000-row
+    // cap without an error, which would silently drop patients and balances (G-10).
+    fetchAllRows<{ id: string; name: string }>((from, to) =>
+      supabase.from('patients').select('id, name').order('name').order('id').range(from, to)),
     // Billed = completed sessions' fees, aggregated per month × type by Postgres (a few dozen rows),
     // instead of pulling every appointment the clinic has ever had — which PostgREST would
     // silently truncate at max-rows once the clinic passed 1000 of them.
     fetchAllRows<BilledMonthTotalsRow>((from, to) =>
       supabase.rpc('get_billed_month_totals_v1', { p_till_day: null }).range(from, to),
     ),
-    supabase.from('patient_billing_balances_v2').select('*'),
-    supabase.from('package_billing_balances_v2').select('*'),
-    // This-month payments — unpaginated — for the "Received (this month)" tile.
-    supabase.from('payments').select('amount').eq('status', 'posted').gte('date', calendar.monthStart).lte('date', calendar.monthEnd),
+    fetchAllRows<PatientBillingBalanceV2>((from, to) =>
+      supabase.from('patient_billing_balances_v2').select('*').order('patient_id').range(from, to)),
+    fetchAllRows<PackageBillingBalanceV2>((from, to) =>
+      supabase.from('package_billing_balances_v2').select('*').order('package_id').range(from, to)),
+    // Every posted payment this month, for the "Received (this month)" tile.
+    fetchAllRows<{ amount: number | string }>((from, to) =>
+      supabase.from('payments').select('amount').eq('status', 'posted').gte('date', calendar.monthStart).lte('date', calendar.monthEnd)
+        .order('id').range(from, to)),
     supabase.from('package_templates').select('*').order('created_at', { ascending: false }),
     supabase.from('appointment_types').select('id, name, session_rate').order('sort_order'),
-    supabase.from('refunds').select('id, amount, refund_date').gte('refund_date', calendar.monthStart).lte('refund_date', calendar.monthEnd),
+    fetchAllRows<{ id: string; amount: number | string; refund_date: string }>((from, to) =>
+      supabase.from('refunds').select('id, amount, refund_date').gte('refund_date', calendar.monthStart).lte('refund_date', calendar.monthEnd)
+        .order('id').range(from, to)),
     supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason').order('refund_date', { ascending: false }).range(0, 99),
   ])
 
@@ -87,14 +96,17 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     : { data: [], error: null }
   if (paymentApplicationsError) logger.error('BillingPage/paymentApplications', paymentApplicationsError)
   const { data: visiblePaymentRefunds, error: visiblePaymentRefundsError } = visiblePaymentIds.length > 0
-    ? await supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason').in('payment_id', visiblePaymentIds)
+    ? await fetchAllRows<{ id: string; payment_id: string; amount: number | string; refund_method: string; refund_date: string; reason: string }>((from, to) =>
+        supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason')
+          .in('payment_id', visiblePaymentIds).order('id').range(from, to),
+      )
     : { data: [], error: null }
   if (visiblePaymentRefundsError) logger.error('BillingPage/visiblePaymentRefunds', visiblePaymentRefundsError)
   const refundRowsById = new Map([...(recentRefunds ?? []), ...(visiblePaymentRefunds ?? [])].map((refund) => [refund.id, refund]))
   const relevantRefundIds = [...new Set([...(monthRefunds ?? []).map((refund) => refund.id), ...refundRowsById.keys()])]
-  const { data: reversedRefunds, error: reversedRefundsError } = relevantRefundIds.length > 0
-    ? await supabase.from('refund_reversals').select('refund_id').in('refund_id', relevantRefundIds)
-    : { data: [], error: null }
+  // One month's refunds can be many ids: read their reversals in URL-sized chunks.
+  const { data: reversedRefunds, error: reversedRefundsError } = await readAllByIds<{ refund_id: string }>(relevantRefundIds, (ids, from, to) =>
+    supabase.from('refund_reversals').select('refund_id').in('refund_id', ids).order('refund_id').range(from, to))
   if (reversedRefundsError) logger.error('BillingPage/reversedRefunds', reversedRefundsError)
 
   // Billed (completed sessions' fees) per calendar month — captures package + standalone sessions

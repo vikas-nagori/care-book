@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
 import { collapsePackageSessionHistory } from '@/lib/billing/package-session-history'
 import { PackageDetail, type PackageSession } from './package-detail'
 
@@ -32,11 +33,16 @@ export default async function PackageDetailPage({ params }: { params: Promise<{ 
   const [{ data: pkg, error: packageError }, { data: balance, error: balanceError }, { data: allocations, error: allocationsError }] = await Promise.all([
     supabase.from('packages').select('*, patient:patients(id, name)').eq('id', id).single(),
     supabase.from('package_billing_balances_v2').select('*').eq('package_id', id).single(),
-    supabase
-      .from('package_session_allocations')
-      .select('id, appointment_reference_id, lifecycle, released_at, release_reason, appointment:appointments(id, date, time, type, fee, status)')
-      .eq('package_id', id)
-      .order('created_at', { ascending: true }),
+    // Ranged (G-10): the ledger keeps released rows too, so a long package can outgrow the
+    // 1000-row cap that an un-ranged select hits silently.
+    fetchAllRows<AllocationRow>((from, to) =>
+      supabase
+        .from('package_session_allocations')
+        .select('id, appointment_reference_id, lifecycle, released_at, release_reason, appointment:appointments(id, date, time, type, fee, status)')
+        .eq('package_id', id)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to)),
   ])
 
   if (packageError) logger.error('PackageDetail/package', packageError, { id })

@@ -194,9 +194,8 @@ test.describe('M-5 resume keeps what the device loaded', () => {
   })
 
   test('M-5 billing Payments: rows added by Load more stay after a resume (G-6)', async ({ page, factory }) => {
-    // G-6: billing-view.tsx resets `payments` to the server's first page whenever the page props
-    // change, so the resume refresh drops every row "Load more" fetched.
-    test.fail(true, 'G-6: loaded-more payments vanish after the resume refresh')
+    // G-6: billing-view.tsx used to reset `payments` to the server's first page whenever the page
+    // props changed, so the resume refresh dropped every row "Load more" fetched.
     const guards = phoneGuards(page)
     const patient = await factory.createPatient()
     await factory.createPayments(60, { patientId: patient.id, startDayOffset: -500 })

@@ -1,7 +1,7 @@
 'use client'
 
 import { callServerAction } from '@/lib/actions/call-server-action'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import { buildAllocationPreview, type OutstandingCharge } from '@/lib/billing/al
 import { calculatePackageTotal } from '@/lib/billing/payment-helpers'
 import { getBillingModeLabel } from '@/lib/billing/unified-billing'
 import { applyPackageTemplate } from '@/lib/billing/package-template'
+import { attemptFor, type RequestAttempt } from '@/lib/billing/request-key'
 import type { BillingEntryKind, CreateBillingEntryInput, PackageTemplate } from '@/lib/supabase/types'
 import { createBillingEntry, getOutstandingCharges, recordPayment } from './actions'
 
@@ -51,6 +52,12 @@ export function BillingEntryForm({
 }: Props) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
+  // `loading` disables Save only after React commits it, so a double tap (two activations in one
+  // task) would reach handleSubmit twice. The ref is set synchronously and blocks the second (G-14).
+  const submittingRef = useRef(false)
+  // The server dedupes on this id: a resend of the same input after a lost reply returns the
+  // first receipt instead of recording another one.
+  const attemptRef = useRef<RequestAttempt | null>(null)
   const [selectedPatient, setSelectedPatient] = useState('')
   const [mode, setMode] = useState<BillingEntryKind>('payment_only')
   const [amount, setAmount] = useState('')
@@ -112,9 +119,18 @@ export function BillingEntryForm({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (submittingRef.current) return
+    submittingRef.current = true
     setLoading(true)
+    try {
+      await submit(new FormData(event.currentTarget))
+    } finally {
+      submittingRef.current = false
+      setLoading(false)
+    }
+  }
 
-    const formData = new FormData(event.currentTarget)
+  async function submit(formData: FormData) {
     const input: CreateBillingEntryInput = {
       patientId: selectedPatient,
       mode,
@@ -132,6 +148,10 @@ export function BillingEntryForm({
       input.packageStartsOn = (formData.get('package_starts_on') as string) || undefined
     }
 
+    // Same input as the last attempt (a retry after a failure or a lost reply): same request id.
+    const attempt = attemptFor(attemptRef.current, JSON.stringify(input))
+    attemptRef.current = attempt
+
     const result = mode === 'payment_only'
       ? await callServerAction(() => recordPayment({
         patientId: selectedPatient,
@@ -142,8 +162,9 @@ export function BillingEntryForm({
         paymentMethod: input.paymentMethod ?? '',
         date: input.paymentDate ?? '',
         notes: input.paymentNotes ?? null,
+        requestKey: attempt.key,
       }))
-      : await callServerAction(() => createBillingEntry(input))
+      : await callServerAction(() => createBillingEntry({ ...input, requestKey: attempt.key }))
 
     if (!result.success) {
       toast({
@@ -151,9 +172,11 @@ export function BillingEntryForm({
         description: result.message,
         variant: 'destructive',
       })
-      setLoading(false)
       return
     }
+
+    // Saved: the next entry made with this form is a new receipt.
+    attemptRef.current = null
 
     const descriptionParts = []
     if (result.linkedAppointmentIds.length > 0) {

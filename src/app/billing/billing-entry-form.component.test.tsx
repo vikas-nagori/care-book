@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
 vi.mock('./actions', () => ({
@@ -10,7 +10,7 @@ vi.mock('./actions', () => ({
 }))
 
 import { BillingEntryForm } from './billing-entry-form'
-import { getOutstandingCharges } from './actions'
+import { getOutstandingCharges, recordPayment } from './actions'
 
 afterEach(cleanup)
 
@@ -133,5 +133,55 @@ describe('BillingEntryForm package contract', () => {
     expect(sessions.min).toBe('1')
     expect(rate.min).toBe('0.01')
     expect(sessions.checkValidity()).toBe(false)
+  })
+})
+
+describe('BillingEntryForm double submission (G-14)', () => {
+  function renderPaymentForm() {
+    render(<BillingEntryForm
+      patients={[{ id: 'p1', name: 'Asha' }]}
+      appointmentTypes={[]}
+      defaultPaymentDate="2026-08-15"
+      clinicToday="2026-08-15"
+    />)
+    fireEvent.click(screen.getByLabelText('Patient *'))
+    fireEvent.click(screen.getByRole('button', { name: 'Asha' }))
+    fireEvent.change(screen.getByLabelText('Amount Received *'), { target: { value: '500' } })
+    return screen.getByRole('button', { name: 'Save Payment' }) as HTMLButtonElement
+  }
+
+  it('records once when Save is activated twice before React re-renders', async () => {
+    let finish!: (value: Awaited<ReturnType<typeof recordPayment>>) => void
+    vi.mocked(recordPayment).mockReset().mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const save = renderPaymentForm()
+
+    // Both activations inside one act(): the disabled state is not committed between them.
+    act(() => {
+      save.click()
+      save.click()
+    })
+    await waitFor(() => expect(recordPayment).toHaveBeenCalledTimes(1))
+    await act(async () => finish({ success: true, paymentId: 'pay-1', linkedAppointmentIds: [], updatedPackageId: null }))
+    expect(recordPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('resends the same input with the same request key, and a changed input with a new one', async () => {
+    vi.mocked(recordPayment).mockReset().mockResolvedValue({ success: false, errorCode: 'X', message: 'Network trouble' })
+    const save = renderPaymentForm()
+
+    fireEvent.click(save)
+    await waitFor(() => expect(recordPayment).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(save.disabled).toBe(false))
+    fireEvent.click(save)
+    await waitFor(() => expect(recordPayment).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(save.disabled).toBe(false))
+    fireEvent.change(screen.getByLabelText('Amount Received *'), { target: { value: '600' } })
+    fireEvent.click(save)
+    await waitFor(() => expect(recordPayment).toHaveBeenCalledTimes(3))
+
+    const keys = vi.mocked(recordPayment).mock.calls.map(([input]) => input.requestKey)
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).not.toBe(keys[0])
   })
 })
