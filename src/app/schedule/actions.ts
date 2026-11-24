@@ -94,7 +94,7 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
     }
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data: updatedRows, error } = await supabase
       .from('appointments')
       .update({
         patient_id: input.patientId,
@@ -112,6 +112,7 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
         notes: input.notes || null,
       })
       .eq('id', input.appointmentId)
+      .select('id')
 
     if (error) {
       logger.error('schedule/updateAppointment', error, { appointmentId: input.appointmentId })
@@ -119,6 +120,10 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
         return { success: false, errorCode: 'EXTERNAL_ASSIGNMENT_UNAVAILABLE', message: EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE }
       }
       return { success: false, errorCode: 'APPOINTMENT_UPDATE_FAILED', message: error.message }
+    }
+    if (!updatedRows?.length) {
+      logger.warn('schedule/updateAppointment', 'Appointment update matched no row', { appointmentId: input.appointmentId })
+      return { success: false, errorCode: 'APPOINTMENT_NOT_FOUND', message: 'This appointment no longer exists. It may have been deleted.' }
     }
 
     revalidateScheduleViews()
@@ -141,14 +146,20 @@ export async function updateAppointmentStatus(input: UpdateAppointmentStatusInpu
     }
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data: updatedRows, error } = await supabase
       .from('appointments')
       .update({ status: input.status })
       .eq('id', input.appointmentId)
+      // An update that matched no row (deleted meanwhile) is not an error to PostgREST (G-3).
+      .select('id')
 
     if (error) {
       logger.error('schedule/updateAppointmentStatus', error, { appointmentId: input.appointmentId })
       return { success: false, errorCode: 'APPOINTMENT_STATUS_UPDATE_FAILED', message: error.message }
+    }
+    if (!updatedRows?.length) {
+      logger.warn('schedule/updateAppointmentStatus', 'Status update matched no row', { appointmentId: input.appointmentId })
+      return { success: false, errorCode: 'APPOINTMENT_NOT_FOUND', message: 'This appointment no longer exists. It may have been deleted.' }
     }
 
     revalidateScheduleViews()

@@ -45,6 +45,7 @@ import type { BookingRequest, CreateAppointmentResult, NewPatientInput } from '@
 import { reportBookingEvent } from '@/lib/observability/report-booking-event'
 
 const UNASSIGNED_ASSIGNEE_VALUE = '__unassigned__'
+const APPOINTMENT_GONE_MESSAGE = 'This appointment no longer exists. It may have been deleted. Reload to see the current schedule.'
 const WEEKDAYS = [
   { value: 1, label: 'Mon' },
   { value: 2, label: 'Tue' },
@@ -688,7 +689,7 @@ export function AppointmentForm({
           toast({ title: 'Appointment not updated', description: duration.message, variant: 'destructive' })
           return
         }
-        const { error } = await withBookingDeadline(supabase
+        const { data: updatedRows, error } = await withBookingDeadline(supabase
           .from('appointments')
           .update({
             patient_id: patientId,
@@ -701,7 +702,10 @@ export function AppointmentForm({
             ...assignment,
             notes,
           })
-          .eq('id', appointment.id))
+          .eq('id', appointment.id)
+          // Returning the id is how a zero-row update shows up: PostgREST reports no error when the
+          // row was deleted meanwhile (G-3).
+          .select('id'))
 
         if (!alive.current || operation.current !== run) return
 
@@ -716,6 +720,17 @@ export function AppointmentForm({
           toast({
             title: 'Appointment not updated',
             description: accessError ? EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE : 'Please check the appointment and try again.',
+            variant: 'destructive',
+          })
+          return
+        }
+
+        if (!updatedRows?.length) {
+          logger.warn('AppointmentForm/save', 'Appointment update matched no row', { appointmentId: appointment.id })
+          reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'APPOINTMENT_NOT_FOUND' })
+          toast({
+            title: 'Appointment not updated',
+            description: APPOINTMENT_GONE_MESSAGE,
             variant: 'destructive',
           })
           return

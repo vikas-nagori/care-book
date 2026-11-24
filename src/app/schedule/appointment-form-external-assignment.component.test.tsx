@@ -58,7 +58,7 @@ const externalAppointment: Appointment = {
 describe('external assignee selection', () => {
   beforeEach(() => {
     mocks.update.mockReturnValue({ eq: mocks.eq })
-    mocks.eq.mockResolvedValue({ error: null })
+    mocks.eq.mockReturnValue({ select: async () => ({ data: [{ id: 'appointment-1' }], error: null }) })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true, appointmentIds: ['appointment-1'] }))))
     mocks.load.mockImplementation(async (patientId: string) => ({
       ok: true,

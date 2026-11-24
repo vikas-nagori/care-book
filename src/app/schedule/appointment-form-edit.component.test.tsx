@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { Appointment, AppointmentType } from '@/lib/supabase/types'
 
-// Edit Appointment's own checks before it writes the row (C-3, G-17c).
+// Edit Appointment: its own checks before it writes the row (C-3, G-17c) and a write that
+// matched no row (G-3).
 
 const mocks = vi.hoisted(() => ({ toast: vi.fn(), update: vi.fn(), select: vi.fn() }))
 vi.mock('./external-assignees', () => ({ getExternalAssigneeOptions: async () => ({ ok: true, profiles: [] }) }))
@@ -50,8 +51,7 @@ describe('Edit Appointment', () => {
     mocks.update.mockReset()
     mocks.select.mockReset()
     mocks.select.mockResolvedValue({ data: [{ id: appointment.id }], error: null })
-    // Thenable so the form can await the update either directly or after .select().
-    mocks.update.mockReturnValue({ eq: () => ({ select: mocks.select, then: (done: (value: unknown) => unknown) => done({ error: null }) }) })
+    mocks.update.mockReturnValue({ eq: () => ({ select: mocks.select }) })
   })
   afterEach(cleanup)
 
@@ -98,6 +98,21 @@ describe('Edit Appointment', () => {
       submit()
       await waitFor(() => expect(onSuccess).toHaveBeenCalled())
       expect(mocks.update.mock.calls[0][0]).not.toHaveProperty('fee')
+    })
+  })
+
+  describe('a row deleted meanwhile (G-3)', () => {
+    it('says the appointment no longer exists instead of "Appointment updated"', async () => {
+      mocks.select.mockResolvedValue({ data: [], error: null })
+      const onSuccess = mountEdit(appointment)
+      fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Too late' } })
+      submit()
+      await waitFor(() => expect(lastToast()).toMatchObject({ title: 'Appointment not updated', variant: 'destructive' }))
+      expect(lastToast()?.description).toMatch(/no longer exists/)
+      expect(mocks.select).toHaveBeenCalledWith('id')
+      expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Appointment updated' }))
+      expect(onSuccess).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: 'Update' })).toHaveProperty('disabled', false)
     })
   })
 
