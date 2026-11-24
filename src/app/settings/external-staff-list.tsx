@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
@@ -75,13 +76,13 @@ export function ExternalStaffList({
     }
 
     setBusyStaffId(staff.id)
-    const result = await createUserInvite({
+    const result = await callServerAction(() => createUserInvite({
       email,
       role: 'staff',
       fullName: staff.name,
       mobileNumber: staff.phone,
       externalStaffId: staff.id,
-    })
+    }))
 
     if (!result.success) {
       toast({
@@ -106,7 +107,7 @@ export function ExternalStaffList({
     event.preventDefault()
     setCreating(true)
 
-    const result = await createExternalStaff(newStaff)
+    const result = await callServerAction(() => createExternalStaff(newStaff))
     if (!result.success) {
       toast({
         title: 'Temporary staff not added',

@@ -293,3 +293,31 @@ test('invites External Staff by mobile number only, and they can sign in and set
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
   await guards.assertClean()
 })
+
+// Prod 2026-11-24: after revoking a mobile-only External Staff invite, "Create Login" for the same
+// number hung on "Creating..." and never produced a password.
+test('re-invites a revoked mobile-only External Staff with the same number', async ({ page, browser, factory }) => {
+  const guards = attachErrorGuards(page)
+  const name = factory.uniqueName('reinvite-mobile-only')
+  const phone = stablePhone(name)
+  const account = `${phone.slice(0, 5)} ${phone.slice(5)}`
+  factory.watchUiMobileInvite(phone)
+
+  await page.goto('/settings')
+  const settings = new SettingsView(page)
+  await settings.inviteUser({ name, phone, role: 'External Staff' })
+  const authUserId = (await factory.findInviteByMobile(phone))!.auth_user_id!
+
+  await settings.revokeInvite(account)
+  await expect.poll(async () => (await factory.findInviteByMobile(phone))?.status).toBe('revoked')
+
+  const reinvitePassword = await settings.inviteUser({ name, phone, role: 'External Staff' })
+  await expect.poll(async () => (await factory.findInviteByMobile(phone))?.status).toBe('pending')
+  expect(await factory.findInviteByMobile(phone)).toMatchObject({ auth_user_id: authUserId, role: 'external_staff', email: null })
+  expect(await factory.findProfileById(authUserId)).toMatchObject({ clinic_id: CLINIC_A.id, role: 'external_staff' })
+
+  const reinvited = await signInAs(browser, phone, reinvitePassword)
+  await reinvited.page.waitForURL('**/auth/change-password', { timeout: 15_000 })
+  await reinvited.context.close()
+  await guards.assertClean()
+})

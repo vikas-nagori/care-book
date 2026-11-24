@@ -60,3 +60,10 @@ test('a booking limiter supports several staged attempts without changing the le
   assert.equal(allow('two', 101), true)
   assert.equal(allow('one', 60_100), true)
 })
+
+test('accepts the Settings action-failure operations', () => {
+  const correlationId = '3f1c2b4a-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+  for (const operation of ['Settings/staleClient', 'Settings/actionFailed']) {
+    assert.deepEqual(parseClientEvent({ operation, correlationId }), { operation, correlationId })
+  }
+})

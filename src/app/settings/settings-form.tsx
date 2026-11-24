@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
@@ -29,10 +30,10 @@ export function SettingsForm({ settings, variant = 'card' }: Props) {
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    const result = await updateGlobalSettings({
+    const result = await callServerAction(() => updateGlobalSettings({
       homeVisitFee: parseFloat(formData.get('home_visit_fee') as string) || 0,
       clinicFee: parseFloat(formData.get('clinic_fee') as string) || 0,
-    })
+    }))
 
     if (!result.success) {
       toast({ title: 'Error', description: result.message, variant: 'destructive' })

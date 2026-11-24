@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { formatMobileNumber } from '@/lib/auth/mobile-number'
 import { useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -51,7 +52,7 @@ export function InviteForm({ variant = 'card' }: { variant?: 'card' | 'sheet' })
     }
 
     setLoading(true)
-    const result = await createUserInvite(validation.values)
+    const result = await callServerAction(() => createUserInvite(validation.values))
 
     if (!result.success) {
       toast({

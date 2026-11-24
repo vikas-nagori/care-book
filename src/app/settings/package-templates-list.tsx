@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Plus, Trash2, Pencil, X } from 'lucide-react'
@@ -61,8 +62,8 @@ export function PackageTemplatesList({ templates, variant = 'card' }: Props) {
     }
     const result =
       editingId && editingId !== 'new'
-        ? await updatePackageTemplate({ id: editingId, ...payload })
-        : await createPackageTemplate(payload)
+        ? await callServerAction(() => updatePackageTemplate({ id: editingId, ...payload }))
+        : await callServerAction(() => createPackageTemplate(payload))
     setSaving(false)
 
     if (!result.success) {
@@ -77,7 +78,7 @@ export function PackageTemplatesList({ templates, variant = 'card' }: Props) {
 
   async function handleDelete(template: PackageTemplate) {
     setDeletingId(template.id)
-    const result = await deletePackageTemplate(template.id)
+    const result = await callServerAction(() => deletePackageTemplate(template.id))
     setDeletingId(null)
 
     if (!result.success) {

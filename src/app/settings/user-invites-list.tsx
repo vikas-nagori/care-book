@@ -1,6 +1,7 @@
 'use client'
 
-import { accountContactLabel } from '@/lib/auth/mobile-number'
+import { callServerAction } from '@/lib/actions/call-server-action'
+import { accountContactLabel, accountDisplayName } from '@/lib/auth/mobile-number'
 import { USER_ROLE_LABELS } from '@/lib/user-role'
 
 import { useState } from 'react'
@@ -50,7 +51,7 @@ export function UserInvitesList({
 
   async function handleNewPassword(inviteId: string) {
     setBusyInviteId(inviteId)
-    const result = await issueInviteTempPassword({ inviteId })
+    const result = await callServerAction(() => issueInviteTempPassword({ inviteId }))
 
     if (!result.success) {
       toast({
@@ -64,7 +65,7 @@ export function UserInvitesList({
 
     toast({
       title: 'New temporary password',
-      description: `The previous temporary password for ${accountContactLabel(result.invite)} no longer works.`,
+      description: `The previous temporary password for ${accountDisplayName(result.invite)} no longer works.`,
     })
     setCredentials(result.credentials)
     router.refresh()
@@ -73,7 +74,7 @@ export function UserInvitesList({
 
   async function handleRevoke(inviteId: string) {
     setBusyInviteId(inviteId)
-    const result = await revokeUserInvite({ inviteId })
+    const result = await callServerAction(() => revokeUserInvite({ inviteId }))
 
     if (!result.success) {
       toast({
@@ -87,7 +88,7 @@ export function UserInvitesList({
 
     toast({
       title: 'Invite revoked',
-      description: `${accountContactLabel(result.invite)} can no longer sign in.`,
+      description: `${accountDisplayName(result.invite)} can no longer sign in.`,
     })
     router.refresh()
     setBusyInviteId(null)
@@ -115,9 +116,7 @@ export function UserInvitesList({
           return (
             <section key={invite.id} className="space-y-3 rounded-lg border border-[var(--ph-line)] p-3.5">
               <div className="flex items-start justify-between gap-3">
-                <p className="min-w-0 break-all text-sm font-semibold text-[var(--ph-ink)]">
-                  {accountContactLabel(invite)}
-                </p>
+                <InviteeLabel invite={invite} />
                 <Badge className="shrink-0" variant={getInviteBadgeVariant(invite.status)}>
                   {invite.status}
                 </Badge>
@@ -169,7 +168,7 @@ export function UserInvitesList({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Email</TableHead>
+                  <TableHead>Name</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Last Updated</TableHead>
@@ -182,7 +181,9 @@ export function UserInvitesList({
 
                   return (
                     <TableRow key={invite.id}>
-                      <TableCell className="font-medium">{accountContactLabel(invite)}</TableCell>
+                      <TableCell>
+                        <InviteeLabel invite={invite} />
+                      </TableCell>
                       <TableCell>
                         <Badge variant={invite.role === 'admin' ? 'default' : 'secondary'}>
                           {USER_ROLE_LABELS[invite.role]}
@@ -233,5 +234,21 @@ export function UserInvitesList({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * Who the invite is for: their name first (admins kept losing track of whose invite was pending
+ * when only a number showed), then the login they sign in with. Invites made before names were
+ * captured fall back to the login alone.
+ */
+function InviteeLabel({ invite }: { invite: UserInvite }) {
+  const name = invite.full_name?.trim()
+  const contact = accountContactLabel(invite)
+  return (
+    <div className="min-w-0">
+      <p className="break-words text-sm font-semibold text-[var(--ph-ink)] [overflow-wrap:anywhere]">{name || contact}</p>
+      {name && <p className="break-all text-xs text-muted-foreground">{contact}</p>}
+    </div>
   )
 }

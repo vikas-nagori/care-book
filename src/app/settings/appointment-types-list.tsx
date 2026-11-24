@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Plus, Trash2, Pencil, X } from 'lucide-react'
@@ -67,8 +68,8 @@ export function AppointmentTypesList({ appointmentTypes, variant = 'card' }: Pro
     }
     const result =
       editingId && editingId !== 'new'
-        ? await updateAppointmentType({ id: editingId, ...payload })
-        : await createAppointmentType(payload)
+        ? await callServerAction(() => updateAppointmentType({ id: editingId, ...payload }))
+        : await callServerAction(() => createAppointmentType(payload))
     setSaving(false)
 
     if (!result.success) {
@@ -83,7 +84,7 @@ export function AppointmentTypesList({ appointmentTypes, variant = 'card' }: Pro
 
   async function handleDelete(type: AppointmentType) {
     setDeletingId(type.id)
-    const result = await deleteAppointmentType(type.id)
+    const result = await callServerAction(() => deleteAppointmentType(type.id))
     setDeletingId(null)
 
     if (!result.success) {

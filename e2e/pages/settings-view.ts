@@ -138,8 +138,10 @@ export class SettingsView {
     return value
   }
 
-  async revokeInvite(email: string): Promise<void> {
-    await this.page.getByRole('button', { name: `Revoke invite to ${email}`, exact: true }).click()
+  /** `account` is the invite's email, or its formatted mobile number when it has none. */
+  async revokeInvite(account: string): Promise<void> {
+    await this.openSection('Invites')
+    await this.page.getByRole('button', { name: `Revoke invite to ${account}`, exact: true }).click()
     await expect(this.page.getByText('Invite revoked', { exact: true })).toBeVisible()
   }
 }

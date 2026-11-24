@@ -10,7 +10,11 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
 }))
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.refresh }) }))
+vi.mock('next/navigation', async (importOriginal) => ({
+  // Keep the real unstable_* helpers: callServerAction uses them to classify a rejected action.
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ refresh: mocks.refresh }),
+}))
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }))
 vi.mock('./actions', () => ({
   createUserInvite: mocks.createUserInvite,
@@ -85,6 +89,66 @@ describe('invite UI', () => {
       expect(screen.getByTestId('temp-password').textContent).toBe(CREDENTIALS.tempPassword)
     })
     expect(mocks.createUserInvite).toHaveBeenCalledWith(expect.objectContaining({ mobileNumber: '9876543210', email: null }))
+  })
+
+  // Prod 2026-11-24: the action call rejected (no response from the server) and the button sat on
+  // "Creating login…" forever, with no message and nothing logged.
+  it('recovers when the invite request fails instead of spinning forever', async () => {
+    mocks.createUserInvite.mockRejectedValue(new TypeError('Failed to fetch'))
+    render(<InviteForm />)
+
+    fireEvent.change(screen.getByLabelText('Invitee name'), { target: { value: 'Dr Asha' } })
+    fireEvent.change(screen.getByLabelText(/^Mobile number/), { target: { value: '9876543210' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create Login' }))
+
+    await waitFor(() => {
+      expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Login not created',
+        description: "Couldn't reach Care-Book. Check your connection and try again.",
+        variant: 'destructive',
+      }))
+    })
+    expect((screen.getByRole('button', { name: 'Create Login' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('reloads onto the new version when the app is older than the server', async () => {
+    const { UnrecognizedActionError } = await import('next/dist/client/components/unrecognized-action-error')
+    const reload = vi.fn()
+    vi.stubGlobal('location', { ...window.location, reload })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      mocks.createUserInvite.mockRejectedValue(new UnrecognizedActionError('Server Action "x" was not found on the server.'))
+      render(<InviteForm />)
+      fireEvent.change(screen.getByLabelText('Invitee name'), { target: { value: 'Dr Asha' } })
+      fireEvent.change(screen.getByLabelText(/^Mobile number/), { target: { value: '9876543210' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Create Login' }))
+
+      await waitFor(() => {
+        expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+          description: 'Care-Book was just updated. Reloading to get the latest version…',
+        }))
+      })
+      expect(reload).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1_600)
+      expect(reload).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  // Prod feedback 2026-11-24: invites listed only the number, so admins couldn't tell who an
+  // invite was for. The name leads; the login (number or email) sits underneath.
+  it.each(['card', 'sheet'] as const)('names who each invite is for (%s layout)', (variant) => {
+    const mobileOnly = { ...PENDING_INVITE, id: 'invite-2', email: null, full_name: 'Dr Test Invitee', mobile_number: '9988776655' }
+    const nameless = { ...PENDING_INVITE, id: 'invite-3', email: null, full_name: null, mobile_number: '9123456780' }
+    render(<UserInvitesList invites={[mobileOnly, nameless]} variant={variant} />)
+
+    expect(screen.getByText('Dr Test Invitee')).toBeTruthy()
+    expect(screen.getByText('99887 76655')).toBeTruthy()
+    // A legacy invite without a name still says who it is for.
+    expect(screen.getByText('91234 56780')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Revoke invite to 99887 76655' })).toHaveLength(1)
   })
 
   it('issues and shows a new temporary password for a pending invite', async () => {

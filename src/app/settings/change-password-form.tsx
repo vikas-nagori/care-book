@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -60,7 +61,7 @@ export function ChangePasswordForm() {
     }
 
     setLoading(true)
-    const result = await changeOwnPassword({ currentPassword, password, passwordConfirmation })
+    const result = await callServerAction(() => changeOwnPassword({ currentPassword, password, passwordConfirmation }))
     setLoading(false)
 
     if (!result.success) {
