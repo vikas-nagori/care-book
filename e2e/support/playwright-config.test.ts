@@ -90,9 +90,10 @@ test('the web server builds by default and only skips the build when CI has alre
   assert.match(command, /PREBUILT \? 'npm run start:e2e' : 'npm run build:e2e && npm run start:e2e'/)
 })
 
-test('an iPhone WebKit project runs the @ios subset as the clinic admin, on one CI shard only', () => {
+test('an iPhone WebKit project runs the @ios subset as the clinic admin, in its own CI job', () => {
   // Every iPhone runs the installed app on WebKit, which the Pixel 5 projects never exercise
-  // (decision D5). WebKit is installed on one CI shard, which runs this project on its own.
+  // (decision D5). WebKit is installed only in the `e2e-ios` job, which runs this project in
+  // parallel with the shards so no shard carries it, and the `e2e` gate requires it.
   const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
   const workflow = readFileSync(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8')
   const iosProject = config.match(/name: 'mobile-ios',[\s\S]*?\n\s*}/)?.[0] ?? ''
@@ -105,9 +106,24 @@ test('an iPhone WebKit project runs the @ios subset as the clinic admin, on one 
 
   const shardedRun = workflow.match(/- name: E2E tests\n[\s\S]*?run: npm run test:e2e -- --shard=[^\n]+/)?.[0] ?? ''
   assert.match(shardedRun, /E2E_SKIP_IOS: '1'/)
+
+  // Comments are dropped so a job block holds only its own keys (a job's leading comment would
+  // otherwise end up in the block above it).
+  const jobs = workflow.replace(/^\s*#.*\n/gm, '').split(/\n(?=  [a-z][\w-]*:\n)/)
+  const job = (name: string) => jobs.find((block) => block.startsWith(`  ${name}:\n`)) ?? ''
+  const shardJob = job('e2e-shard')
+  const iosJob = job('e2e-ios')
+  const gate = job('e2e')
+
+  assert.doesNotMatch(shardJob, /webkit|mobile-ios/)
+  assert.match(iosJob, /playwright install --with-deps chromium webkit/)
+  assert.match(iosJob, /E2E_PREBUILT: '1'/)
+  assert.match(iosJob, /run: npm run test:e2e -- --project=mobile-ios\n/)
+  assert.doesNotMatch(iosJob, /E2E_SKIP_IOS/)
+  assert.match(iosJob, /name: playwright-report-ios/)
   const webkitInstalls = workflow.match(/playwright install[^\n]*webkit/g) ?? []
-  assert.equal(webkitInstalls.length, 1)
-  const iosStep = workflow.match(/- name: iPhone[\s\S]*?--project=mobile-ios/)?.[0] ?? ''
-  assert.match(iosStep, /if: matrix\.shard == 1/)
-  assert.match(iosStep, /playwright install --with-deps webkit/)
+  assert.equal(webkitInstalls.length, 2, 'only e2e-ios installs WebKit (cache miss and cache hit)')
+  assert.ok(webkitInstalls.every((line) => iosJob.includes(line)))
+  assert.match(gate, /needs: \[e2e-shard, e2e-ios\]/)
+  assert.match(gate, /if: always\(\)/)
 })
