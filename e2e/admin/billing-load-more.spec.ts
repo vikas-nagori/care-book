@@ -5,8 +5,8 @@
 //
 // Fixtures are dated far in the past (years back) so they sit at the end of the clinic's lists,
 // straddle the 50-row server page, and never touch this month's metrics. Each row gets a distinct
-// date and amount (payments) or creation time and name (packages): the reads are ordered by those
-// columns alone, so ties would make the paging itself nondeterministic (G-6).
+// date and amount (payments) or creation time and name (packages). The reads order by that column
+// and then by id (G-6), so ties no longer make the paging nondeterministic either.
 
 import type { Locator, Page } from '@playwright/test'
 import {
@@ -160,11 +160,9 @@ test('a failed "Load more" read for payments says so, and the retry loads the ro
   await guards.assertClean()
 })
 
-// G-6: loadMorePayments ignores the error of its refunds (and payment_applications) reads, so the
-// loaded payments show as never refunded, with a live Cancel button. Expected: the failure is
-// reported like a failed payments read. Remove test.fail() when G-6 is fixed.
+// G-6: a failed refunds (or payment_applications) read used to be ignored, so the loaded payments
+// showed as never refunded, with a live Cancel button. It is reported like a failed payments read.
 test('a failed refunds read during "Load more" is reported, not silently dropped (G-6)', async ({ page, factory }) => {
-  test.fail(true, 'G-6: the refunds read error in loadMorePayments is dropped without a toast')
   const guards = guardsFor(page, 'rest/v1/refunds')
   await seedPayments(factory)
   await openPaymentsFirstPage(page)
@@ -177,10 +175,9 @@ test('a failed refunds read during "Load more" is reported, not silently dropped
 })
 
 // G-6 ("rows also vanish after any audited change"; plan B-12 labels this G-17d): the server
-// re-render after the action replaces the loaded list with the first 50 rows again. Expected: rows
-// the admin already loaded stay loaded. Remove test.fail() when G-6 is fixed.
+// re-render after the action used to replace the loaded list with the first 50 rows again. Rows
+// the admin already loaded stay loaded, re-read with their new status.
 test('rows loaded with "Load more" stay loaded after a payment is cancelled (G-6)', async ({ page, factory }) => {
-  test.fail(true, 'G-6: an audited change resets the payments list to its first server page')
   const guards = attachErrorGuards(page)
   const { name, amounts } = await seedPayments(factory)
   await openPaymentsFirstPage(page)

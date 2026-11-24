@@ -6,6 +6,7 @@ import { buildV2PaymentBalanceRows } from '@/lib/billing/v2-balances'
 import { CLINIC_TIME_ZONE, getZonedCalendarContext, getZonedDate } from '@/lib/timezone'
 import { getUserTimeZone } from '@/lib/timezone/server'
 import { fetchAllRows } from '@/lib/supabase/fetch-all'
+import { orderedPackages, orderedPayments } from '@/lib/billing/billing-pages'
 import { billedTotalForMonth, countLinkedSessions, monthKeyOf, type BilledMonthTotalsRow } from '@/lib/billing/billing-overview-totals'
 
 const PAGE_SIZE = 50
@@ -40,12 +41,10 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     { data: monthRefunds, error: monthRefundsError },
     { data: recentRefunds, error: recentRefundsError },
   ] = await Promise.all([
-    supabase.from('packages').select('*, patient:patients(id, name)', { count: 'exact' }).order('created_at', { ascending: false }).range(0, PAGE_SIZE - 1),
-    supabase
-      .from('payments')
-      .select('*, patient:patients(id, name), package:packages(id, name)', { count: 'exact' })
-      .order('date', { ascending: false })
-      .range(0, PAGE_SIZE - 1),
+    // Same total order (date column, then id) as "Load more" in billing-view, so no row is shown
+    // twice or skipped at the page boundary.
+    orderedPackages(supabase, { count: 'exact' }).range(0, PAGE_SIZE - 1),
+    orderedPayments(supabase, { count: 'exact' }).range(0, PAGE_SIZE - 1),
     supabase.from('patients').select('id, name').order('name'),
     // Billed = completed sessions' fees, aggregated per month × type by Postgres (a few dozen rows),
     // instead of pulling every appointment the clinic has ever had — which PostgREST would

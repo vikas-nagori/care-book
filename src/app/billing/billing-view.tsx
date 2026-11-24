@@ -1,7 +1,7 @@
 'use client'
 
 import { callServerAction } from '@/lib/actions/call-server-action'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
@@ -22,8 +22,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useToast } from '@/hooks/use-toast'
-import { requestErrorMessage } from '@/lib/actions/request-error-message'
-import { createClient } from '@/lib/supabase/client'
 import {
   buildBillingTimelineItems,
   getFundingScopeLabel,
@@ -34,10 +32,23 @@ import { getPackageProgress } from '@/lib/billing/package-progress'
 import type { V2PaymentBalanceRow } from '@/lib/billing/v2-balances'
 import type { PackageBillingBalanceV2, PackageTemplate } from '@/lib/supabase/types'
 import { PaginationNav } from '@/components/pagination-nav'
-import { fetchAllRows } from '@/lib/supabase/fetch-all'
-import { countLinkedSessions } from '@/lib/billing/billing-overview-totals'
+import {
+  EMPTY_PACKAGE_PAGE,
+  EMPTY_PAYMENT_PAGE,
+  appendPaymentPage,
+  fetchPackagePage,
+  fetchPackagesThrough,
+  fetchPaymentPage,
+  fetchPaymentsThrough,
+  mergeRefunds,
+  withLoadedRows,
+  type BillingRefundRow,
+  type PackagePage,
+  type PaymentPage,
+} from '@/lib/billing/billing-pages'
 import { BillingEntryForm } from './billing-entry-form'
 import { cancelPackage, recordRefund, voidPayment, voidRefund } from './actions'
+import { useLoadedRows, type LoadedRowsSource } from './use-loaded-rows'
 
 type TabId = 'overview' | 'payment_due' | 'payments' | 'packages'
 
@@ -53,7 +64,7 @@ interface BillingViewProps {
   linkedSessionCounts: Record<string, number>
   packageBalances: Record<string, PackageBillingBalanceV2>
   paymentDueRows: V2PaymentBalanceRow[]
-  refunds?: { id: string; payment_id: string; amount: number; refund_method: string; refund_date: string; reason: string; reversed: boolean }[]
+  refunds?: BillingRefundRow[]
   billedThisMonth: number
   billedLastMonth: number
   billedLastMonthLabel: string
@@ -63,6 +74,24 @@ interface BillingViewProps {
   receivedThisMonth: number
   initialTab?: TabId
   initialEntryOpen: boolean
+}
+
+const PAYMENT_ROWS: LoadedRowsSource<BillingTimelinePayment, PaymentPage> = {
+  empty: EMPTY_PAYMENT_PAGE,
+  fetchPage: fetchPaymentPage,
+  fetchThrough: fetchPaymentsThrough,
+  append: appendPaymentPage,
+  loadErrorTitle: "Couldn't load more payments",
+  refreshErrorTitle: "Couldn't refresh the payments loaded with Load more",
+}
+
+const PACKAGE_ROWS: LoadedRowsSource<BillingTimelinePackage, PackagePage> = {
+  empty: EMPTY_PACKAGE_PAGE,
+  fetchPage: fetchPackagePage,
+  fetchThrough: fetchPackagesThrough,
+  append: (current, next) => ({ rows: withLoadedRows(current.rows, next.rows) }),
+  loadErrorTitle: "Couldn't load more packages",
+  refreshErrorTitle: "Couldn't refresh the packages loaded with Load more",
 }
 
 // Rows shown per list tab before "View more" reveals the rest.
@@ -165,12 +194,16 @@ export function BillingView({
   const { toast } = useToast()
   const [entryOpen, setEntryOpen] = useState(initialEntryOpen)
   const [tab, setTab] = useState<TabId>(initialTab)
-  const [packages, setPackages] = useState(initialPackages)
-  const [payments, setPayments] = useState(initialPayments)
-  const [refundRows, setRefundRows] = useState(refunds)
-  const [linkedSessionCounts, setLinkedSessionCounts] = useState(initialLinkedSessionCounts)
-  const [loadingMorePayments, setLoadingMorePayments] = useState(false)
-  const [loadingMorePackages, setLoadingMorePackages] = useState(false)
+  // Rows "Load more" brought in below the server's first page; kept across router.refresh() (G-6).
+  const loadedPayments = useLoadedRows(PAYMENT_ROWS, initialPayments, pageSize, toast)
+  const loadedPackages = useLoadedRows(PACKAGE_ROWS, initialPackages, pageSize, toast)
+  const payments = useMemo(() => withLoadedRows(initialPayments, loadedPayments.loaded.rows), [initialPayments, loadedPayments.loaded.rows])
+  const packages = useMemo(() => withLoadedRows(initialPackages, loadedPackages.loaded.rows), [initialPackages, loadedPackages.loaded.rows])
+  const linkedSessionCounts = useMemo(
+    () => ({ ...loadedPayments.loaded.linkedSessionCounts, ...initialLinkedSessionCounts }),
+    [initialLinkedSessionCounts, loadedPayments.loaded.linkedSessionCounts],
+  )
+  const refundRows = mergeRefunds(refunds, loadedPayments.loaded.refunds)
   const [duePage, setDuePage] = useState(1)
   const [showAllPayments, setShowAllPayments] = useState(false)
   const [showAllPackages, setShowAllPackages] = useState(false)
@@ -184,11 +217,6 @@ export function BillingView({
   const [savingAction, setSavingAction] = useState(false)
   const savingActionRef = useRef(false)
   const cleanBillingUrl = initialTab === 'overview' ? '/billing' : `/billing?tab=${initialTab}`
-
-  useEffect(() => setPackages(initialPackages), [initialPackages])
-  useEffect(() => setPayments(initialPayments), [initialPayments])
-  useEffect(() => setRefundRows(refunds), [refunds])
-  useEffect(() => setLinkedSessionCounts(initialLinkedSessionCounts), [initialLinkedSessionCounts])
 
   function handleEntryOpenChange(open: boolean) {
     setEntryOpen(open)
@@ -241,66 +269,6 @@ export function BillingView({
       title: 'Audited change saved',
       description: 'The ledger and balances have been reconciled.',
     })
-  }
-
-  async function loadMorePayments() {
-    setLoadingMorePayments(true)
-    try {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('payments')
-        .select('*, patient:patients(id, name), package:packages(id, name)')
-        .order('date', { ascending: false })
-        .range(payments.length, payments.length + pageSize - 1)
-      if (error) throw error
-      if (data) {
-        const nextPayments = data as BillingTimelinePayment[]
-        setPayments((prev) => [...prev, ...nextPayments])
-        const paymentIds = nextPayments.map((payment) => payment.id)
-        if (paymentIds.length > 0) {
-          // The server sends linked-session counts only for the first page; fetch this page's too.
-          const { data: applications } = await fetchAllRows<{ payment_id: string }>((from, to) =>
-            supabase.from('payment_applications').select('payment_id').eq('status', 'active')
-              .in('payment_id', paymentIds).order('id').range(from, to),
-          )
-          setLinkedSessionCounts((prev) => ({ ...prev, ...Object.fromEntries(paymentIds.map((id) => [id, 0])), ...countLinkedSessions(applications) }))
-          const { data: nextRefunds } = await supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason').in('payment_id', paymentIds)
-          const refundIds = (nextRefunds ?? []).map((refund) => refund.id)
-          const { data: reversals } = refundIds.length > 0
-            ? await supabase.from('refund_reversals').select('refund_id').in('refund_id', refundIds)
-            : { data: [] }
-          const reversedIds = new Set((reversals ?? []).map((reversal) => reversal.refund_id))
-          setRefundRows((prev) => {
-            const byId = new Map(prev.map((refund) => [refund.id, refund]))
-            for (const refund of nextRefunds ?? []) byId.set(refund.id, { ...refund, amount: Number(refund.amount), reversed: reversedIds.has(refund.id) })
-            return [...byId.values()]
-          })
-        }
-      }
-    } catch (error) {
-      // fetchAllRows throws at its row cap and the reads can fail: never leave "Loading…" stuck.
-      toast({ title: "Couldn't load more payments", description: requestErrorMessage(error), variant: 'destructive' })
-    } finally {
-      setLoadingMorePayments(false)
-    }
-  }
-
-  async function loadMorePackages() {
-    setLoadingMorePackages(true)
-    try {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('packages')
-        .select('*, patient:patients(id, name)')
-        .order('created_at', { ascending: false })
-        .range(packages.length, packages.length + pageSize - 1)
-      if (error) throw error
-      if (data) setPackages((prev) => [...prev, ...(data as BillingTimelinePackage[])])
-    } catch (error) {
-      toast({ title: "Couldn't load more packages", description: requestErrorMessage(error), variant: 'destructive' })
-    } finally {
-      setLoadingMorePackages(false)
-    }
   }
 
   const paymentDueTotal = paymentDueRows.reduce((total, row) => total + row.totalDue, 0)
@@ -687,8 +655,8 @@ export function BillingView({
           {showAllPayments && payments.length < paymentsTotalCount && (
             <RevealButton
               label={`Load more (${paymentsTotalCount - payments.length} remaining)`}
-              onClick={loadMorePayments}
-              loading={loadingMorePayments}
+              onClick={loadedPayments.loadMore}
+              loading={loadedPayments.loading}
             />
           )}
           {showAllPayments && recentPaymentItems.length > RECENT_LIMIT && (
@@ -765,8 +733,8 @@ export function BillingView({
           {showAllPackages && packages.length < packagesTotalCount && (
             <RevealButton
               label={`Load more (${packagesTotalCount - packages.length} remaining)`}
-              onClick={loadMorePackages}
-              loading={loadingMorePackages}
+              onClick={loadedPackages.loadMore}
+              loading={loadedPackages.loading}
             />
           )}
           {showAllPackages && packageItems.length > RECENT_LIMIT && (

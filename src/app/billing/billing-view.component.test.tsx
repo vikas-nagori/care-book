@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { BillingTimelinePackage, BillingTimelinePayment } from '@/lib/billing/unified-billing'
 
 const mocks = vi.hoisted(() => ({
@@ -36,6 +36,8 @@ vi.mock('./billing-entry-form', () => ({
 
 import { BillingView } from './billing-view'
 import { recordRefund } from './actions'
+
+afterEach(cleanup)
 
 function makePackage(overrides: Partial<BillingTimelinePackage> = {}): BillingTimelinePackage {
   return {
@@ -159,5 +161,70 @@ describe('BillingView packages tab', () => {
     render(<BillingView {...baseProps} packages={[]} payments={[makePayment()]} initialTab="payments" />)
     expect(screen.getAllByText('Received').length).toBeGreaterThan(0)
     expect(screen.queryByText('Posted')).toBeNull()
+  })
+})
+
+describe('BillingView payments "Load more" (G-6)', () => {
+  type Answer = { data: unknown[] | null; error: unknown }
+  type Read = { table: string; ops: string[] }
+
+  /** Routes every browser Supabase read to `answer`, recording table and chained operations. */
+  function serveReads(answer: (read: Read) => Answer) {
+    const reads: Read[] = []
+    mocks.from.mockImplementation((table: string) => {
+      const read: Read = { table, ops: [] }
+      reads.push(read)
+      const builder: Record<string, unknown> = {}
+      for (const op of ['select', 'order', 'range', 'in', 'eq', 'or']) {
+        builder[op] = () => { read.ops.push(op); return builder }
+      }
+      builder.then = (resolve: (value: Answer) => unknown, reject: (reason: unknown) => unknown) =>
+        Promise.resolve(answer(read)).then(resolve, reject)
+      return builder
+    })
+    return reads
+  }
+
+  const firstPage = Array.from({ length: 11 }, (_, index) =>
+    makePayment({ id: `payment-${index + 1}`, amount: 1001 + index, date: `2026-07-${String(20 - index).padStart(2, '0')}` }))
+  const older = makePayment({ id: 'payment-12', amount: 1012, date: '2026-07-01' })
+  const cancelOlder = () => screen.queryAllByRole('button', { name: 'Cancel payment for Asha Rao · ₹1,012' })
+
+  async function loadOlderPayment(props: Partial<React.ComponentProps<typeof BillingView>> = {}) {
+    const view = render(<BillingView {...baseProps} packages={[]} payments={firstPage} paymentsTotalCount={12} pageSize={11} initialTab="payments" {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: /^View more/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Load more (1 remaining)' }))
+    return view
+  }
+
+  it('reports a failed refunds read instead of showing the loaded receipts as never refunded', async () => {
+    mocks.toast.mockReset()
+    serveReads(({ table }) => table === 'refunds'
+      ? { data: null, error: { message: 'TypeError: Failed to fetch' } }
+      : { data: table === 'payments' ? [older] : [], error: null })
+    await loadOlderPayment()
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Couldn't load more payments", variant: 'destructive' })))
+    expect(cancelOlder()).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'Load more (1 remaining)' })).toBeTruthy()
+  })
+
+  it('keeps rows loaded with Load more when the server page is re-rendered, re-reading them fresh', async () => {
+    mocks.toast.mockReset()
+    let olderStatus: 'posted' | 'voided' = 'posted'
+    const reads = serveReads(({ table }) => ({ data: table === 'payments' ? [{ ...older, status: olderStatus }] : [], error: null }))
+    const view = await loadOlderPayment()
+    await waitFor(() => expect(cancelOlder().length).toBeGreaterThan(0))
+
+    // router.refresh() (a resume, or the re-render after an audited change): new props, same page.
+    olderStatus = 'voided'
+    view.rerender(<BillingView {...baseProps} packages={[]} payments={firstPage.map((row) => ({ ...row }))} paymentsTotalCount={12} pageSize={11} initialTab="payments" />)
+
+    // Still listed, now with the fresh status (a cancelled receipt has no Cancel button).
+    await waitFor(() => expect(cancelOlder()).toHaveLength(0))
+    expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0)
+    const reread = reads.filter((read) => read.table === 'payments').at(-1)!
+    expect(reread.ops).toContain('or')
+    expect(mocks.toast).not.toHaveBeenCalled()
   })
 })
