@@ -53,11 +53,6 @@ for (const flowId of ['session-notes', 'reminder', 'payment', 'patient'] as cons
   test(`M-7 with no signal, a tap to ${flow.title} says so, keeps the input, and saves once when back online`, async ({ page, context, factory }, testInfo) => {
     const reason = phoneSkipReason(testInfo, flow)
     test.skip(reason !== null, reason ?? '')
-    if (flow.transport === 'supabase') {
-      // G-12: patient-form.tsx shows supabase's raw `error.message` ("TypeError: Failed to fetch"),
-      // not the plain-language NETWORK_ERROR_MESSAGE.
-      test.fail(true, 'G-12: the patient form shows raw technical text when there is no signal')
-    }
     const guards = offlineGuards(page)
     const open = await flow.open(page, factory)
     await open.fill()

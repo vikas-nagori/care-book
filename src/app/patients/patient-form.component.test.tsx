@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   toast: vi.fn(),
   loggerError: vi.fn(),
+  loggerWarn: vi.fn(),
   referralSource: '' as '' | 'walk_in' | 'doctor' | 'google' | 'patient' | 'other',
   resolveReferral: vi.fn(),
 }))
@@ -35,6 +36,7 @@ vi.mock('@/hooks/use-toast', () => ({
 vi.mock('@/lib/logger', () => ({
   logger: {
     error: mocks.loggerError,
+    warn: mocks.loggerWarn,
   },
 }))
 
@@ -484,5 +486,21 @@ describe('PatientForm duplicate phone', () => {
 
     finishInsert({ error: null })
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/patients'))
+  })
+
+  it('stops with a plain-language message when the duplicate check cannot reach the server (G-12)', async () => {
+    mocks.dupeEq.mockResolvedValueOnce({ data: null, error: { message: 'TypeError: Failed to fetch', status: 0 } })
+    submitWithPhone()
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Error',
+      description: NETWORK_ERROR_MESSAGE,
+      variant: 'destructive',
+    })))
+    expect(mocks.insert).not.toHaveBeenCalled()
+    // No signal is not an app fault: a warning, not an error report.
+    expect(mocks.loggerWarn).toHaveBeenCalledWith('PatientForm/duplicateCheck', expect.anything(), { patientId: undefined })
+    expect(mocks.loggerError).not.toHaveBeenCalled()
+    expect((screen.getByRole('button', { name: 'Add Patient' }) as HTMLButtonElement).disabled).toBe(false)
   })
 })
