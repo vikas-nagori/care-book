@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   insert: vi.fn(),
   update: vi.fn(),
   updateEq: vi.fn(),
+  updateSelect: vi.fn(),
   from: vi.fn(),
   toast: vi.fn(),
   loggerError: vi.fn(),
@@ -284,7 +285,8 @@ describe('PatientForm age', () => {
     mocks.referralSource = ''
     mocks.resolveReferral.mockResolvedValue(noReferral)
     mocks.insert.mockResolvedValue({ error: null })
-    mocks.updateEq.mockResolvedValue({ error: null })
+    mocks.updateSelect.mockResolvedValue({ data: [{ id: 'patient-1' }], error: null })
+    mocks.updateEq.mockReturnValue({ select: mocks.updateSelect })
     mocks.update.mockReturnValue({ eq: mocks.updateEq })
     mocks.from.mockImplementation(() => ({ insert: mocks.insert, update: mocks.update }))
   })
@@ -399,5 +401,51 @@ describe('PatientForm age', () => {
   it('leaves the age blank for a patient with no age on record', () => {
     render(<PatientForm patient={existing({})} />)
     expect((screen.getByLabelText('Age (years)') as HTMLInputElement).value).toBe('')
+  })
+})
+
+describe('PatientForm edit of a patient deleted meanwhile (G-3)', () => {
+  beforeEach(() => {
+    mocks.referralSource = ''
+    mocks.resolveReferral.mockResolvedValue(noReferral)
+    mocks.updateEq.mockReturnValue({ select: mocks.updateSelect })
+    mocks.update.mockReturnValue({ eq: mocks.updateEq })
+    mocks.from.mockImplementation(() => ({ update: mocks.update }))
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  const patient = {
+    id: 'patient-gone', name: 'Gone Patient', phone: null, email: null, dob: null, age_years: null,
+    age_recorded_on: null, gender: null, address: null, medical_history: null, notes: null,
+    referral_source: null, referred_by_doctor_id: null, referred_by_patient_id: null, referral_other: null,
+  } as unknown as Patient
+
+  it('says the patient no longer exists when the update matched no row, and stays on the form', async () => {
+    mocks.updateSelect.mockResolvedValueOnce({ data: [], error: null })
+    render(<PatientForm patient={patient} />)
+    fireEvent.submit(screen.getByLabelText('Name *').closest('form')!)
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Patient not saved',
+      description: expect.stringMatching(/no longer exists/),
+      variant: 'destructive',
+    })))
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Patient updated' }))
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.updateSelect).toHaveBeenCalledWith('id')
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Update Patient' }) as HTMLButtonElement).disabled).toBe(false))
+  })
+
+  it('reports success when the update matched the row', async () => {
+    mocks.updateSelect.mockResolvedValueOnce({ data: [{ id: 'patient-gone' }], error: null })
+    render(<PatientForm patient={patient} />)
+    fireEvent.submit(screen.getByLabelText('Name *').closest('form')!)
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith({ title: 'Patient updated' }))
+    expect(mocks.push).toHaveBeenCalledWith('/patients')
   })
 })

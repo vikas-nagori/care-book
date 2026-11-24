@@ -232,10 +232,9 @@ test('PA-12 a held patient update shows Saving…, sends nothing twice and saves
 
 // ---- PA-13: the record is gone ----------------------------------------------------------------
 
-// G-3: the update matches zero rows, Supabase reports no error, and the form says "Patient
+// G-3: the update matches zero rows and Supabase reports no error; the form must not say "Patient
 // updated" for a patient that no longer exists.
-test('G-3: updating a patient deleted meanwhile shows an error instead of "Patient updated"', async ({ page, factory }) => {
-  test.fail(true, 'G-3: a zero-row patient update reports success')
+test('PA-13 updating a patient deleted meanwhile shows an error instead of "Patient updated"', async ({ page, factory }) => {
   const guards = guardsFor(page, 'rest/v1/patients')
   const { patient, form } = await openEdit(page, factory)
   await factory.deletePatientHard(patient.id)

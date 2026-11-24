@@ -83,10 +83,22 @@ export function PatientForm({
 
     try {
       let error
+      let updatedRows: unknown[] | null = null
       if (patient) {
-        ({ error } = await supabase.from('patients').update(data).eq('id', patient.id))
+        // Read back the id: an update that matches no row (the patient was deleted meanwhile)
+        // returns no error, only an empty list (G-3).
+        ({ data: updatedRows, error } = await supabase.from('patients').update(data).eq('id', patient.id).select('id'))
       } else {
         ({ error } = await supabase.from('patients').insert(data))
+      }
+
+      if (!error && patient && updatedRows?.length === 0) {
+        toast({
+          title: 'Patient not saved',
+          description: 'This patient no longer exists. It may have been deleted by someone else.',
+          variant: 'destructive',
+        })
+        return
       }
 
       if (error) {
