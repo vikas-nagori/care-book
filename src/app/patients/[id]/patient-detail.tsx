@@ -182,18 +182,25 @@ export function PatientDetail({
             <CardContent className="pt-6 space-y-3">
               <div className="flex items-center gap-2">
                 <Phone className="h-4 w-4 text-muted-foreground" />
-                <a href={`tel:${patient.phone}`} className="text-primary flex-1 pointer-events-none md:pointer-events-auto">{patient.phone}</a>
-                <a
-                  href={`tel:${patient.phone}`}
-                  className="md:hidden flex items-center justify-center min-w-[44px] min-h-[44px]"
-                  style={{
-                    borderRadius: '8px', border: '1px solid var(--ph-ok)',
-                    background: 'var(--ph-ok-soft)', color: 'var(--ph-ok)',
-                  }}
-                  aria-label={`Call ${patient.name}`}
-                >
-                  <Phone size={16} />
-                </a>
+                {/* Phone is optional (nullable since migration 010): no number, no call link. */}
+                {patient.phone ? (
+                  <>
+                    <a href={`tel:${patient.phone}`} className="text-primary flex-1 pointer-events-none md:pointer-events-auto">{patient.phone}</a>
+                    <a
+                      href={`tel:${patient.phone}`}
+                      className="md:hidden flex items-center justify-center min-w-[44px] min-h-[44px]"
+                      style={{
+                        borderRadius: '8px', border: '1px solid var(--ph-ok)',
+                        background: 'var(--ph-ok-soft)', color: 'var(--ph-ok)',
+                      }}
+                      aria-label={`Call ${patient.name}`}
+                    >
+                      <Phone size={16} />
+                    </a>
+                  </>
+                ) : (
+                  <span className="flex-1 text-sm text-muted-foreground">No phone number</span>
+                )}
               </div>
               {patient.email && (
                 <div className="flex items-center gap-2">

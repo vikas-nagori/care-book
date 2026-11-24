@@ -173,3 +173,23 @@ export async function gotoNotFoundRoute(page: Page, requestPath: string): Promis
   })).toBeVisible()
   return response!
 }
+
+/**
+ * A record saved with its optional fields blank must not leak its NULLs onto the screen: no
+ * "null"/"undefined"/"NaN" in visible text, and no `tel:null`-style links. Pair with
+ * attachErrorGuards, which catches the crashes.
+ */
+export async function expectNoLeakedNulls(page: Page): Promise<void> {
+  const leaks = await page.evaluate(() => {
+    const text = document.body.innerText
+    const words = [...text.matchAll(/\b(null|undefined|NaN)\b/g)].map((match) => {
+      const start = Math.max(0, (match.index ?? 0) - 30)
+      return text.slice(start, (match.index ?? 0) + match[0].length + 30).replace(/\s+/g, ' ')
+    })
+    const links = [...document.querySelectorAll('a[href]')]
+      .map((anchor) => anchor.getAttribute('href') ?? '')
+      .filter((href) => /(^|[:/=])(null|undefined|NaN)($|[/?&#])/.test(href))
+    return { words, links }
+  })
+  expect(leaks, `leaked null-ish values on ${page.url()}`).toEqual({ words: [], links: [] })
+}
