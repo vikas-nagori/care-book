@@ -26,6 +26,7 @@ import {
   STALE_DEPLOYMENT_MESSAGE,
 } from '../../src/lib/actions/run-server-action.ts'
 import { NETWORK_ERROR_MESSAGE } from '../../src/lib/actions/request-error-message.ts'
+import type { ExpectedConsoleFailure } from './assertions'
 
 // The user-facing copy, imported (never copied) so a wording change cannot leave specs behind.
 export { ACTION_UNREACHABLE_MESSAGE, NETWORK_ERROR_MESSAGE, STALE_DEPLOYMENT_MESSAGE }
@@ -287,33 +288,72 @@ export async function holdNextSupabaseCall(
 }
 
 /**
+ * What supabase-js (auth-js) itself logs when a GoTrue call's fetch rejects: it `console.error`s
+ * the TypeError from its bundled chunk before returning an AuthRetryableFetchError. Chromium
+ * says `Failed to fetch`, WebKit `Load failed`, Firefox `NetworkError when attempting to fetch
+ * resource.`; the stack (Chromium only) follows on later lines.
+ */
+export const AUTH_FETCH_REJECTION_CONSOLE_ERROR: ExpectedConsoleFailure = {
+  url: /^http:\/\/localhost:3000\/_next\/static\//,
+  text: /^TypeError: (?:Failed to fetch|Load failed|NetworkError when attempting to fetch resource\.)(?:\n|$)/,
+}
+
+/**
  * Console noise an injected fault legitimately produces, for attachErrorGuards'
  * `expectedFailures`. Chromium logs `Failed to load resource: net::ERR_FAILED` / `… status of
- * 500`; WebKit logs its own wording for the same events.
+ * 500`; WebKit logs its own wording for the same events. For an `auth/v1/*` target it also covers
+ * supabase-js logging the aborted call's `TypeError: Failed to fetch` (AUTH_FETCH_REJECTION_CONSOLE_ERROR).
  */
 export function expectedFaultConsoleErrors(
   target: 'server-action' | SupabaseResource,
-): { url: RegExp; text: RegExp }[] {
+): ExpectedConsoleFailure[] {
   const text = /Failed to load resource|net::ERR_FAILED|status of (?:400|404|500)|network connection was lost|cancelled|Load failed|access control checks/i
   if (target === 'server-action') {
     return [{ url: /^http:\/\/localhost:3000\//, text }]
   }
   const origin = supabaseOrigin().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const path = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return [{ url: new RegExp(`^${origin}/${path}(?:[/?]|$)`), text }]
+  const resource = { url: new RegExp(`^${origin}/${path}(?:[/?]|$)`), text }
+  return target.startsWith('auth/v1/') ? [resource, AUTH_FETCH_REJECTION_CONSOLE_ERROR] : [resource]
 }
 
-/** Toasts (Radix `status`), inline `role=alert` messages and the toast region. */
+/**
+ * The toast region. Radix marks everything outside an open dialog / alertdialog `aria-hidden`,
+ * the toast viewport included, so a role query without `includeHidden` misses a toast raised
+ * while a modal is open. The toast itself is still painted; `visible: true` checks that.
+ */
+export function toastRegion(page: Page): Locator {
+  return page.getByRole('region', { name: /^Notifications/, includeHidden: true })
+}
+
+/** Toasts (Radix `status`), inline `role=alert` messages and the toast region, modal or not. */
 function messageSurfaces(page: Page): Locator {
   return page.getByRole('alert')
     .or(page.getByRole('status'))
-    .or(page.getByRole('region', { name: /^Notifications/ }).locator('li'))
+    .or(toastRegion(page).locator('li'))
 }
 
-export async function expectFailureMessage(page: Page, message: string | RegExp): Promise<void> {
+export type FailureMessageOptions = {
+  /**
+   * Also accept the message as plain text inside this element (e.g. the form), for screens that
+   * print their error under the form without `role=alert` (several auth forms do). Opt-in: by
+   * default only a toast or alert counts.
+   */
+  inline?: Locator
+}
+
+export async function expectFailureMessage(
+  page: Page,
+  message: string | RegExp,
+  options: FailureMessageOptions = {},
+): Promise<void> {
+  let surfaces = messageSurfaces(page).filter({ hasText: message })
+  if (options.inline) {
+    surfaces = surfaces.or(options.inline.getByText(message, typeof message === 'string' ? { exact: true } : {}))
+  }
   await expect(
-    messageSurfaces(page).filter({ hasText: message }).filter({ visible: true }).first(),
-    `the failure message ${String(message)} was not shown in a toast or alert`,
+    surfaces.filter({ visible: true }).first(),
+    `the failure message ${String(message)} was not shown in a toast or alert${options.inline ? ' or inline' : ''}`,
   ).toBeVisible()
 }
 
@@ -323,7 +363,10 @@ export async function expectFailureMessage(page: Page, message: string | RegExp)
  *
  * `button` must keep matching across both labels, e.g.
  * `dialog.getByRole('button', { name: /^(Save Settings|Saving…)$/ })` or a `type=submit` locator.
- * `pendingName` defaults to any button whose name ends in an ellipsis.
+ * `pendingName` defaults to any button whose name ends in an ellipsis. A toast raised while a
+ * dialog is open is found too. `inline: true` also accepts the message as plain text inside the
+ * button's form (`inline: locator` names the element instead), for forms that do not use
+ * `role=alert`.
  */
 export async function expectButtonRecovers(
   button: Locator,
@@ -332,12 +375,14 @@ export async function expectButtonRecovers(
     message: string | RegExp
     fault: { hit(): boolean }
     pendingName?: string | RegExp
+    inline?: true | Locator
   },
 ): Promise<void> {
   const page = button.page()
   // Poll: the tap that triggers the request returns before the request is sent.
   await expect.poll(() => input.fault.hit(), { message: 'the injected fault never fired; the spec did not exercise a failure' }).toBe(true)
-  await expectFailureMessage(page, input.message)
+  const inline = input.inline === true ? button.locator('xpath=ancestor::form[1]') : input.inline
+  await expectFailureMessage(page, input.message, { inline })
   await expect(button).toBeVisible()
   await expect(button).toBeEnabled()
   await expect(button).toHaveAccessibleName(input.idleName)

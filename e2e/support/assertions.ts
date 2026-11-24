@@ -1,5 +1,9 @@
 import { expect, type ConsoleMessage, type Locator, type Page, type Response } from '@playwright/test'
 
+import {
+  isKnownNonAppConsoleError as isKnownLocalObservabilityNoise,
+  LOCAL_VERCEL_OBSERVABILITY_PATHS,
+} from './console-noise'
 import type { RouteLandmark, RouteRuntimeCase } from './route-manifest'
 
 const CRASH_TEXT = [
@@ -13,30 +17,13 @@ const CRASH_TEXT = [
 
 export type ExpectedConsoleFailure = { url: RegExp; text: RegExp }
 
-const LOCAL_VERCEL_OBSERVABILITY_PATHS = ['/_vercel/insights/', '/_vercel/speed-insights/'] as const
-
 function isKnownNonAppConsoleError(
   message: ConsoleMessage,
   observabilityRedirectTargets: ReadonlySet<string>,
 ): boolean {
-  const text = message.text()
-
-  // These Vercel-managed scripts are not served by local `next start`. Match both the exact
-  // request origin and the narrow failure shape so unrelated application 404s remain failures.
-  const sourceUrl = message.location().url
-  const isKnownObservabilityRequest = LOCAL_VERCEL_OBSERVABILITY_PATHS.some(
-    (path) => sourceUrl.includes(path) || text.includes(path),
-  ) || [...observabilityRedirectTargets].some((url) => text.includes(url))
-
-  return isKnownObservabilityRequest
-    // Next renders the HTML not-found page for document requests but, since 16.3, answers
-    // subresource requests (sec-fetch-dest: script) with a plain-text 404 instead.
-    && (text.includes('404 (Not Found)')
-      || text.includes("MIME type ('text/html') is not executable")
-      || text.includes("MIME type ('text/plain') is not executable")
-      // WebKit's wording for the same refusal (mobile-ios).
-      || (text.includes('Refused to execute') && text.includes('is not a script MIME type'))
-      || /the server responded with a status of 404/.test(text))
+  // The Vercel-managed analytics scripts are not served by local `next start`; see
+  // console-noise.ts for the exact shapes allowed (unrelated application 404s remain failures).
+  return isKnownLocalObservabilityNoise(message.text(), message.location().url, observabilityRedirectTargets)
 }
 
 function landmarkLocator(page: Page, landmark: RouteLandmark): Locator {
@@ -128,8 +115,11 @@ export function attachErrorGuards(page: Page, options: {
     const expectedFailure = options.expectedFailures?.some(({ url, text }) =>
       url.test(message.location().url) && text.test(message.text()))
     if (expectedFailure) return
-    // Next's console report of the same WebKit teardown abort (see the pageerror handler above).
-    const rscAbortedByUnload = /^Failed to fetch RSC payload for \S+\. Falling back to browser navigation\. TypeError: (?:Load failed|.*access control checks\.)$/.test(message.text())
+    // Next's console report of the same WebKit teardown abort (see the pageerror handler above),
+    // and the bare `TypeError: Load failed` a library (supabase-js) console.errors when the
+    // navigation aborts its in-flight fetch. Only right after a main-frame navigation starts.
+    const rscAbortedByUnload = (/^Failed to fetch RSC payload for \S+\. Falling back to browser navigation\. TypeError: (?:Load failed|.*access control checks\.)$/.test(message.text())
+      || message.text() === 'TypeError: Load failed')
       && Date.now() - mainFrameNavigationAt < UNLOAD_ABORT_WINDOW_MS
     if (rscAbortedByUnload) return
     if (!isKnownNonAppConsoleError(message, observabilityRedirectTargets)) consoleErrors.push(message.text())

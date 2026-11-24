@@ -200,6 +200,18 @@ the current Next runtime. The denial helper therefore asserts the observed soft-
 exactly: HTTP 200 document response, no redirect, unchanged requested URL, and the visible
 `This page could not be found.` heading. This outcome is kept distinct from successful route smoke.
 
+## Error guards and local console noise
+
+`attachErrorGuards` ignores exactly one kind of noise the app does not cause: the Vercel
+Analytics / Speed Insights scripts (`/_vercel/insights/*`, `/_vercel/speed-insights/*`), which
+local `next start` does not serve. Depending on the session the middleware answers them with a
+plain-text 404 or redirects them to a role landing page (`/login?next=…`, `/auth/change-password`,
+`/external`, `/platform`), whose HTML the browser then refuses as a script. `support/console-noise.ts`
+recognises that from the exact Chromium / WebKit refusal wording alone, for every role, so it
+holds while a catch-all `page.route()` hides the redirect chain and when the `response` event
+arrives after the console message. Anything else (an app chunk or any other page refused as a
+script, another origin, another wording) still fails. Specs need no local entry for it.
+
 ## Phones first
 
 Almost every clinic user runs the installed app on a phone, so a case that runs on one project
@@ -211,6 +223,16 @@ value is a newer deployment and a resume reloads), `expectInViewport` (inside th
 and not covered by the bottom navigation), `expectNoHorizontalOverflow`, `tapTwice` (two
 activations before React re-renders), `stubShare` (records `navigator.share`, optionally rejects
 with `AbortError`) and `SMALL_PHONE_VIEWPORT` (320 × 568).
+
+**`mobile-ios` is the clinic admin.** Its name does not start with `admin-`, so never branch on
+`testInfo.project.name.startsWith('admin-')` or `.endsWith('-mobile')`: use `projectRole(testInfo)`
+for the role and `isMobileProject(testInfo)` for the viewport. A check written the other way runs
+the staff branch (or the desktop branch) on the iPhone.
+
+`expectInViewport` also accepts a disabled control: shadcn's `disabled:pointer-events-none` takes
+a disabled button out of hit-testing, so the helper makes it hit-testable for the probe only and
+still reports anything covering it. An *enabled* control with `pointer-events: none` is reported
+as untappable.
 
 ## Fault injection
 
@@ -224,6 +246,18 @@ from the app source. Specs using these set `test.use({ serviceWorkers: 'block' }
 `expectedFaultConsoleErrors(…)` to `attachErrorGuards({ expectedFailures })`, and assert
 `fault.hit()`. `admin/fault-injection-smoke.spec.ts` proves every mode on admin-mobile and
 mobile-ios.
+
+- For an `auth/v1/*` target, `expectedFaultConsoleErrors` also covers supabase-js logging the
+  aborted call's `TypeError: Failed to fetch` (`Load failed` on WebKit) from its bundled chunk
+  (`AUTH_FETCH_REJECTION_CONSOLE_ERROR`); no spec-local entry is needed for it.
+- A toast raised while a dialog or alertdialog is open is still found: Radix marks the toast
+  region `aria-hidden` then, so the helpers query it with `includeHidden` (`toastRegion(page)` is
+  exported for specs that need the region itself) and check the toast is painted.
+- Some forms (several auth forms) print their error as plain text under the form, not as
+  `role=alert`. Opt in per call: `expectButtonRecovers(button, { …, inline: true })` accepts the
+  message as text inside the button's `<form>`, `inline: locator` inside that element, and
+  `expectFailureMessage(page, message, { inline: locator })` likewise. Without the option only a
+  toast or alert counts.
 
 ## Sparse fixtures
 
@@ -248,6 +282,12 @@ minimal-input and failure tests. `support/mutation-manifest.test.ts` (part of
 test that does not exist, a failure test that injects no fault, a minimal test without
 `expectNoLeakedNulls`, or a client form with no declared surface. During Phase 1 an entry may say
 `todo('<package>')`, inside that package's delimited block only.
+
+A named test's body is the real extent of its callback, found with the TypeScript parser
+(`support/test-body.ts`): `test.setTimeout()`, `test.fail()`, `test.skip()`, `test.step()` or a
+nested `test.describe` inside a test no longer hide the rest of it. Earlier specs routed these
+through `testInfo` (`testInfo.setTimeout`, `testInfo.fail()`) only to keep the guard reading; that
+is no longer necessary, and either form is fine in new specs.
 
 ## Route coverage guard
 
@@ -281,6 +321,23 @@ implementation details.
   registered auth IDs. Approval watchers use the unique request email/name and invite email to
   recover partially-created clinic/settings/type/invite/auth artifacts. Service-role find helpers
   both verify persistence and track returned mutable rows. Never update or delete fixed `SEED` rows.
+- Approvals: teardown finds the owner login an approval creates (through the approval's invite in
+  the new clinic) and every login of a disposable clinic *before* deleting anything, because the
+  soft-delete guard (migration 033) refuses a profile whose auth user is not yet marked for
+  cleanup. `watchUiOnboardingRequest` is enough; `factory.trackApprovedOwner(email)` tracks the
+  owner, invite and clinic explicitly and fails if the approval left no login.
+- Helpers instead of raw `adminClient()` writes (each refuses seeded accounts / `SEED` rows):
+
+  | Need | Helper |
+  | --- | --- |
+  | Block / unblock a user after creation | `setProfileStatus(userId, 'blocked' \| 'active', { ban? })` (profile only by default; `ban: true` also bans/unbans like the platform console) |
+  | Arm the first-login password change | `setMustChangePassword(userId, armed = true)` |
+  | Take a request out of `pending` | `rejectOnboardingRequest(id \| { ownerEmail }, { reason? })` |
+  | Several requests for one owner email | `findOnboardingRequestsByEmail(email)`; `findOnboardingRequestByEmail` returns the newest |
+  | Every invite row for a mobile | `findInvitesByMobile(mobile, { clinicId? })`, `countInvitesByMobile(…)` (`findInviteByMobile` is the newest only) |
+  | Distinct amounts / created times in bulk | `createPayments(n, { …, perRow: (i) => ({ amount: 1001 + i }) })`, same for `createPackages` (defaults unchanged) |
+  | Share a patient of another clinic | `shareWithExternal(patientId, profileIds, { as? })` acts as a disposable admin of the patient's clinic (or `as`) |
+  | A browser booking on a fixed SEED patient | `watchUiAppointmentSlot({ patientId, date, time, externalOnly? })` before submitting; `findAppointmentsInSlot(…)` reads and tracks them; teardown deletes them by id with their notes and payment links, never a `SEED` appointment |
 
 ## Minimal-input coverage
 

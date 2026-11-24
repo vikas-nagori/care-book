@@ -106,6 +106,11 @@ export const E2E_APP_VERSION = process.env.VERCEL_GIT_COMMIT_SHA ?? 'dev'
 /**
  * The element is fully inside the visual viewport and is what a tap at its centre would hit, so
  * the bottom navigation, a sticky header or the on-screen keyboard is not covering it.
+ *
+ * A disabled control (`disabled`, inside a disabled `<fieldset>`, or `aria-disabled="true"`) is
+ * still checked: shadcn's `disabled:pointer-events-none` takes it out of hit-testing, so for the
+ * hit test only its `pointer-events` is set to `auto` and restored straight after. An enabled
+ * control with `pointer-events: none` cannot be tapped and is reported as such.
  */
 export async function expectInViewport(locator: Locator): Promise<void> {
   await expect(locator).toBeVisible()
@@ -123,10 +128,28 @@ export async function expectInViewport(locator: Locator): Promise<void> {
       || box.right > left + width + 0.5 || box.bottom > top + height + 0.5) {
       problems.push(`box ${JSON.stringify(box)} is outside the visual viewport ${width}x${height}+${left}+${top}`)
     }
-    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
-    if (!hit || (hit !== element && !element.contains(hit))) {
-      const coveredBy = hit ? `${hit.tagName.toLowerCase()}${hit.id ? `#${hit.id}` : ''} "${(hit.textContent ?? '').trim().slice(0, 40)}"` : 'nothing'
-      problems.push(`its centre is covered by ${coveredBy}`)
+
+    const html = element as HTMLElement
+    const disabled = element.matches(':disabled') || element.closest('[aria-disabled="true"]') !== null
+    const ignoresPointer = getComputedStyle(element).pointerEvents === 'none'
+    if (ignoresPointer && !disabled) problems.push('has pointer-events: none, so a tap goes through it')
+    // Make a disabled control hit-testable for this one probe; the inline style is put back as it was.
+    const previous = { value: html.style.getPropertyValue('pointer-events'), priority: html.style.getPropertyPriority('pointer-events') }
+    if (ignoresPointer && disabled) html.style.setProperty('pointer-events', 'auto', 'important')
+    let hit: Element | null
+    try {
+      hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+    } finally {
+      if (ignoresPointer && disabled) {
+        if (previous.value) html.style.setProperty('pointer-events', previous.value, previous.priority)
+        else html.style.removeProperty('pointer-events')
+      }
+    }
+    if (!ignoresPointer || disabled) {
+      if (!hit || (hit !== element && !element.contains(hit))) {
+        const coveredBy = hit ? `${hit.tagName.toLowerCase()}${hit.id ? `#${hit.id}` : ''} "${(hit.textContent ?? '').trim().slice(0, 40)}"` : 'nothing'
+        problems.push(`its centre is covered by ${coveredBy}`)
+      }
     }
     return problems
   }), { message: 'element is not fully reachable on screen' }).toEqual([])
