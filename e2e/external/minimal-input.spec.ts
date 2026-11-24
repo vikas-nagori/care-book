@@ -9,7 +9,7 @@ import type { Locator, Page, TestInfo } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 
 import { PatientForm } from '../pages/patient-form'
-import { ExternalBookingDialog, escapeRegExp, press, scheduleChip, signInWithMobile } from '../pages/external-dialogs'
+import { EXTERNAL_OBSERVABILITY_REDIRECT_NOISE, ExternalBookingDialog, escapeRegExp, press, scheduleChip, signInWithMobile } from '../pages/external-dialogs'
 import { ADMIN, CLINIC_A, EXTERNAL, EXTERNAL_EMPTY, PASSWORD, STAFF } from '../support/accounts'
 import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { clinicDate } from '../support/clinic-date'
@@ -20,7 +20,10 @@ import { adminClient } from '../support/supabase-admin'
 
 function guardsFor(page: Page) {
   // reportClientError's telemetry budget can answer 429 when the matrix runs back to back.
-  return attachErrorGuards(page, { expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }] })
+  return attachErrorGuards(page, {
+    expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }],
+    expectedFailures: EXTERNAL_OBSERVABILITY_REDIRECT_NOISE,
+  })
 }
 
 function formatTime12(time: string): string {

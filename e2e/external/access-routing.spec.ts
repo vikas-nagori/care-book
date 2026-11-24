@@ -4,7 +4,7 @@
 
 import type { Page } from '@playwright/test'
 
-import { press, signInWithMobile } from '../pages/external-dialogs'
+import { EXTERNAL_OBSERVABILITY_REDIRECT_NOISE, press, signInWithMobile } from '../pages/external-dialogs'
 import { CLINIC_A } from '../support/accounts'
 import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { clinicDate } from '../support/clinic-date'
@@ -26,7 +26,7 @@ const FORBIDDEN = { errorCode: 'FORBIDDEN', message: 'This area is unavailable f
 
 function guardsFor(page: Page) {
   return attachErrorGuards(page, {
-    expectedFailures: expectedFaultConsoleErrors('server-action'),
+    expectedFailures: [...expectedFaultConsoleErrors('server-action'), ...EXTERNAL_OBSERVABILITY_REDIRECT_NOISE],
     // reportClientError's telemetry budget can answer 429 when the matrix runs back to back.
     expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }],
   })

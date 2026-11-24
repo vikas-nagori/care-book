@@ -5,7 +5,7 @@
 import type { Page } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 
-import { press, signInWithMobile } from '../pages/external-dialogs'
+import { EXTERNAL_OBSERVABILITY_REDIRECT_NOISE, press, signInWithMobile } from '../pages/external-dialogs'
 import { CLINIC_A, PASSWORD } from '../support/accounts'
 import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { test, expect } from '../support/factories'
@@ -14,7 +14,10 @@ const NEW_PASSWORD = 'E2e-Changed-Pass-456'
 
 function guardsFor(page: Page) {
   // reportClientError's telemetry budget can answer 429 when the matrix runs back to back.
-  return attachErrorGuards(page, { expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }] })
+  return attachErrorGuards(page, {
+    expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }],
+    expectedFailures: EXTERNAL_OBSERVABILITY_REDIRECT_NOISE,
+  })
 }
 
 /** Can `password` sign this mobile number in right now? Checked against GoTrue, not the UI. */

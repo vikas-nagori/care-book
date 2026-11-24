@@ -11,6 +11,7 @@ import {
   press,
   scheduleChip,
   signInWithMobile,
+  EXTERNAL_OBSERVABILITY_REDIRECT_NOISE,
 } from '../pages/external-dialogs'
 import { CLINIC_A, EXTERNAL } from '../support/accounts'
 import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
@@ -38,7 +39,7 @@ const NO_LONGER_CHANGEABLE = 'This appointment can no longer be changed.'
 
 function guardsFor(page: Page) {
   return attachErrorGuards(page, {
-    expectedFailures: expectedFaultConsoleErrors('server-action'),
+    expectedFailures: [...expectedFaultConsoleErrors('server-action'), ...EXTERNAL_OBSERVABILITY_REDIRECT_NOISE],
     // reportClientError's telemetry budget can answer 429 when the matrix runs back to back.
     expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }],
   })

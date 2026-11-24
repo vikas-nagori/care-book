@@ -7,11 +7,15 @@ import { SEED } from '../support/ids'
 import { adminClient } from '../support/supabase-admin'
 import { attachErrorGuards, expectNoLeakedNulls, gotoNotFoundRoute } from '../support/assertions'
 import { test, expect } from '../support/factories'
-import { ExternalAppointmentDialog, ExternalBookingDialog, escapeRegExp, press, scheduleChip } from '../pages/external-dialogs'
+import { EXTERNAL_OBSERVABILITY_REDIRECT_NOISE, ExternalAppointmentDialog, ExternalBookingDialog, escapeRegExp, press, scheduleChip } from '../pages/external-dialogs'
 
 function guardsFor(page: Page, options: { allowCrashText?: readonly string[] } = {}) {
   // reportClientError's telemetry budget can answer 429 when the matrix runs back to back.
-  return attachErrorGuards(page, { expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }], ...options })
+  return attachErrorGuards(page, {
+    expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }],
+    expectedFailures: EXTERNAL_OBSERVABILITY_REDIRECT_NOISE,
+    ...options,
+  })
 }
 
 test('external calendar and patient profile expose only explicitly shared coordination details', async ({ page }) => {

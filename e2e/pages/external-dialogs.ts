@@ -130,3 +130,15 @@ export async function signInWithMobile(page: Page, input: { mobileNumber: string
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15_000 })
 }
+
+/**
+ * The local `next start` does not serve Vercel's `/_vercel/insights` and `/_vercel/speed-insights`
+ * scripts, and the middleware redirects an External Staff GET for them to `/external`, whose HTML
+ * Chromium then refuses as a script. assertions.ts already ignores that shape by tracking the
+ * redirect, but its `response` event can arrive after the console message (seen once in CI), so
+ * External Staff specs also name it here. Only this exact refusal of `/external` as a script.
+ */
+export const EXTERNAL_OBSERVABILITY_REDIRECT_NOISE = [{
+  url: /^http:\/\/localhost:3000\//,
+  text: /^Refused to execute script from 'http:\/\/localhost:3000\/external' because its MIME type \('text\/html'\) is not executable, and strict MIME type checking is enabled\.$/,
+}] as const
