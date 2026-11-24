@@ -151,17 +151,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { group: external, projects: 'external-desktop external-mobile', slice: 1, slices: 1 }
-          - { group: admin-desktop, projects: 'admin-desktop', slice: 1, slices: 2 }
-          - { group: admin-desktop, projects: 'admin-desktop', slice: 2, slices: 2 }
-          - { group: admin-mobile, projects: 'admin-mobile', slice: 1, slices: 4 }
-          - { group: admin-mobile, projects: 'admin-mobile', slice: 2, slices: 4 }
-          - { group: admin-mobile, projects: 'admin-mobile', slice: 3, slices: 4 }
-          - { group: admin-mobile, projects: 'admin-mobile', slice: 4, slices: 4 }
-          - { group: staff-desktop, projects: 'staff-desktop', slice: 1, slices: 1 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 1, slices: 6 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 2, slices: 6 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 3, slices: 6 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 4, slices: 6 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 5, slices: 6 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 6, slices: 6 }
           - { group: staff-mobile, projects: 'staff-mobile', slice: 1, slices: 2 }
           - { group: staff-mobile, projects: 'staff-mobile', slice: 2, slices: 2 }
-          - { group: platform-public, projects: 'platform-desktop platform-signout public-desktop public-mobile', slice: 1, slices: 1 }
+          - { group: desktop-public, projects: 'admin-desktop staff-desktop public-desktop public-mobile', slice: 1, slices: 3 }
+          - { group: desktop-public, projects: 'admin-desktop staff-desktop public-desktop public-mobile', slice: 2, slices: 3 }
+          - { group: desktop-public, projects: 'admin-desktop staff-desktop public-desktop public-mobile', slice: 3, slices: 3 }
+          - { group: external-platform, projects: 'external-desktop external-mobile platform-desktop platform-signout', slice: 1, slices: 1 }
     steps:
       # Supabase publishes its services on 54320-54329, inside Linux's ephemeral port range
       # (32768-60999). `supabase start` pulls its images right before it binds those ports, and the
@@ -230,6 +231,7 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
+          echo "browser dependencies installed after ${SECONDS}s"
 
           npm run build:e2e
           echo "build finished after ${SECONDS}s"
@@ -358,6 +360,7 @@ jobs:
           else
             npx playwright install --with-deps chromium webkit
           fi
+          echo "browser dependencies installed after ${SECONDS}s"
 
           npm run build:e2e
           echo "build finished after ${SECONDS}s"

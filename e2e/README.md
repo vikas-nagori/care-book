@@ -61,9 +61,10 @@ The `mobile-ios` project (iPhone 14, WebKit, signed in as the clinic admin) need
 machine: `npx playwright install webkit`. It runs only tests tagged `@ios` (route smoke, both
 minimal-input specs, the fault-injection smoke, and the phone lifecycle cases); tag a test with
 `test('…', { tag: IOS_TAG }, …)` from `support/mobile.ts`. `E2E_SKIP_IOS=1` leaves the project out
-of a run. CI runs `--project=mobile-ios` in its own `e2e-ios` job, in parallel with the shards
-(which set `E2E_SKIP_IOS=1`); it is the only job that installs WebKit. That job also installs
-Chromium, because the `setup` project it depends on signs in on Playwright's default browser.
+of a run. CI runs `--project=mobile-ios` in its own `e2e-ios` matrix, in parallel with the
+`e2e-shard` runners (which set `E2E_SKIP_IOS=1`); it is the only job that installs WebKit. It also
+installs Chromium, because the `setup` project it depends on signs in on Playwright's default
+browser.
 
 Stop any existing app on port 3000 before running Playwright. The configured server is always built
 with `.env.e2e`; intentionally disabling server reuse prevents mutation specs from driving an
@@ -81,13 +82,48 @@ complete matrix is proven stable at higher concurrency.
 
 CI runs on every branch push and pull request. Its `test` check gates four parallel jobs: lint +
 app/E2E typechecks, unit + component suites, the integration suite, and a production
-E2E-environment build. Its `e2e` check gates the `e2e-shard` matrix and the `e2e-ios` job. Each
-of those runners boots its own isolated local Supabase stack (in the background, while the
-browsers install and `next build` runs) and then serves that build with `E2E_PREBUILT=1`: a shard
-for its slice of the project matrix without `mobile-ios`, and `e2e-ios` for `mobile-ios` alone.
+E2E-environment build. Its `e2e` check gates every entry of the `e2e-shard` and `e2e-ios`
+matrices. Each runner boots its own isolated local Supabase stack (in the background, while the
+browsers install and `next build` runs) and then serves that build with `E2E_PREBUILT=1`.
+
+### How CI splits the suite
+
+The split is weighted by measured test **time**, not test count: the projects differ several-fold
+in seconds per test (the desktop projects skip most mobile-only cases), so a flat
+`--shard=i/n` over the whole suite gave one runner twice the work of another. Instead each matrix
+entry in `.github/workflows/test.yml` names a **group** of projects and one **slice** of it:
+
+```yaml
+- { group: admin-mobile, projects: 'admin-mobile', slice: 2, slices: 4 }
+```
+
+runs `playwright test --project=admin-mobile --shard=2/4` as the check
+`e2e-shard (admin-mobile 2/4)`. `mobile-ios` is the `ios` group of the separate `e2e-ios` matrix
+(`e2e-ios (1/2)`, …). `setup` is a dependency of every project, so it runs on every runner and
+seeds that runner's stack.
+
+- **Re-weighting.** Every e2e job summary has a "Summarise test time" table (per-project and
+  slowest-file test time from the JSON reporter, `scripts/e2e-timing-summary.mjs`); the job log
+  has one `E2E-TIMING` line per test in execution order, enough to simulate a different split.
+  Give a group more slices when its runners are the slowest; each runner pays the same fixed boot
+  cost (~1.5 min), so stop when the slowest runner's test time no longer dominates it.
+- **Adding a project.** `support/playwright-config.test.ts` (in `test:e2e:support`) fails until
+  every project except `setup` is in exactly one group, every group's slices are exactly
+  `1..slices`, and a project with a non-setup dependency (`platform-signout` → `platform-desktop`)
+  shares an unsliced group with it; otherwise Playwright would run the dependency again in every
+  slice.
+- **Setup savings.** `node_modules` is restored from a cache keyed on OS, architecture, Node
+  version and `package-lock.json` (it holds the Supabase CLI binary and the Playwright package), so
+  `npm ci` runs only on a miss. Supabase's ports 54320–54329 lie inside Linux's ephemeral range
+  (32768–60999); the image pulls right before `supabase start` binds them use random source ports
+  from that range and occasionally held 54322 or 54324 ("address already in use"). Each job
+  reserves that block (`net.ipv4.ip_local_reserved_ports`) as its first step and retries
+  `supabase start` once after a clean stop. There is no stop step: the runner is discarded.
+
 The HTML report plus failure traces/screenshots in `test-results/` are uploaded as the
-`playwright-report-shard-<n>` or `playwright-report-ios` artifact only when that job fails, and
-kept for 7 days. Both checks must remain required for `main`; see `.github/BRANCH_PROTECTION.md`.
+`playwright-report-<group>-<slice>of<slices>` artifact (e.g. `playwright-report-admin-mobile-2of4`,
+`playwright-report-ios-1of2`) only when that job fails, and kept for 7 days. Both checks must
+remain required for `main`; see `.github/BRANCH_PROTECTION.md`.
 
 The normal test command never resets the database. It starts the local stack if necessary and
 idempotently restores fixed fixture rows. Use `npm run e2e:db:reset` only when you intentionally

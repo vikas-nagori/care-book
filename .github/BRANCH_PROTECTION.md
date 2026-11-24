@@ -20,11 +20,12 @@ change from merging when either the fast/build suite or the browser suite is ski
 ## Why `test` and `e2e` are aggregator jobs
 
 The fast suites run as four independent jobs (`lint-typecheck`, `unit-component`, `integration`,
-`build`) so they finish side by side instead of one after another. The Playwright suite runs as a
-`e2e-shard` matrix across several runners, so its own checks report as `e2e-shard (1)` …
-`e2e-shard (n)` — names that change whenever the shard count changes — plus a separate `e2e-ios`
-job for the iPhone (WebKit) project, running in parallel with the shards. Neither `test` nor `e2e`
+`build`) so they finish side by side instead of one after another. The Playwright suite runs as an
+`e2e-shard` matrix across many runners, one per slice of a group of projects, so its checks
+report as `e2e-shard (<group> <slice>/<slices>)` (e.g. `e2e-shard (admin-mobile 2/4)`), plus an
+`e2e-ios` matrix for the iPhone (WebKit) project (`e2e-ios (1/2)`, …) running in parallel. Those
+names change whenever the groups are re-weighted or a slice is added. Neither `test` nor `e2e`
 does any testing itself; each depends on its group and fails unless every member succeeded. Keep
-requiring only `test` and `e2e`, never the individual jobs or shards: an administrator then never
-has to revisit this setting when the suites are regrouped or the shard count is tuned, and a job
+requiring only `test` and `e2e`, never the individual jobs or slices: an administrator then never
+has to revisit this setting when the suites are regrouped or the split is re-weighted, and a job
 that never starts still fails the gate.
