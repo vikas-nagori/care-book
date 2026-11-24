@@ -294,7 +294,7 @@ export async function holdNextSupabaseCall(
 export function expectedFaultConsoleErrors(
   target: 'server-action' | SupabaseResource,
 ): { url: RegExp; text: RegExp }[] {
-  const text = /Failed to load resource|net::ERR_FAILED|status of (?:400|404|500)|network connection was lost|cancelled|Load failed/i
+  const text = /Failed to load resource|net::ERR_FAILED|status of (?:400|404|500)|network connection was lost|cancelled|Load failed|access control checks/i
   if (target === 'server-action') {
     return [{ url: /^http:\/\/localhost:3000\//, text }]
   }
@@ -335,7 +335,8 @@ export async function expectButtonRecovers(
   },
 ): Promise<void> {
   const page = button.page()
-  expect(input.fault.hit(), 'the injected fault never fired; the spec did not exercise a failure').toBe(true)
+  // Poll: the tap that triggers the request returns before the request is sent.
+  await expect.poll(() => input.fault.hit(), { message: 'the injected fault never fired; the spec did not exercise a failure' }).toBe(true)
   await expectFailureMessage(page, input.message)
   await expect(button).toBeVisible()
   await expect(button).toBeEnabled()

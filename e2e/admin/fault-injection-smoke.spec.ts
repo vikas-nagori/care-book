@@ -11,12 +11,17 @@ import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { test, expect, type E2EFactory } from '../support/factories'
 import {
   ACTION_UNREACHABLE_MESSAGE,
+  INJECTED_SUPABASE_ERROR_MESSAGE,
+  NETWORK_ERROR_MESSAGE,
   STALE_DEPLOYMENT_MESSAGE,
   expectButtonRecovers,
   expectedFaultConsoleErrors,
   failNextServerAction,
+  failNextSupabaseCall,
   holdNextServerAction,
+  holdNextSupabaseCall,
   type ActionFault,
+  type SupabaseFault,
 } from '../support/fault-injection'
 import {
   E2E_APP_VERSION,
@@ -186,5 +191,67 @@ test('phone helpers: the save button is reachable, nothing scrolls sideways, and
   await expect(page).toHaveURL(/\/settings$/)
   await expect(page.getByRole('heading', { name: 'Settings', exact: true }).filter({ visible: true })).toBeVisible()
   await newer.dispose()
+  await guards.assertClean()
+})
+
+// Direct browser -> Supabase writes: the treatment plan form inserts into `treatment_plans` and
+// reports failures through requestErrorMessage().
+async function openNewPlan(page: Page, factory: E2EFactory) {
+  const patient = await factory.createPatient({ phone: null })
+  await page.goto(`/patients/${patient.id}`)
+  await page.getByRole('tab', { name: 'Plans', exact: true }).click()
+  await page.getByRole('button', { name: 'Add Plan', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'New Treatment Plan' })
+  await expect(dialog).toBeVisible()
+  const diagnosis = factory.uniqueName('fault-plan')
+  await dialog.locator('input[name="diagnosis"]').fill(diagnosis)
+  return { patient, dialog, diagnosis, save: dialog.getByRole('button', { name: /^(Create Plan|Saving…)$/ }) }
+}
+
+function supabaseGuards(page: Page) {
+  return attachErrorGuards(page, {
+    expectedFailures: expectedFaultConsoleErrors('rest/v1/treatment_plans'),
+    expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }],
+  })
+}
+
+for (const [mode, message] of [
+  ['abort', NETWORK_ERROR_MESSAGE],
+  ['http-400', INJECTED_SUPABASE_ERROR_MESSAGE],
+  ['http-500', INJECTED_SUPABASE_ERROR_MESSAGE],
+] as const satisfies readonly (readonly [SupabaseFault, string])[]) {
+  test(`a direct Supabase insert failing with ${mode} leaves Create Plan usable and saves nothing`, { tag: IOS_TAG }, async ({ page, factory }) => {
+    const guards = supabaseGuards(page)
+    const { patient, dialog, diagnosis, save } = await openNewPlan(page, factory)
+
+    const fault = await failNextSupabaseCall(page, { resource: 'rest/v1/treatment_plans', method: 'POST', mode })
+    await save.tap()
+    await expectButtonRecovers(save, { idleName: 'Create Plan', message, fault })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.locator('input[name="diagnosis"]')).toHaveValue(diagnosis)
+    expect(await factory.findTreatmentPlans(patient.id)).toEqual([])
+
+    await fault.dispose()
+    await save.tap()
+    await expect(dialog).toBeHidden()
+    await expect.poll(async () => (await factory.findTreatmentPlans(patient.id)).map((plan) => plan.diagnosis)).toEqual([diagnosis])
+    await guards.assertClean()
+  })
+}
+
+test('a held Supabase insert shows Saving… and finishes once released', { tag: IOS_TAG }, async ({ page, factory }) => {
+  const guards = supabaseGuards(page)
+  const { patient, dialog, diagnosis, save } = await openNewPlan(page, factory)
+
+  const hold = await holdNextSupabaseCall(page, { resource: 'rest/v1/treatment_plans', method: 'POST' })
+  await save.tap()
+  await hold.whenHeld()
+  await expect(save).toHaveAccessibleName('Saving…')
+  await expect(save).toBeDisabled()
+  expect(await factory.findTreatmentPlans(patient.id)).toEqual([])
+  await hold.release()
+  await expect(dialog).toBeHidden()
+  expect(hold.count()).toBe(1)
+  await expect.poll(async () => (await factory.findTreatmentPlans(patient.id)).map((plan) => plan.diagnosis)).toEqual([diagnosis])
   await guards.assertClean()
 })
