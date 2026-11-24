@@ -488,8 +488,7 @@ test('a delete confirmed after another session completed the appointment is refu
 
 // --- S-26 (decision D4b) ---------------------------------------------------------------------
 
-test('C-2: a cancelled slot can be booked again for the same patient, date and time', async ({ page, factory }, testInfo) => {
-  testInfo.fail(true, 'C-2 (behaviour change, own fix branch): a cancelled appointment still blocks its slot')
+test('C-2: a cancelled slot can be booked again for the same patient, date and time', async ({ page, factory }) => {
   const guards = attachErrorGuards(page, true)
   const patient = await factory.createPatient()
   const sharedType = await factory.findAppointmentType(true)

@@ -112,7 +112,6 @@ test('edits every field of a scheduled appointment and shows the change on the d
 
 test('G-3: updating an appointment that was deleted meanwhile does not report success', async ({ page, factory }, testInfo) => {
   phoneOnly(testInfo)
-  testInfo.fail(true, 'G-3 (needs its own fix branch): a zero-row update reports "Appointment updated"')
   const guards = guardsFor(page)
   const patient = await factory.createPatient()
   const appointment = await factory.createAppointment({ patientId: patient.id, date: clinicDate(67), time: '09:10' })
@@ -126,13 +125,13 @@ test('G-3: updating an appointment that was deleted meanwhile does not report su
   const toast = page.getByRole('region', { name: 'Notifications (F8)', includeHidden: true }).locator('li').first()
   await expect(toast).toBeVisible()
   await expect(toast).not.toContainText('Appointment updated')
+  await expect(toast).toContainText('This appointment no longer exists.')
   await expect(detail.editDialog()).toBeVisible()
   await guards.assertClean()
 })
 
 test('G-3: a status change on an appointment that was deleted meanwhile does not report success', async ({ page, factory }, testInfo) => {
   phoneOnly(testInfo)
-  testInfo.fail(true, 'G-3 (needs its own fix branch): a zero-row status update reports "Status updated"')
   const guards = guardsFor(page)
   const patient = await factory.createPatient()
   const appointment = await factory.createAppointment({ patientId: patient.id, date: clinicDate(67), time: '09:20' })
@@ -144,6 +143,7 @@ test('G-3: a status change on an appointment that was deleted meanwhile does not
   const toast = page.getByRole('region', { name: 'Notifications (F8)', includeHidden: true }).locator('li').first()
   await expect(toast).toBeVisible()
   await expect(toast).not.toContainText('Status updated')
+  await expect(toast).toContainText('This appointment no longer exists.')
   await guards.assertClean()
 })
 

@@ -36,6 +36,7 @@ import {
 } from '@/lib/appointments/assignment'
 import { getExternalAssigneeOptions } from './external-assignees'
 import { generateRecurringAppointmentDates } from '@/lib/appointments/recurrence'
+import { parseDurationInput } from '@/lib/appointments/duration'
 import { resolveAppointmentStatus } from '@/lib/appointments/appointment-creation'
 import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
 import type { DashboardAppointmentTypeOption } from '@/lib/dashboard/appointment-options'
@@ -44,6 +45,7 @@ import type { BookingRequest, CreateAppointmentResult, NewPatientInput } from '@
 import { reportBookingEvent } from '@/lib/observability/report-booking-event'
 
 const UNASSIGNED_ASSIGNEE_VALUE = '__unassigned__'
+const APPOINTMENT_GONE_MESSAGE = 'This appointment no longer exists. It may have been deleted. Reload to see the current schedule.'
 const WEEKDAYS = [
   { value: 1, label: 'Mon' },
   { value: 2, label: 'Tue' },
@@ -173,6 +175,9 @@ export function AppointmentForm({
   )
   // A fee the admin typed stays until they change the patient or type.
   const feeTouched = useRef(false)
+  // Edit only: did the admin change the fee field at all? A legacy row saved before fees were
+  // required has a NULL fee and stays editable as long as nobody touches the field (C-3).
+  const feeEdited = useRef(false)
   const [feeFromHistory, setFeeFromHistory] = useState(false)
   const [appointmentDate, setAppointmentDate] = useState(appointment?.date || defaultDate || '')
   const [repeatAppointment, setRepeatAppointment] = useState(false)
@@ -366,6 +371,10 @@ export function AppointmentForm({
 
   // Update assignment + fee when the selected type changes
   function handleTypeChange(typeId: string) {
+    // No type is ever offered with an empty id. Radix Select reports '' from its hidden native
+    // <select> when the value is set in the same render that first mounts the options (the
+    // types loaded in the browser on /schedule/new), which used to wipe the default type (G-19).
+    if (!typeId) return
     setAppointmentTypeId(typeId)
     feeTouched.current = false
     setFeeFromHistory(false)
@@ -584,6 +593,17 @@ export function AppointmentForm({
         return
       }
 
+      // Decision D4c: an admin may not clear a fee on Edit; 0 is a valid free session.
+      if (appointment && canViewPaymentSignals && normalizedFee === null && (appointment.fee != null || feeEdited.current)) {
+        reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'SCHEDULE_MISSING_FIELDS' })
+        toast({
+          title: 'Session fee required',
+          description: 'Enter a session fee, or 0 for a free session.',
+          variant: 'destructive',
+        })
+        return
+      }
+
       if (!appointment && repeatAppointment && recurringSchedule.error) {
         reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'SCHEDULE_INVALID_RECURRENCE' })
         toast({
@@ -662,20 +682,30 @@ export function AppointmentForm({
       const notes = (formData.get('notes') as string) || null
 
       if (appointment) {
-        const { error } = await withBookingDeadline(supabase
+        // Blank still means 45, but a typed 0 is refused instead of quietly saved as 45 (G-17c).
+        const duration = parseDurationInput(formData.get('duration_minutes') as string | null)
+        if (!duration.ok) {
+          reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'SCHEDULE_INVALID_DURATION' })
+          toast({ title: 'Appointment not updated', description: duration.message, variant: 'destructive' })
+          return
+        }
+        const { data: updatedRows, error } = await withBookingDeadline(supabase
           .from('appointments')
           .update({
             patient_id: patientId,
             date: appointmentDate,
             time,
-            duration_minutes: durationMinutes,
+            duration_minutes: duration.minutes,
             appointment_type_id: appointmentTypeId,
             status: (formData.get('status') as string) || 'scheduled',
             ...(canViewPaymentSignals ? { fee: normalizedFee } : {}),
             ...assignment,
             notes,
           })
-          .eq('id', appointment.id))
+          .eq('id', appointment.id)
+          // Returning the id is how a zero-row update shows up: PostgREST reports no error when the
+          // row was deleted meanwhile (G-3).
+          .select('id'))
 
         if (!alive.current || operation.current !== run) return
 
@@ -690,6 +720,17 @@ export function AppointmentForm({
           toast({
             title: 'Appointment not updated',
             description: accessError ? EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE : 'Please check the appointment and try again.',
+            variant: 'destructive',
+          })
+          return
+        }
+
+        if (!updatedRows?.length) {
+          logger.warn('AppointmentForm/save', 'Appointment update matched no row', { appointmentId: appointment.id })
+          reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'APPOINTMENT_NOT_FOUND' })
+          toast({
+            title: 'Appointment not updated',
+            description: APPOINTMENT_GONE_MESSAGE,
             variant: 'destructive',
           })
           return
@@ -1039,6 +1080,7 @@ export function AppointmentForm({
             value={fee}
             onChange={(e) => {
               feeTouched.current = true
+              feeEdited.current = true
               setFeeFromHistory(false)
               setFee(e.target.value)
             }}

@@ -52,8 +52,8 @@ async function openNewForm(page: Page, factory: E2EFactory) {
   const sharedType = await factory.findAppointmentType(true)
   await page.goto('/schedule/new')
   await expect(page.getByLabel('Patient *', { exact: true })).toBeVisible()
-  // Pick the type explicitly: /schedule/new does not preselect one (G-19, pinned below), and a
-  // submit without a type is refused for that before any other check runs.
+  // Pick the type explicitly: /schedule/new preselects the clinic's default type (G-19, below),
+  // which need not be the shared type these cases price and assign against.
   const form = new AppointmentForm(page, sharedType.name)
   await form.chooseType(sharedType.name)
   return form
@@ -63,11 +63,10 @@ function bookButton(page: Page) {
   return page.getByRole('button', { name: 'Book Appointment', exact: true })
 }
 
-test('G-19: /schedule/new preselects the default appointment type once the types load', async ({ page, factory }, testInfo) => {
-  // G-19 (new, found by S-8; needs its own fix): the form loads the clinic's types in the browser
-  // but leaves Type on "Select type", so Book is refused with "Appointment type required" until a
-  // type is picked by hand. The dashboard dialog, which passes the types in, does preselect one.
-  testInfo.fail(true, 'G-19: /schedule/new never preselects the default appointment type')
+test('G-19: /schedule/new preselects the default appointment type once the types load', async ({ page, factory }) => {
+  // G-19: the form loads the clinic's types in the browser. Setting the default in the same render
+  // that first mounted the options made Radix's hidden native <select> report '', which wiped the
+  // type back to "Select type". The dashboard dialog, which passes the types in, was unaffected.
   const guards = guardsFor(page)
   const sharedType = await factory.findAppointmentType(true)
   await page.goto('/schedule/new')
@@ -238,8 +237,8 @@ test('a negative duration is refused on Edit and the stored duration is kept', a
 
 test('G-17c: a duration of 0 on Edit is refused instead of silently becoming 45 minutes', async ({ page, factory }, testInfo) => {
   adminPhoneOnly(testInfo)
-  testInfo.fail(true, 'G-17c: Edit turns a duration of 0 into 45 without a word')
-  const guards = guardsFor(page, { supabaseRejects: true })
+  // Refused in the form, before any write: nothing reaches Supabase, so no rejection is expected.
+  const guards = guardsFor(page)
   const patient = await factory.createPatient()
   const appointment = await factory.createAppointment({ patientId: patient.id, date: clinicDate(87), time: '08:40', duration_minutes: 50 })
   const detail = new AppointmentDetail(page)
@@ -251,7 +250,9 @@ test('G-17c: a duration of 0 on Edit is refused instead of silently becoming 45 
   const toast = notifications(page).locator('li').first()
   await expect(toast).toBeVisible()
   await expect(toast).not.toContainText('Appointment updated')
+  await expect(toast).toContainText('Duration must be')
   await expect(detail.editDialog()).toBeVisible()
+  await expect(detail.editDialog().getByRole('button', { name: 'Update', exact: true })).toBeEnabled()
   expect((await factory.findAppointments({ patientId: patient.id }))[0].duration_minutes).toBe(50)
   await guards.assertClean()
 })
@@ -264,7 +265,6 @@ function adminOnly(testInfo: TestInfo) {
 
 test('C-3: clearing the session fee on Edit is refused with a message and the stored fee is kept', async ({ page, factory }, testInfo) => {
   adminOnly(testInfo)
-  testInfo.fail(true, 'C-3 (behaviour change, own fix branch): Edit Appointment saves a cleared fee as NULL')
   const guards = guardsFor(page)
   const patient = await factory.createPatient()
   const appointment = await factory.createAppointment({ patientId: patient.id, date: clinicDate(88), time: '08:45', fee: 800 })

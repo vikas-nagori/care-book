@@ -38,9 +38,6 @@ test.beforeEach(({}, testInfo) => {
 
 /** Flows whose double tap is a known bug, with the bug id. */
 const DOUBLE_TAP_BUGS: Partial<Record<FlowId, string>> = {
-  // G-4 (same root: no unique note per appointment): the second submit also inserts, and the
-  // detail page, which reads the note with .maybeSingle(), then shows no notes at all.
-  'session-notes': 'G-4: a double tap on Save Notes inserts two notes and the page then shows none',
 }
 
 for (const flowId of ['book-schedule', 'book-dashboard', 'session-notes', 'reminder', 'patient', 'payment'] as const satisfies readonly FlowId[]) {

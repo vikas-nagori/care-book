@@ -206,10 +206,8 @@ test('a held Save Notes shows Saving… and saves exactly one note once released
 
 test('G-4: saving notes again after a lost reply keeps exactly one note and still shows it', async ({ page, factory }, testInfo) => {
   phoneOnly(testInfo)
-  // G-4 (needs its own fix branch): session_notes has no unique appointment_id, the form still
-  // thinks the note is new, and the second save inserts a duplicate; the page's .maybeSingle()
-  // then errors and shows no notes at all.
-  testInfo.fail(true, 'G-4: a re-save after a lost reply inserts a second session note')
+  // G-4: the form still thinks the note is new after the lost reply, so the second save arrives
+  // with no note id; it must write to the note the first save created, not add a second one.
   const guards = guardsFor(page)
   const { appointment, form, subjective } = await openNewNote(page, factory)
 

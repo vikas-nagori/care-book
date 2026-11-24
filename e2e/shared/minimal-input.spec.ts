@@ -513,8 +513,7 @@ test('a restricted appointment booked as Unassigned renders on every appointment
 })
 
 // S-27: a note emptied field by field must not leave an empty card behind.
-test('G-17g: a session note cleared of every field leaves no empty Session Notes card', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
-  testInfo.fail(true, 'G-17g: a blank session note still renders an empty "Session Notes" card')
+test('G-17g: a session note cleared of every field leaves no empty Session Notes card', { tag: IOS_TAG }, async ({ page, factory }) => {
   const guards = guardsFor(page)
   const patient = await factory.createPatient({ phone: null })
   const appointment = await factory.createAppointment({
@@ -543,8 +542,7 @@ test('G-17g: a session note cleared of every field leaves no empty Session Notes
   await guards.assertClean()
 })
 
-test('G-17g: an Objective-only session note renders without a leading separator', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
-  testInfo.fail(true, 'G-17g: the Session Notes card draws a separator above its first section when Subjective is blank')
+test('G-17g: an Objective-only session note renders without a leading separator', { tag: IOS_TAG }, async ({ page, factory }) => {
   const guards = guardsFor(page)
   const patient = await factory.createPatient({ phone: null })
   const appointment = await factory.createAppointment({

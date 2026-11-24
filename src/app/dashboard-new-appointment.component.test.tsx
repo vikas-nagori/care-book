@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import type { DashboardAppointmentOptionsResult } from '@/lib/dashboard/appointment-options'
 
@@ -180,5 +180,27 @@ describe('DashboardNewAppointmentButton', () => {
 
     expect(await screen.findByTestId('appointment-form')).not.toBeNull()
     expect(mocks.getOptions).toHaveBeenCalledOnce()
+  })
+
+  it('reloads the options after a booking, so a patient created inline is listed on reopen (G-17b)', async () => {
+    const withNewPatient: DashboardAppointmentOptionsResult = successResult.ok
+      ? { ok: true, data: { ...successResult.data, patients: [...successResult.data.patients, { id: 'patient-2', name: 'Created Inline' }] } }
+      : successResult
+    mocks.getOptions.mockReset()
+    mocks.getOptions.mockResolvedValueOnce(successResult).mockResolvedValueOnce(withNewPatient)
+    mocks.appointmentForm.mockClear()
+    render(<DashboardNewAppointmentButton defaultDate="2026-08-15" />)
+    fireEvent.click(screen.getByRole('button', { name: 'New appointment' }))
+    expect(await screen.findByTestId('appointment-form')).not.toBeNull()
+
+    const { onSuccess } = mocks.appointmentForm.mock.calls.at(-1)![0] as { onSuccess: () => void }
+    act(() => onSuccess())
+    await waitFor(() => expect(screen.queryByTestId('appointment-form')).toBeNull())
+    expect(mocks.refresh).toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'New appointment' }))
+    expect(await screen.findByTestId('appointment-form')).not.toBeNull()
+    expect(mocks.getOptions).toHaveBeenCalledTimes(2)
+    expect(mocks.appointmentForm.mock.calls.at(-1)![0]).toMatchObject({ patients: expect.arrayContaining([{ id: 'patient-2', name: 'Created Inline' }]) })
   })
 })

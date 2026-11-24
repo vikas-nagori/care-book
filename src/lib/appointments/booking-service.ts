@@ -17,6 +17,7 @@ export type BookingStore = {
   findAppointments(ids: string[]): Promise<DatabaseResult<BookingRow[]>>
   getPatient(id: string): Promise<DatabaseResult<PatientRow>>
   insertPatient(row: PatientRow): Promise<DatabaseResult<{ id: string }>>
+  /** The patient's appointments at this time on these dates that still hold the slot: a cancelled one never does (D4b). */
   findConflicts(patientId: string, time: string, dates: string[]): Promise<DatabaseResult<{ id: string; date: string }[]>>
   insertAppointments(rows: BookingRow[]): Promise<DatabaseResult<{ id: string }[]>>
 }

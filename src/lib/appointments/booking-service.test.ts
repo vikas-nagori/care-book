@@ -26,7 +26,7 @@ function memoryStore() {
       return { data: row, error: null }
     },
     async findConflicts(patientId, time, dates) {
-      return { data: [...appointments.values()].filter(row => row.patient_id === patientId && row.time === time && dates.includes(row.date)), error: null }
+      return { data: [...appointments.values()].filter(row => row.patient_id === patientId && row.time === time && dates.includes(row.date) && (row.status as string) !== 'cancelled'), error: null }
     },
     async insertAppointments(rows) {
       writes++
@@ -154,6 +154,18 @@ test('separate attempts preserve patient-time conflicts and sanitize provider er
   assert.equal(failed.success, false)
   assert.ok(!JSON.stringify(failed).includes('Sensitive'))
   assert.equal(memory.appointments.size, 1)
+})
+
+test('a cancelled appointment no longer blocks rebooking the same patient, date and time (D4b)', async () => {
+  const memory = memoryStore()
+  const first = await executeBooking(request(), 'create', { ...actor, store: memory.store })
+  assert.equal(first.success, true)
+  // Cancelled later through the detail page; a booking row is never inserted cancelled.
+  for (const row of memory.appointments.values()) (row as { status: string }).status = 'cancelled'
+  const rebooked = await executeBooking(request('12345678-1234-4234-8234-123456789013'), 'create', { ...actor, store: memory.store })
+  assert.equal(rebooked.success, true)
+  assert.equal(memory.appointments.size, 2)
+  assert.deepEqual([...memory.appointments.values()].map(row => row.status as string).sort(), ['cancelled', 'scheduled'])
 })
 
 test('connection loss and unknown transaction outcome codes preserve the unconfirmed attempt', async () => {

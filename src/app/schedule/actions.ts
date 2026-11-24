@@ -94,7 +94,7 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
     }
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data: updatedRows, error } = await supabase
       .from('appointments')
       .update({
         patient_id: input.patientId,
@@ -112,6 +112,7 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
         notes: input.notes || null,
       })
       .eq('id', input.appointmentId)
+      .select('id')
 
     if (error) {
       logger.error('schedule/updateAppointment', error, { appointmentId: input.appointmentId })
@@ -119,6 +120,10 @@ export async function updateAppointment(input: UpdateAppointmentInput): Promise<
         return { success: false, errorCode: 'EXTERNAL_ASSIGNMENT_UNAVAILABLE', message: EXTERNAL_ASSIGNMENT_ACCESS_MESSAGE }
       }
       return { success: false, errorCode: 'APPOINTMENT_UPDATE_FAILED', message: error.message }
+    }
+    if (!updatedRows?.length) {
+      logger.warn('schedule/updateAppointment', 'Appointment update matched no row', { appointmentId: input.appointmentId })
+      return { success: false, errorCode: 'APPOINTMENT_NOT_FOUND', message: 'This appointment no longer exists. It may have been deleted.' }
     }
 
     revalidateScheduleViews()
@@ -141,14 +146,20 @@ export async function updateAppointmentStatus(input: UpdateAppointmentStatusInpu
     }
 
     const supabase = await createClient()
-    const { error } = await supabase
+    const { data: updatedRows, error } = await supabase
       .from('appointments')
       .update({ status: input.status })
       .eq('id', input.appointmentId)
+      // An update that matched no row (deleted meanwhile) is not an error to PostgREST (G-3).
+      .select('id')
 
     if (error) {
       logger.error('schedule/updateAppointmentStatus', error, { appointmentId: input.appointmentId })
       return { success: false, errorCode: 'APPOINTMENT_STATUS_UPDATE_FAILED', message: error.message }
+    }
+    if (!updatedRows?.length) {
+      logger.warn('schedule/updateAppointmentStatus', 'Status update matched no row', { appointmentId: input.appointmentId })
+      return { success: false, errorCode: 'APPOINTMENT_NOT_FOUND', message: 'This appointment no longer exists. It may have been deleted.' }
     }
 
     revalidateScheduleViews()
@@ -229,11 +240,44 @@ export async function saveSessionNote(input: SaveSessionNoteInput): Promise<Save
       exercises_prescribed: input.exercises_prescribed || null,
     }
 
+    // One note per appointment (G-4). A save whose reply was lost, or a second tap, arrives with
+    // no noteId although the first save already created the note: write to that note instead of
+    // adding another. Newest first, so a legacy duplicate set resolves to the note the page shows.
+    let noteId = input.noteId ?? null
+    if (!noteId) {
+      const { data: existing, error: findError } = await supabase
+        .from('session_notes')
+        .select('id')
+        .eq('appointment_id', input.appointmentId)
+        .order('created_at', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false })
+        .limit(1)
+      if (findError) {
+        logger.error('schedule/saveSessionNote/find', findError, { appointmentId: input.appointmentId })
+        return { success: false, errorCode: 'SESSION_NOTE_SAVE_FAILED', message: 'Unable to save session notes right now.' }
+      }
+      noteId = existing?.[0]?.id ?? null
+    }
+
     let error
-    if (input.noteId) {
-      ({ error } = await supabase.from('session_notes').update(noteData).eq('id', input.noteId))
-    } else {
+    if (noteId) {
+      const { data: updated, error: updateError } = await supabase
+        .from('session_notes')
+        .update(noteData)
+        .eq('id', noteId)
+        .eq('appointment_id', input.appointmentId)
+        .select('id')
+      error = updateError
+      // The note was deleted meanwhile: save the typed notes as the appointment's note.
+      if (!error && !updated?.length) noteId = null
+    }
+    if (!noteId && !error) {
       ({ error } = await supabase.from('session_notes').insert(noteData))
+      // A concurrent save created the note first; session_notes_one_per_appointment (migration
+      // 20261124131000) refused this one, so write to that note.
+      if (error?.code === '23505') {
+        ({ error } = await supabase.from('session_notes').update(noteData).eq('appointment_id', input.appointmentId))
+      }
     }
 
     if (error) {

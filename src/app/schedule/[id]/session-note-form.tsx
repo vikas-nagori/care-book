@@ -1,7 +1,7 @@
 'use client'
 
 import { callServerAction } from '@/lib/actions/call-server-action'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -19,9 +19,14 @@ interface Props {
 export function SessionNoteForm({ appointmentId, sessionNote, onSuccess }: Props) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
+  // `loading` disables the button only after React commits it; a ref also stops a second tap that
+  // lands in the same tick from sending a second save (G-4).
+  const inFlight = useRef(false)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (inFlight.current) return
+    inFlight.current = true
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
@@ -37,6 +42,7 @@ export function SessionNoteForm({ appointmentId, sessionNote, onSuccess }: Props
 
     if (!result.success) {
       toast({ title: 'Error', description: result.message, variant: 'destructive' })
+      inFlight.current = false
       setLoading(false)
       return
     }

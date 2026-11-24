@@ -247,6 +247,9 @@ export const appointmentReadTools: McpToolDefinition[] = [
         .from('session_notes')
         .select('subjective, objective, assessment, plan, exercises_prescribed, created_at')
         .eq('appointment_id', rows[0].id)
+        // Newest note, so a legacy duplicate pair (G-4) cannot make .maybeSingle() fail.
+        .order('created_at', { ascending: false, nullsFirst: false })
+        .limit(1)
         .maybeSingle()
       if (noteError) throw noteError
       return {
@@ -476,7 +479,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
       if (!patientId) throw new ToolError('No patient was selected.')
       const appointmentRows = rows.map((row) => ({ ...row, patient_id: patientId }))
       const generatedDates = appointmentRows.map((row) => row.date)
-      const { data: conflicts, error: conflictError } = await supabase.from('appointments').select('date').eq('patient_id', patientId).eq('time', time).in('date', generatedDates)
+      const { data: conflicts, error: conflictError } = await supabase.from('appointments').select('date').eq('patient_id', patientId).eq('time', time).in('date', generatedDates).neq('status', 'cancelled')
       if (conflictError) throw new ToolError('Unable to check the appointment schedule.')
       const conflictingDates = [...new Set((conflicts ?? []).map((row) => row.date))].sort()
       if (conflictingDates.length) return { created: false, error_code: 'APPOINTMENT_CONFLICT', conflicting_dates: conflictingDates, message: 'This patient already has an appointment at the selected time.' }
@@ -552,6 +555,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
           .eq('date', targetDate)
           .eq('time', targetTime)
           .neq('id', row.id)
+          .neq('status', 'cancelled')
         if (clashError) throw new ToolError('Unable to check the appointment schedule.')
         if (clash?.length) {
           return { updated: false, error_code: 'APPOINTMENT_CONFLICT', message: 'This patient already has an appointment at that date and time.' }
