@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { BillingTimelinePackage, BillingTimelinePayment } from '@/lib/billing/unified-billing'
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mocks.push, refresh: mocks.refresh, back: vi.fn() }),
+  unstable_isUnrecognizedActionError: () => false,
+  unstable_rethrow: () => {},
 }))
 
 vi.mock('@/lib/supabase/client', () => ({
@@ -33,6 +35,7 @@ vi.mock('./billing-entry-form', () => ({
 }))
 
 import { BillingView } from './billing-view'
+import { recordRefund } from './actions'
 
 function makePackage(overrides: Partial<BillingTimelinePackage> = {}): BillingTimelinePackage {
   return {
@@ -133,6 +136,23 @@ describe('BillingView packages tab', () => {
     // 'voided' in the DB reads as 'Cancelled' to the clinic.
     expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0)
     expect(screen.queryByText('Voided')).toBeNull()
+  })
+
+  it('records one refund when Save audited change is activated twice before React re-renders (G-14)', async () => {
+    let finish!: (value: Awaited<ReturnType<typeof recordRefund>>) => void
+    vi.mocked(recordRefund).mockReset().mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    render(<BillingView {...baseProps} packages={[]} payments={[makePayment()]} initialTab="payments" />)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Refund payment for Asha Rao · ₹1,000' })[0])
+    fireEvent.change(screen.getByLabelText('Reason *'), { target: { value: 'Overcharged' } })
+    const save = screen.getByRole('button', { name: 'Save audited change' })
+
+    act(() => {
+      save.click()
+      save.click()
+    })
+    await waitFor(() => expect(recordRefund).toHaveBeenCalledTimes(1))
+    await act(async () => finish({ success: true, patientId: 'patient-1', entityId: 'refund-1' }))
+    expect(recordRefund).toHaveBeenCalledTimes(1)
   })
 
   it('labels an unrefunded receipt Received rather than Posted', () => {

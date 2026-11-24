@@ -509,9 +509,9 @@ test('Save Payment: a lost reply saves exactly once, says to check, and the paym
   await guards.assertClean()
 })
 
-// G-14 (plausible): `loading` is set only after React commits, so a fast double activation could
-// record the payment twice. The plan asks for a real double click here; M-9 does the same-task
-// double tap.
+// G-14: `loading` is set only after React commits, so a fast double activation used to record the
+// payment twice; a synchronous guard and a request id now stop it. The plan asks for a real
+// double click here; M-9 does the same-task double tap.
 test('Save Payment: a double click records one payment', async ({ page, factory }) => {
   const guards = guardsFor(page)
   const { patient, form, save } = await openPaymentEntry(page, factory, '665')

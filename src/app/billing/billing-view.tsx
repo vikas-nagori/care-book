@@ -1,7 +1,7 @@
 'use client'
 
 import { callServerAction } from '@/lib/actions/call-server-action'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
@@ -182,6 +182,7 @@ export function BillingView({
   const [refundMethod, setRefundMethod] = useState('upi')
   const [refundDate, setRefundDate] = useState(defaultPaymentDate)
   const [savingAction, setSavingAction] = useState(false)
+  const savingActionRef = useRef(false)
   const cleanBillingUrl = initialTab === 'overview' ? '/billing' : `/billing?tab=${initialTab}`
 
   useEffect(() => setPackages(initialPackages), [initialPackages])
@@ -208,7 +209,12 @@ export function BillingView({
 
   async function confirmAuditedAction() {
     if (!pendingAction || !actionReason.trim()) return
+    // `savingAction` disables the button only after React commits it; a double tap lands two
+    // activations before that, and a refund would be recorded twice (G-14). Block synchronously.
+    if (savingActionRef.current) return
+    savingActionRef.current = true
     setSavingAction(true)
+    // callServerAction never rejects, so the guard is always released below.
     const result = pendingAction.kind === 'void_payment'
       ? await callServerAction(() => voidPayment(pendingAction.id, actionReason))
       : pendingAction.kind === 'cancel_package'
@@ -216,6 +222,7 @@ export function BillingView({
         : pendingAction.kind === 'void_refund'
           ? await callServerAction(() => voidRefund(pendingAction.id, actionReason))
           : await callServerAction(() => recordRefund({ paymentId: pendingAction.id, amount: Number(refundAmount), refundMethod, refundDate, reason: actionReason }))
+    savingActionRef.current = false
     setSavingAction(false)
 
     if (!result.success) {

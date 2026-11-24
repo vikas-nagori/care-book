@@ -38,9 +38,6 @@ test.beforeEach(({}, testInfo) => {
 
 /** Flows whose double tap is a known bug, with the bug id. */
 const DOUBLE_TAP_BUGS: Partial<Record<FlowId, string>> = {
-  // G-14: two activations before React commits `loading` record the payment twice (no
-  // idempotency key on record_payment_v2).
-  payment: 'G-14: a double tap on Save Payment records the payment twice',
   // G-4 (same root: no unique note per appointment): the second submit also inserts, and the
   // detail page, which reads the note with .maybeSingle(), then shows no notes at all.
   'session-notes': 'G-4: a double tap on Save Notes inserts two notes and the page then shows none',
@@ -51,10 +48,6 @@ for (const flowId of ['book-schedule', 'book-dashboard', 'session-notes', 'remin
   test(`M-9 a double tap to ${flow.title} saves exactly once`, { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
     const reason = phoneSkipReason(testInfo, flow)
     test.skip(reason !== null, reason ?? '')
-    // On WebKit the G-14 race is timing-dependent (it double-records on a Mac, not on the Linux
-    // CI runner), so a test.fail pin would flip at random there. It is pinned on the Chromium
-    // phones, where it reproduces every time; the fix branch should drop this skip.
-    test.skip(flowId === 'payment' && testInfo.project.name === 'mobile-ios', 'G-14 is timing-dependent on WebKit; pinned on Chromium')
     const bug = DOUBLE_TAP_BUGS[flowId]
     if (bug) test.fail(true, bug)
     const guards = phoneGuards(page)

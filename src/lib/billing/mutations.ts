@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { calculatePackageTotal } from './payment-helpers.ts'
 import type { BillingEntryKind, CreateBillingEntryInput, RecordPaymentInput } from '../supabase/types.ts'
 import { logger } from '../logger.ts'
+import { isRequestKey } from './request-key.ts'
 
 export type RpcResult = {
   success?: boolean
@@ -46,6 +47,15 @@ export type ReasonedInput = {
 }
 export type ReasonedSummary = { kind: ReasonedKind; entityId: string; reason: string; amount: number | null }
 
+/**
+ * `p_request_id` selects the idempotent overload of record_payment_v2 / record_billing_entry_v2
+ * (migration 20261124132000). Left out when the caller has no valid id, so the original
+ * signature is called.
+ */
+function requestIdParam(requestKey: string | undefined): { p_request_id?: string } {
+  return isRequestKey(requestKey) ? { p_request_id: requestKey } : {}
+}
+
 export function validateRecordPayment(input: RecordPaymentInput): Validated<PaymentSummary> {
   if (!input.patientId) return { ok: false, errorCode: 'PAYMENT_MISSING_PATIENT', message: 'Choose a patient before recording a payment.' }
   if (!Number.isFinite(input.amount) || input.amount <= 0) return { ok: false, errorCode: 'PAYMENT_INVALID_AMOUNT', message: 'Payment amount must be greater than zero.' }
@@ -60,6 +70,7 @@ export function validateRecordPayment(input: RecordPaymentInput): Validated<Paym
       p_payment_method: input.paymentMethod,
       p_payment_date: input.date,
       p_notes: input.notes,
+      ...requestIdParam(input.requestKey),
     },
     summary: { patientId: input.patientId, amount: input.amount, method: input.paymentMethod, date: input.date },
   }
@@ -97,6 +108,7 @@ export function validateBillingEntry(input: CreateBillingEntryInput): Validated<
       p_payment_method: input.paymentMethod,
       p_payment_date: input.paymentDate,
       p_notes: input.paymentNotes ?? null,
+      ...requestIdParam(input.requestKey),
     },
     summary: {
       patientId: input.patientId,
@@ -136,7 +148,15 @@ export async function callBillingRpc(
   params: Record<string, unknown>,
   context: Record<string, unknown>,
 ): Promise<RpcResult> {
-  const { data, error } = await supabase.rpc(name, params)
+  let { data, error } = await supabase.rpc(name, params)
+  // PGRST202: PostgREST has no function with these named arguments, so nothing ran. That is the
+  // idempotent overload before its migration is applied; fall back to the original signature.
+  if (error?.code === 'PGRST202' && 'p_request_id' in params) {
+    logger.warn(`billing/${name}`, 'Request-id overload missing; calling without it', context)
+    const legacyParams = { ...params }
+    delete legacyParams.p_request_id
+    ;({ data, error } = await supabase.rpc(name, legacyParams))
+  }
   if (error) {
     logger.error(`billing/${name}`, error, context)
     return { success: false, errorCode: error.code ?? 'BILLING_MUTATION_FAILED', message: error.message }
