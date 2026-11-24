@@ -190,11 +190,15 @@ export function PatientForm({
     setLoading(false)
   }
 
-  async function confirmDuplicate() {
+  async function confirmDuplicate(event: React.MouseEvent) {
+    // Close the dialog ourselves: Radix's own close would call onOpenChange(false) →
+    // cancelDuplicate(), which clears `loading` while the insert is still in flight (G-17a).
+    event.preventDefault()
     const data = pendingData
     setPendingData(null)
     setDuplicateNames([])
     if (data) await savePatient(data)
+    else setLoading(false)
   }
 
   return (

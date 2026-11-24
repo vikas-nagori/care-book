@@ -344,10 +344,9 @@ test('"Add anyway" saves a patient whose phone is already on file, exactly once'
   await guards.assertClean()
 })
 
-// PA-6, pending state. G-17a: clicking "Add anyway" closes the dialog through onOpenChange, which
-// runs cancelDuplicate() and clears `loading` while the insert is still in flight.
-test('G-17a: "Add anyway" shows the submit button as saving while the insert is in flight', async ({ page, factory }) => {
-  test.fail(true, 'G-17a: "Add anyway" clears the pending state while the insert is in flight')
+// PA-6, pending state (G-17a): closing the dialog on "Add anyway" must not clear `loading` while
+// the insert is still in flight.
+test('"Add anyway" shows the submit button as saving while the insert is in flight', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const existing = await factory.createPatient()
   const name = factory.uniqueName('add-anyway-pending')

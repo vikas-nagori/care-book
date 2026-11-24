@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   updateEq: vi.fn(),
   updateSelect: vi.fn(),
+  dupeEq: vi.fn(),
   from: vi.fn(),
   toast: vi.fn(),
   loggerError: vi.fn(),
@@ -447,5 +448,41 @@ describe('PatientForm edit of a patient deleted meanwhile (G-3)', () => {
 
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith({ title: 'Patient updated' }))
     expect(mocks.push).toHaveBeenCalledWith('/patients')
+  })
+})
+
+describe('PatientForm duplicate phone', () => {
+  beforeEach(() => {
+    mocks.referralSource = ''
+    mocks.resolveReferral.mockResolvedValue(noReferral)
+    mocks.dupeEq.mockResolvedValue({ data: [{ id: 'p-existing', name: 'Existing Person' }], error: null })
+    mocks.from.mockImplementation(() => ({ insert: mocks.insert, select: () => ({ eq: mocks.dupeEq }) }))
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  function submitWithPhone() {
+    render(<PatientForm />)
+    fireEvent.change(screen.getByLabelText('Name *'), { target: { value: 'Second Person' } })
+    fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '9876500009' } })
+    fireEvent.submit(screen.getByLabelText('Name *').closest('form')!)
+  }
+
+  it('keeps the submit button on Saving… while the "Add anyway" insert is in flight (G-17a)', async () => {
+    let finishInsert: (value: { error: null }) => void = () => {}
+    mocks.insert.mockReturnValueOnce(new Promise((resolve) => { finishInsert = resolve }))
+    submitWithPhone()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add anyway' }))
+    await waitFor(() => expect(mocks.insert).toHaveBeenCalledOnce())
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    const saving = screen.getByRole('button', { name: /Saving/ }) as HTMLButtonElement
+    expect(saving.disabled).toBe(true)
+
+    finishInsert({ error: null })
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/patients'))
   })
 })
