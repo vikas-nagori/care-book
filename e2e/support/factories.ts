@@ -113,7 +113,7 @@ export type E2EExternalStaffRow = Row & {
 }
 export type E2EUserInviteRow = Row & {
   clinic_id: string
-  email: string
+  email: string | null
   role: string
   status: string
   auth_user_id: string | null
@@ -758,10 +758,11 @@ export class E2EFactory {
 
   async createUserInvite(input: {
     clinicId: string
-    email: string
+    /** Null for a mobile-only invite, which mobile-number sign-in allows. */
+    email: string | null
     authUserId?: string | null
     invitedBy?: string
-    role?: 'admin' | 'staff'
+    role?: 'admin' | 'staff' | 'external_staff'
     fullName?: string
     mobileNumber?: string
   }): Promise<E2EUserInviteRow> {
@@ -769,7 +770,7 @@ export class E2EFactory {
     return this.insert('user_invites', {
       id: randomUUID(),
       clinic_id: input.clinicId,
-      email: input.email.trim().toLowerCase(),
+      email: input.email?.trim().toLowerCase() ?? null,
       role: input.role ?? 'staff',
       status: 'pending',
       auth_user_id: input.authUserId ?? null,

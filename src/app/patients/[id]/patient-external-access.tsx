@@ -29,7 +29,7 @@ export function PatientExternalAccess({
   const [status, setStatus] = useState<{ message: string; error?: boolean } | null>(null)
   const searchText = search.trim().toLowerCase()
   const results = profiles.filter((profile) =>
-    profile.full_name?.toLowerCase().includes(searchText) || profile.email.toLowerCase().includes(searchText))
+    profile.full_name?.toLowerCase().includes(searchText) || profile.email?.toLowerCase().includes(searchText))
   const saved = new Set(savedProfileIds)
   const hasChanges = saved.size !== selected.size || [...selected].some((id) => !saved.has(id))
   const hasUnavailableGrants = savedProfileIds.some((id) => !profiles.some((profile) => profile.id === id))

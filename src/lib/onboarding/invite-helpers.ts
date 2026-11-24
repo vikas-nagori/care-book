@@ -102,6 +102,32 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
 }
 
+/**
+ * The users list hides anyone whose invite is still pending: provisioning a login writes their
+ * profile immediately, so without this they would show up both as a user and as an invite.
+ *
+ * Email is optional since mobile-number sign-in, so it can't be the join key on its own. Match on
+ * the invite's `auth_user_id` (set whenever a login was provisioned) and fall back to email only
+ * for legacy invites that never got one.
+ */
+export function excludePendingInviteeProfiles<P extends { id: string; email: string | null }>(
+  profiles: readonly P[],
+  invites: ReadonlyArray<{ status: string; email: string | null; auth_user_id: string | null }>,
+): P[] {
+  const pendingInvites = invites.filter((invite) => invite.status === 'pending')
+  const pendingUserIds = new Set(
+    pendingInvites.flatMap((invite) => (invite.auth_user_id ? [invite.auth_user_id] : [])),
+  )
+  const pendingEmails = new Set(
+    pendingInvites.flatMap((invite) => (invite.email?.trim() ? [normalizeEmail(invite.email)] : [])),
+  )
+
+  return profiles.filter((profile) => {
+    if (pendingUserIds.has(profile.id)) return false
+    return !(profile.email?.trim() && pendingEmails.has(normalizeEmail(profile.email)))
+  })
+}
+
 export function normalizeSiteOrigin(origin: string | null | undefined): string | null {
   if (!origin) return null
 

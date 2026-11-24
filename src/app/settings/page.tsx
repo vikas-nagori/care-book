@@ -1,10 +1,10 @@
 import { EXTERNAL_WORKSPACE_PATH } from '@/lib/external/routing'
 import { getCurrentProfile } from '@/lib/auth'
-import { normalizeEmail } from '@/lib/onboarding/invite-helpers'
+import { excludePendingInviteeProfiles } from '@/lib/onboarding/invite-helpers'
 import { redirect } from 'next/navigation'
 import { getSettingsAccessLevel } from '@/lib/settings/access'
 import { createClient } from '@/lib/supabase/server'
-import type { ConnectedMcpApp } from '@/lib/supabase/types'
+import type { ConnectedMcpApp, Profile } from '@/lib/supabase/types'
 import { logoutFromSettings, revokeConnectedMcpApp } from './actions'
 import { SettingsResponsiveView } from './responsive-settings-view'
 
@@ -72,14 +72,7 @@ export default async function SettingsPage() {
     supabase.from('global_settings').select('*').maybeSingle(),
   ])
 
-  const pendingInviteEmails = new Set(
-    (invites ?? [])
-      .filter((invite) => invite.status === 'pending')
-      .map((invite) => normalizeEmail(invite.email))
-  )
-
-  const activeProfiles =
-    profiles?.filter((profile) => !pendingInviteEmails.has(normalizeEmail(profile.email))) ?? []
+  const activeProfiles = excludePendingInviteeProfiles<Profile>(profiles ?? [], invites ?? [])
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">

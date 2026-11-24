@@ -214,3 +214,29 @@ test('an invited user signs in with the temp password and must set their own', a
   })
   await guards.assertClean()
 })
+
+// Production incident 2026-11-24: an External Staff invited by mobile number only (no email)
+// made /settings throw on every render, locking admins out of the whole settings section.
+test('settings still renders with a pending mobile-only invite', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const fullName = factory.uniqueName('mobile-only-external')
+  const mobileNumber = stablePhone(fullName)
+  await factory.createUserInvite({
+    clinicId: CLINIC_A.id,
+    email: null,
+    role: 'external_staff',
+    fullName,
+    mobileNumber,
+  })
+
+  await page.goto('/settings')
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
+  const settings = new SettingsView(page)
+  await settings.openSection('Invites')
+  // With no email, the invite is labelled by its formatted mobile number.
+  const label = `${mobileNumber.slice(0, 5)} ${mobileNumber.slice(5)}`
+  await expect(
+    page.getByRole('button', { name: `Revoke invite to ${label}`, exact: true }).filter({ visible: true }),
+  ).toBeVisible()
+  await guards.assertClean()
+})
