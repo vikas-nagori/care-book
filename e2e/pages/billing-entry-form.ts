@@ -4,7 +4,8 @@ export type BillingPaymentData = {
   patientName: string
   amount: string
   method: 'Cash' | 'UPI' | 'Card' | 'Bank Transfer'
-  notes: string
+  /** Optional in the form: blank stores NULL. */
+  notes?: string
 }
 
 export class BillingEntryForm {
@@ -13,6 +14,10 @@ export class BillingEntryForm {
   async open(): Promise<void> {
     await this.page.getByRole('button', { name: 'New billing entry', exact: true }).click()
     await expect(this.page.getByRole('dialog', { name: 'New Billing Entry' })).toBeVisible()
+  }
+
+  async selectPatientByName(patientName: string): Promise<void> {
+    await this.selectPatient(patientName)
   }
 
   private async selectPatient(patientName: string): Promise<void> {
@@ -26,7 +31,7 @@ export class BillingEntryForm {
     await this.page.getByLabel('Amount Received *', { exact: true }).fill(data.amount)
     await this.page.getByLabel('Payment Method *', { exact: true }).click()
     await this.page.getByRole('option', { name: data.method, exact: true }).click()
-    await this.page.getByLabel('Notes', { exact: true }).fill(data.notes)
+    if (data.notes !== undefined) await this.page.getByLabel('Notes', { exact: true }).fill(data.notes)
   }
 
   async fillPaymentOnly(data: BillingPaymentData): Promise<void> {

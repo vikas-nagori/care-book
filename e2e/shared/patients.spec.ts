@@ -8,7 +8,11 @@ function stableDigits(value: string): string {
   return String(hash).padStart(9, '0').slice(-9)
 }
 
-function patientData(factory: E2EFactory, kind: string): PatientFormData {
+// Fully populated on purpose; the sparse case lives in minimal-input.spec.ts.
+type FullPatientFormData = Required<Omit<PatientFormData, 'referralOther' | 'referrerPatientName'>> &
+  Pick<PatientFormData, 'referralOther' | 'referrerPatientName'>
+
+function patientData(factory: E2EFactory, kind: string): FullPatientFormData {
   const unique = factory.uniqueName(kind)
   return {
     name: unique,

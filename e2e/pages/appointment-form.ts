@@ -4,8 +4,10 @@ export type AppointmentFormData = {
   patientName: string
   date: string
   time: string
-  durationMinutes: string
-  notes: string
+  /** Optional in the form: blank books the default 45 minutes. */
+  durationMinutes?: string
+  /** Optional in the form: blank stores NULL. */
+  notes?: string
   appointmentTypeName?: string
   assignedStaffLabel?: string | RegExp
 }
@@ -23,8 +25,8 @@ export class AppointmentForm {
 
     await this.page.getByLabel('Date *', { exact: true }).fill(data.date)
     await this.page.getByLabel('Time *', { exact: true }).fill(data.time)
-    await this.page.getByLabel('Duration (min)', { exact: true }).fill(data.durationMinutes)
-    await this.page.getByLabel('Notes', { exact: true }).fill(data.notes)
+    if (data.durationMinutes !== undefined) await this.page.getByLabel('Duration (min)', { exact: true }).fill(data.durationMinutes)
+    if (data.notes !== undefined) await this.page.getByLabel('Notes', { exact: true }).fill(data.notes)
 
     const typeTrigger = this.page.getByLabel('Type', { exact: true })
     await typeTrigger.click()

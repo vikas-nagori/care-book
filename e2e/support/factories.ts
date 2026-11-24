@@ -236,6 +236,7 @@ export class E2EFactory {
   private readonly watchedExternalStaff = new Map<string, { name: string; phone: string }>()
   private readonly watchedInviteEmails = new Set<string>()
   private readonly watchedInviteMobiles = new Set<string>()
+  private readonly watchedReminderTitles = new Set<string>()
   private readonly watchedOnboardingRequests = new Map<string, { ownerEmail: string; clinicName: string }>()
   private readonly authUsers = new Map<string, string>()
 
@@ -314,6 +315,11 @@ export class E2EFactory {
   /** Appointment notes are unique per test and paired with the factory-owned patient. */
   watchUiAppointments(input: { patientId: string; notes: string }): void {
     this.watchedAppointments.set(`${input.patientId}\u0000${input.notes}`, input)
+  }
+
+  /** Reminder titles are unique per test; teardown deletes the clinic's reminders with them. */
+  watchUiReminder(title: string): void {
+    this.watchedReminderTitles.add(title)
   }
 
   watchUiSessionNote(appointmentId: string): void {
@@ -403,6 +409,18 @@ export class E2EFactory {
     if (error) throw new Error(`factory find session note: ${error.message}`)
     if (data) this.trackSessionNote(data.id)
     return data as E2ESessionNoteRow | null
+  }
+
+  /** Every payment on a factory patient, for receipts saved without notes to match on. */
+  async findPayments(input: { patientId: string }): Promise<E2EPaymentRow[]> {
+    const { data, error } = await this.db
+      .from('payments')
+      .select('*')
+      .eq('clinic_id', CLINIC_A.id)
+      .eq('patient_id', input.patientId)
+    if (error) throw new Error(`factory find payments: ${error.message}`)
+    for (const row of data ?? []) this.track('payments', row.id)
+    return (data ?? []) as E2EPaymentRow[]
   }
 
   async findPayment(input: { patientId: string; notes: string }): Promise<E2EPaymentRow | null> {
@@ -978,6 +996,14 @@ export class E2EFactory {
       if (error) failures.push(`discover invite ${email}: ${error.message}`)
       for (const row of data ?? []) this.track('user_invites', row.id)
     }
+    if (this.watchedReminderTitles.size > 0) {
+      const { error } = await this.db
+        .from('reminders')
+        .delete()
+        .eq('clinic_id', CLINIC_A.id)
+        .in('title', [...this.watchedReminderTitles])
+      if (error) failures.push(`delete reminders: ${error.message}`)
+    }
     for (const mobileNumber of this.watchedInviteMobiles) {
       const { data, error } = await this.db
         .from('user_invites')
@@ -1087,6 +1113,7 @@ export class E2EFactory {
     this.watchedExternalStaff.clear()
     this.watchedInviteEmails.clear()
     this.watchedInviteMobiles.clear()
+    this.watchedReminderTitles.clear()
     this.watchedOnboardingRequests.clear()
     this.authUsers.clear()
     if (failures.length > 0) throw new Error(`factory cleanup failed: ${failures.join('; ')}`)

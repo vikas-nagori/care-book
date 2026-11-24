@@ -142,7 +142,7 @@ export function AppointmentDetail({
                 <User className="h-4 w-4" />
                 {appointment.patient.name}
               </Link>
-              {/* phone is NOT NULL in DB; guard catches empty string from legacy records */}
+              {/* phone is optional (nullable since migration 010) */}
               {appointment.patient.phone && (
                 <a
                   href={`tel:${appointment.patient.phone}`}
@@ -214,7 +214,11 @@ export function AppointmentDetail({
           <CardContent className="space-y-3">
             <div className="flex items-center gap-2">
               <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-              <a href={`tel:${appointment.patient.phone}`} className="text-primary">{appointment.patient.phone}</a>
+              {appointment.patient.phone ? (
+                <a href={`tel:${appointment.patient.phone}`} className="text-primary">{appointment.patient.phone}</a>
+              ) : (
+                <span className="text-sm text-muted-foreground">No phone number</span>
+              )}
             </div>
             {appointment.patient.address && (
               <div className="flex items-start gap-2">

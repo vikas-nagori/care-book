@@ -233,7 +233,7 @@ test('adds a SOAP session note, reopens it, and persists edited content', async 
     status: 'completed',
   })
   factory.watchUiSessionNote(appointment.id)
-  const first: SessionNoteFormData = {
+  const first: Required<SessionNoteFormData> = {
     subjective: factory.uniqueName('subjective-first'),
     objective: factory.uniqueName('objective-first'),
     assessment: factory.uniqueName('assessment-first'),

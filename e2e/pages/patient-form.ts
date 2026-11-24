@@ -1,19 +1,23 @@
 import { expect, type Page } from '@playwright/test'
 
+/**
+ * Only `name` is required by the form. Every other field is filled only when given, so a spec
+ * can save a patient exactly as sparse as a user may (and then prove every screen copes).
+ */
 export type PatientFormData = {
   name: string
-  phone: string
-  email: string
-  dob: string
-  gender: 'Male' | 'Female' | 'Other'
-  referralSource: 'Walk-in' | 'Google page' | 'Referred by existing patient' | 'Other'
+  phone?: string
+  email?: string
+  dob?: string
+  gender?: 'Male' | 'Female' | 'Other'
+  referralSource?: 'Walk-in' | 'Google page' | 'Referred by existing patient' | 'Other'
   /** Typed source for an "Other" referral. */
   referralOther?: string
   /** Name of the existing patient picked for "Referred by existing patient". */
   referrerPatientName?: string
-  address: string
-  medicalHistory: string
-  notes: string
+  address?: string
+  medicalHistory?: string
+  notes?: string
 }
 
 export class PatientForm {
@@ -24,23 +28,23 @@ export class PatientForm {
     await this.page.getByRole('option', { name: option, exact: true }).click()
   }
 
-  private async chooseGender(option: PatientFormData['gender']): Promise<void> {
+  private async chooseGender(option: NonNullable<PatientFormData['gender']>): Promise<void> {
     await this.page.getByLabel('Gender', { exact: true }).click()
     await this.page.getByRole('option', { name: option, exact: true }).click()
   }
 
   async fill(data: PatientFormData): Promise<void> {
     await this.page.getByLabel('Name *', { exact: true }).fill(data.name)
-    await this.page.getByLabel('Phone', { exact: true }).fill(data.phone)
-    await this.page.getByLabel('Email', { exact: true }).fill(data.email)
-    await this.page.getByLabel('Date of Birth', { exact: true }).fill(data.dob)
-    await this.chooseGender(data.gender)
-    await this.chooseNamed('How were they referred?', data.referralSource)
+    if (data.phone !== undefined) await this.page.getByLabel('Phone', { exact: true }).fill(data.phone)
+    if (data.email !== undefined) await this.page.getByLabel('Email', { exact: true }).fill(data.email)
+    if (data.dob !== undefined) await this.page.getByLabel('Date of Birth', { exact: true }).fill(data.dob)
+    if (data.gender !== undefined) await this.chooseGender(data.gender)
+    if (data.referralSource !== undefined) await this.chooseNamed('How were they referred?', data.referralSource)
     if (data.referrerPatientName !== undefined) await this.chooseReferrerPatient(data.referrerPatientName)
     if (data.referralOther !== undefined) await this.page.getByLabel('Please specify', { exact: true }).fill(data.referralOther)
-    await this.page.getByLabel('Address', { exact: true }).fill(data.address)
-    await this.page.getByLabel('Medical History', { exact: true }).fill(data.medicalHistory)
-    await this.page.getByLabel('Notes', { exact: true }).fill(data.notes)
+    if (data.address !== undefined) await this.page.getByLabel('Address', { exact: true }).fill(data.address)
+    if (data.medicalHistory !== undefined) await this.page.getByLabel('Medical History', { exact: true }).fill(data.medicalHistory)
+    if (data.notes !== undefined) await this.page.getByLabel('Notes', { exact: true }).fill(data.notes)
   }
 
   private async chooseReferrerPatient(name: string): Promise<void> {

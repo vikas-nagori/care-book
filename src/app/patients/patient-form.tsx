@@ -199,7 +199,9 @@ export function PatientForm({
             </div>
             <div className="space-y-2">
               <Label htmlFor="gender">Gender</Label>
-              <Select name="gender" defaultValue={patient?.gender ?? ''}>
+              {/* undefined, not '': with '' Radix's hidden native <select> has no empty option, so
+                  the browser submits the first one and an unanswered Gender saves as "male". */}
+              <Select name="gender" defaultValue={patient?.gender ?? undefined}>
                 <SelectTrigger id="gender">
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
