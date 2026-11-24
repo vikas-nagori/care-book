@@ -2,12 +2,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { Patient } from '@/lib/supabase/types'
 
-const mocks = vi.hoisted(() => ({ toast: vi.fn(), range: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  toast: vi.fn(),
+  range: vi.fn(),
+  searchResult: vi.fn(),
+  searchParams: new URLSearchParams(),
+}))
 
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }))
+vi.mock('next/navigation', () => ({ useSearchParams: () => mocks.searchParams }))
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    from: () => ({ select: () => ({ order: () => ({ range: mocks.range }) }) }),
+    from: () => ({
+      select: () => ({
+        order: () => ({ range: mocks.range }),
+        or: () => ({ order: () => ({ limit: () => ({ abortSignal: mocks.searchResult }) }) }),
+      }),
+    }),
   }),
 }))
 
@@ -55,5 +66,41 @@ describe('PatientList age', () => {
     expect(screen.getByText('9000000001 · 30 y')).toBeTruthy()
     expect(screen.getByText('9000000002 · 36 y')).toBeTruthy()
     expect(screen.getAllByText('9000000003').length).toBe(2)
+  })
+})
+
+describe('PatientList search kept in the URL (G-23)', () => {
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+    mocks.searchParams = new URLSearchParams()
+    window.history.replaceState(null, '', '/patients')
+  })
+
+  it('writes the search into the URL once typing settles, and drops it when cleared', async () => {
+    window.history.replaceState(null, '', '/patients')
+    mocks.searchResult.mockResolvedValue({ data: [patient('p9', 'Meera Iyer')], error: null })
+    render(<PatientList initialPatients={[patient('p1', 'Asha')]} totalCount={1} pageSize={50} />)
+
+    fireEvent.change(screen.getByLabelText('Search patients'), { target: { value: 'Meera I' } })
+    expect(window.location.search).toBe('')
+    await waitFor(() => expect(new URL(window.location.href).searchParams.get('q')).toBe('Meera I'))
+    expect(window.location.pathname).toBe('/patients')
+    await screen.findAllByText('Meera Iyer')
+
+    fireEvent.change(screen.getByLabelText('Search patients'), { target: { value: '' } })
+    await waitFor(() => expect(window.location.search).toBe(''))
+  })
+
+  it('starts from the search in the URL, so back from a patient shows the same results', async () => {
+    mocks.searchParams = new URLSearchParams('q=Meera')
+    window.history.replaceState(null, '', '/patients?q=Meera')
+    mocks.searchResult.mockResolvedValue({ data: [patient('p9', 'Meera Iyer')], error: null })
+    render(<PatientList initialPatients={[patient('p1', 'Asha')]} totalCount={1} pageSize={50} />)
+
+    expect((screen.getByLabelText('Search patients') as HTMLInputElement).value).toBe('Meera')
+    expect((await screen.findAllByText('Meera Iyer')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Asha')).toBeNull()
+    expect(mocks.searchResult).toHaveBeenCalledOnce()
   })
 })

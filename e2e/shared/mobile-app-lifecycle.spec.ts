@@ -351,9 +351,7 @@ test('M-14 back from an appointment opened on the schedule returns to the same d
 })
 
 test('M-14 back from a patient opened from a search returns to the list with the search kept', async ({ page, factory }) => {
-  // NEW-M14 (found by this package, no G-id yet): the search box is component state, not part of
-  // the URL, so back from the patient lands on /patients with an empty search and the first page.
-  test.fail(true, 'NEW-M14: the patient search is lost on back')
+  // G-23 (NEW-M14): the search is kept in the list's URL (?q=), so back restores it.
   const guards = phoneGuards(page)
   const patient = await factory.createPatient()
   await page.goto('/patients')
@@ -365,7 +363,10 @@ test('M-14 back from a patient opened from a search returns to the list with the
   await expect(page).toHaveURL(`/patients/${patient.id}`)
 
   await page.goBack()
-  await expect(page).toHaveURL('/patients')
+  await expect.poll(() => {
+    const url = new URL(page.url())
+    return { pathname: url.pathname, q: url.searchParams.get('q') }
+  }).toEqual({ pathname: '/patients', q: patient.name })
   await expect(search).toHaveValue(patient.name as string)
   await expect(page.getByRole('link', { name: new RegExp(patient.name as string) }).filter({ visible: true }).first()).toBeVisible()
   await guards.assertClean()
