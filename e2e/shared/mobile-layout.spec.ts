@@ -267,11 +267,9 @@ for (const viewport of [PHONE_VIEWPORT, SMALL_PHONE_VIEWPORT]) {
   for (const surface of SURFACES) {
     test(`M-10 at ${viewport.width}×${viewport.height}, the ${surface.name} submit and its error are reachable above the bottom navigation`, async ({ page, factory }, testInfo) => {
       test.skip(surface.adminOnly === true && projectRole(testInfo) !== 'admin', 'admin-only surface')
-      if (viewport.width === SMALL_PHONE_VIEWPORT.width && surface.name.startsWith('billing entry')) {
-        // NEW-M10 (found by this package, no G-id yet): at 320 px the New Billing Entry dialog is
-        // about 350 px wide, so its Save button runs off the right edge of the screen.
-        test.fail(true, 'NEW-M10: the billing entry dialog is wider than a 320 px phone')
-      }
+      // G-22 (was NEW-M10): at 320 px the billing tab strip widened the page to ~350 px, and the
+      // New Billing Entry dialog with it, so Save ran off the right edge. Both billing entry
+      // surfaces now fit at SMALL_PHONE_VIEWPORT too.
       const guards = phoneGuards(page)
       await page.setViewportSize(viewport)
       const open = await surface.open(page, factory)

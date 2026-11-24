@@ -332,7 +332,8 @@ export function BillingView({
               <Plus size={14} />New billing entry
             </button>
           </DialogTrigger>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          {/* minmax(0,1fr): nothing inside can widen the dialog past a 320 px screen (G-22). */}
+          <DialogContent className="max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto overflow-x-hidden p-4 sm:max-w-lg sm:p-6">
             <DialogHeader><DialogTitle>New Billing Entry</DialogTitle></DialogHeader>
             <BillingEntryForm
               patients={patients}
