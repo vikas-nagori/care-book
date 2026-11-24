@@ -4,8 +4,9 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { ADMIN, ALL_ACCOUNTS, CLINIC_A, CLINIC_B, EXTERNAL, PASSWORD } from './accounts.ts'
 import { generateLocalInviteLink, generateLocalRecoveryLink } from './auth-links.ts'
 import { clinicDate } from './clinic-date.ts'
-import { SEED } from './ids.ts'
+import { SEED, SPARSE_PROFILES } from './ids.ts'
 import { adminClient } from './supabase-admin.ts'
+import { MUST_CHANGE_PASSWORD_FLAG } from '../../src/lib/security/forced-password-change.ts'
 
 type Row = Record<string, unknown> & { id: string }
 export type E2EPatientRow = Row & {
@@ -198,6 +199,16 @@ export type E2EGlobalSettingsRow = {
   clinic_fee: number
   home_visit_fee: number
 }
+/**
+ * One patient's appointments at a date and time, e.g. a booking made in the browser on a fixed
+ * SEED patient. `externalOnly` narrows it to External Staff bookings (`external_profile_id` set).
+ */
+export type AppointmentSlot = {
+  patientId: string
+  date: string
+  time: string
+  externalOnly?: boolean
+}
 type CleanupTable =
   | 'reminders'
   | 'appointment_payments'
@@ -294,7 +305,18 @@ const protectedIdsByTable: Partial<Record<CleanupTable, ReadonlySet<string>>> = 
   user_invites: new Set([SEED.inviteMobileOnly, SEED.inviteLegacy, SEED.inviteRevoked]),
 }
 
-const protectedAuthEmails = new Set(ALL_ACCOUNTS.map(({ email }) => email.trim().toLowerCase()))
+const protectedAuthEmails = new Set([
+  ...ALL_ACCOUNTS.map(({ email }) => email),
+  ...Object.values(SPARSE_PROFILES).flatMap(({ email }) => (email ? [email] : [])),
+].map((email) => email.trim().toLowerCase()))
+/** Seeded logins by mobile number, including the email-less sparse profile. */
+const protectedMobiles = new Set([
+  ...ALL_ACCOUNTS.map(({ mobile }) => mobile),
+  ...Object.values(SPARSE_PROFILES).map(({ mobile }) => mobile),
+])
+
+/** Per-row overrides for the bulk builders, applied after the shared overrides. */
+export type PerRow = (index: number) => Record<string, unknown>
 
 function safeSlug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 32)
@@ -333,7 +355,12 @@ export class E2EFactory {
   private readonly authUsers = new Map<string, string>()
   /** createAuthUser({ email: null }) users, by mobile; cleanup tags them before deleting. */
   private readonly emailLessAuthUsers = new Map<string, string>()
+  private readonly watchedAppointmentSlots = new Map<string, AppointmentSlot>()
+  /** Appointments found by slot; may sit on a fixed SEED patient, so they are deleted by id. */
+  private readonly slotAppointments = new Set<string>()
   private adminSession: SupabaseClient | null = null
+  /** Signed-in admin sessions for clinics other than Clinic A (shareWithExternal). */
+  private readonly clinicAdminSessions = new Map<string, SupabaseClient>()
 
   constructor(testInfo: TestInfo, db: SupabaseClient = adminClient()) {
     this.token = uniqueRunToken(testInfo)
@@ -491,6 +518,39 @@ export class E2EFactory {
     })
   }
 
+  /**
+   * Register a slot before booking it in the browser; teardown deletes that patient's appointments
+   * in the slot (and their notes and payment links), also on a fixed SEED patient and also after
+   * a crash. Fixed SEED appointments are never touched. Use a slot no other test books.
+   */
+  watchUiAppointmentSlot(slot: AppointmentSlot): void {
+    this.watchedAppointmentSlots.set(
+      `${slot.patientId}\u0000${slot.date}\u0000${slot.time}\u0000${slot.externalOnly ? 'external' : 'any'}`,
+      slot,
+    )
+  }
+
+  /**
+   * A patient's appointments in one slot (date and time), oldest first, registered for cleanup
+   * like watchUiAppointmentSlot. `externalOnly` keeps External Staff bookings only.
+   */
+  async findAppointmentsInSlot(slot: AppointmentSlot): Promise<E2EAppointmentRow[]> {
+    const { data, error } = await this.db
+      .from('appointments')
+      .select('*')
+      .eq('patient_id', slot.patientId)
+      .eq('date', slot.date)
+      .eq('time', slot.time)
+    if (error) throw new Error(`factory find appointments in slot: ${error.message}`)
+    const rows = ((data ?? []) as E2EAppointmentRow[])
+      .filter((row) => !slot.externalOnly || row.external_profile_id != null)
+      .sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')))
+    for (const row of rows) {
+      if (!this.isProtected('appointments', row.id)) this.slotAppointments.add(row.id)
+    }
+    return rows
+  }
+
   async findPatientByName(name: string): Promise<E2EPatientRow | null> {
     const { data, error } = await this.db
       .from('patients')
@@ -623,6 +683,28 @@ export class E2EFactory {
     return data as E2EUserInviteRow | null
   }
 
+  /**
+   * Every invite row for a mobile number in a clinic (Clinic A unless `clinicId`), newest first,
+   * each tracked for cleanup. findInviteByMobile returns only the newest; use this to assert that
+   * a retry did not add a second row.
+   */
+  async findInvitesByMobile(mobileNumber: string, options: { clinicId?: string } = {}): Promise<E2EUserInviteRow[]> {
+    const { data, error } = await this.db
+      .from('user_invites')
+      .select('*')
+      .eq('clinic_id', options.clinicId ?? CLINIC_A.id)
+      .eq('mobile_number', mobileNumber)
+    if (error) throw new Error(`factory find invites by mobile: ${error.message}`)
+    const rows = ((data ?? []) as E2EUserInviteRow[])
+      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))
+    for (const row of rows) this.track('user_invites', row.id)
+    return rows
+  }
+
+  async countInvitesByMobile(mobileNumber: string, options: { clinicId?: string } = {}): Promise<number> {
+    return (await this.findInvitesByMobile(mobileNumber, options)).length
+  }
+
   async findInviteByEmail(email: string): Promise<E2EUserInviteRow | null> {
     const normalizedEmail = email.trim().toLowerCase()
     const { data, error } = await this.db
@@ -746,15 +828,76 @@ export class E2EFactory {
     return data as E2EClinicRow | null
   }
 
+  /** The newest onboarding request for an owner email (one email may have several rows). */
   async findOnboardingRequestByEmail(email: string): Promise<E2EOnboardingRequestRow | null> {
+    return (await this.findOnboardingRequestsByEmail(email))[0] ?? null
+  }
+
+  /** Every onboarding request for an owner email, newest first. */
+  async findOnboardingRequestsByEmail(email: string): Promise<E2EOnboardingRequestRow[]> {
     const normalizedEmail = email.trim().toLowerCase()
     const { data, error } = await this.db
       .from('clinic_onboarding_requests')
       .select('*')
       .eq('owner_email', normalizedEmail)
-      .maybeSingle()
-    if (error) throw new Error(`factory find onboarding request: ${error.message}`)
+    if (error) throw new Error(`factory find onboarding requests: ${error.message}`)
+    return ((data ?? []) as E2EOnboardingRequestRow[])
+      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))
+  }
+
+  /**
+   * Reject pending onboarding requests the way the platform console does (status, time, reason),
+   * by request id or every pending request of an owner email. Returns the rejected rows; throws
+   * when none was pending. Fixed SEED requests are refused.
+   */
+  async rejectOnboardingRequest(
+    target: string | { ownerEmail: string },
+    options: { reason?: string | null } = {},
+  ): Promise<E2EOnboardingRequestRow[]> {
+    const pending = typeof target === 'string'
+      ? [await this.findOnboardingRequestById(target)].filter((row): row is E2EOnboardingRequestRow => row?.status === 'pending')
+      : (await this.findOnboardingRequestsByEmail(target.ownerEmail)).filter((row) => row.status === 'pending')
+    const protectedRow = pending.find((row) => this.isProtected('clinic_onboarding_requests', row.id))
+    if (protectedRow) throw new Error(`factory rejectOnboardingRequest: ${protectedRow.id} is a fixed SEED request`)
+    if (pending.length === 0) throw new Error(`factory rejectOnboardingRequest: no pending request for ${JSON.stringify(target)}`)
+    const now = new Date().toISOString()
+    const { data, error } = await this.db
+      .from('clinic_onboarding_requests')
+      .update({ status: 'rejected', rejected_at: now, rejection_reason: options.reason ?? null, updated_at: now })
+      .in('id', pending.map((row) => row.id))
+      .eq('status', 'pending')
+      .select('*')
+    if (error) throw new Error(`factory reject onboarding request: ${error.message}`)
+    for (const row of (data ?? []) as E2EOnboardingRequestRow[]) this.trackOnboardingRequest(row.id)
+    return (data ?? []) as E2EOnboardingRequestRow[]
+  }
+
+  private async findOnboardingRequestById(id: string): Promise<E2EOnboardingRequestRow | null> {
+    const { data, error } = await this.db.from('clinic_onboarding_requests').select('*').eq('id', id).maybeSingle()
+    if (error) throw new Error(`factory find onboarding request by id: ${error.message}`)
     return data as E2EOnboardingRequestRow | null
+  }
+
+  /**
+   * After the platform approves a request in the browser: track the owner login, its profile and
+   * invite, and the new clinic for teardown (lifted from platform/management.spec.ts). Teardown
+   * also finds them on its own for a watchUiOnboardingRequest, so this is for a spec that wants
+   * the owner tracked explicitly; it throws when the approval left no invite with a login.
+   */
+  async trackApprovedOwner(email: string): Promise<{ authUserId: string; clinicId: string }> {
+    const normalizedEmail = email.trim().toLowerCase()
+    const { data, error } = await this.db.from('user_invites').select('*').eq('email', normalizedEmail)
+    if (error) throw new Error(`factory find approved owner invite: ${error.message}`)
+    const invite = ((data ?? []) as E2EUserInviteRow[])
+      .filter((row) => row.auth_user_id)
+      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))[0]
+    if (!invite?.auth_user_id) throw new Error(`approved owner ${email} has no invite with an auth user`)
+    this.track('user_invites', invite.id)
+    this.trackAuthUser(invite.auth_user_id, normalizedEmail)
+    this.trackProfile(invite.auth_user_id, normalizedEmail)
+    this.trackClinic(invite.clinic_id)
+    this.watchedInviteEmails.add(normalizedEmail)
+    return { authUserId: invite.auth_user_id, clinicId: invite.clinic_id }
   }
 
   async findProfileById(id: string): Promise<E2EProfileRow | null> {
@@ -767,6 +910,51 @@ export class E2EFactory {
     const { data, error } = await this.db.auth.admin.getUserById(id)
     if (error || !data.user) throw new Error(`factory get auth user: ${error?.message ?? 'missing'}`)
     return data.user
+  }
+
+  /** Refuse a seeded login (by email or mobile): changing it would change every other spec's baseline. */
+  private async assertDisposableUser(userId: string, helper: string): Promise<void> {
+    const { data, error } = await this.db.from('profiles').select('id, email, mobile_number').eq('id', userId).maybeSingle()
+    if (error) throw new Error(`factory ${helper} lookup: ${error.message}`)
+    const email = typeof data?.email === 'string' ? data.email.trim().toLowerCase() : null
+    const mobile = typeof data?.mobile_number === 'string' ? data.mobile_number : null
+    if ((email && protectedAuthEmails.has(email)) || (mobile && protectedMobiles.has(mobile))) {
+      throw new Error(`factory ${helper}: ${userId} is a seeded account`)
+    }
+  }
+
+  /**
+   * Block or unblock a factory user after creation, behind the UI's back (an account deactivated
+   * while a page is open). Changes only `profiles.status` by default; `ban: true` also bans
+   * (blocked) or unbans (active) the auth user the way the platform console does, which signs it
+   * out. Seeded accounts are refused.
+   */
+  async setProfileStatus(userId: string, status: 'active' | 'blocked', options: { ban?: boolean } = {}): Promise<void> {
+    await this.assertDisposableUser(userId, 'setProfileStatus')
+    const { error } = await this.db
+      .from('profiles')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', userId)
+    if (error) throw new Error(`factory set profile status: ${error.message}`)
+    if (options.ban) {
+      const { error: banError } = await this.db.auth.admin.updateUserById(userId, {
+        ban_duration: status === 'blocked' ? '876000h' : 'none',
+      })
+      if (banError) throw new Error(`factory ${status === 'blocked' ? 'ban' : 'unban'} user: ${banError.message}`)
+    }
+  }
+
+  /**
+   * Arm (or with `false`, clear) the first-login forced password change: `app_metadata.
+   * must_change_password`, which middleware reads to send the user to /auth/change-password.
+   * Seeded accounts are refused.
+   */
+  async setMustChangePassword(userId: string, armed = true): Promise<void> {
+    await this.assertDisposableUser(userId, 'setMustChangePassword')
+    const { error } = await this.db.auth.admin.updateUserById(userId, {
+      app_metadata: { [MUST_CHANGE_PASSWORD_FLAG]: armed },
+    })
+    if (error) throw new Error(`factory set must_change_password: ${error.message}`)
   }
 
   async findAppointmentType(isShared: boolean): Promise<E2EAppointmentTypeRow> {
@@ -939,11 +1127,13 @@ export class E2EFactory {
 
   /**
    * `count` payments for one patient in one insert, on distinct dates (today, yesterday, …
-   * counting back from `startDayOffset`) with unique notes, e.g. for "Load more" paging.
+   * counting back from `startDayOffset`) with unique notes, e.g. for "Load more" paging. Every
+   * row is ₹750 unless overridden; `perRow(i)` varies single rows, e.g.
+   * `perRow: (i) => ({ amount: 1001 + i })`.
    */
   async createPayments(
     count: number,
-    { patientId, startDayOffset = 0, ...overrides }: { patientId: string; startDayOffset?: number; [key: string]: unknown },
+    { patientId, startDayOffset = 0, perRow, ...overrides }: { patientId: string; startDayOffset?: number; perRow?: PerRow; [key: string]: unknown },
   ): Promise<E2EPaymentRow[]> {
     const rows = Array.from({ length: count }, (_, index) => ({
       id: randomUUID(),
@@ -958,17 +1148,22 @@ export class E2EFactory {
       status: 'posted',
       billing_version: 2,
       ...overrides,
+      ...perRow?.(index),
     }))
     return this.insertMany('payments', rows) as Promise<E2EPaymentRow[]>
   }
 
-  /** `count` active prepaid packages for one patient in one insert, each with a unique name. */
+  /**
+   * `count` active prepaid packages for one patient in one insert, each with a unique name. Every
+   * row gets the same amounts and the insert time as `created_at` unless overridden; `perRow(i)`
+   * varies single rows, e.g. `perRow: (i) => ({ created_at: daysAgo(i) })` for list ordering.
+   */
   async createPackages(
     count: number,
-    { patientId, appointmentTypeId, ...overrides }: { patientId: string; appointmentTypeId?: string; [key: string]: unknown },
+    { patientId, appointmentTypeId, perRow, ...overrides }: { patientId: string; appointmentTypeId?: string; perRow?: PerRow; [key: string]: unknown },
   ): Promise<E2EPackageRow[]> {
     const typeId = appointmentTypeId ?? (await this.findAppointmentType(true)).id
-    const rows = Array.from({ length: count }, () => ({
+    const rows = Array.from({ length: count }, (_, index) => ({
       id: randomUUID(),
       clinic_id: CLINIC_A.id,
       patient_id: patientId,
@@ -984,6 +1179,7 @@ export class E2EFactory {
       starts_on: clinicDate(-365),
       billing_version: 2,
       ...overrides,
+      ...perRow?.(index),
     }))
     return this.insertMany('packages', rows) as Promise<E2EPackageRow[]>
   }
@@ -1091,18 +1287,61 @@ export class E2EFactory {
 
   /**
    * Replace a factory patient's External Staff grants (the same RPC the admin's "Save access"
-   * uses). Teardown drops the grants and their audit rows with the patient. Fixed SEED patients
-   * are refused: replacing their grants would change the baseline for every other spec.
+   * uses), in whichever clinic the patient belongs to: Clinic A acts as the seeded admin; any
+   * other clinic as a disposable admin of that clinic made on first use, or as `options.as`
+   * (an admin of the patient's clinic). Teardown drops the grants and their audit rows with the
+   * patient. Fixed SEED patients are refused: replacing their grants would change the baseline
+   * for every other spec.
    */
-  async shareWithExternal(patientId: string, profileIds: readonly string[]): Promise<void> {
+  async shareWithExternal(
+    patientId: string,
+    profileIds: readonly string[],
+    options: { as?: { email?: string | null; mobileNumber?: string; password?: string } } = {},
+  ): Promise<void> {
     if (this.isProtected('patients', patientId)) {
       throw new Error(`factory shareWithExternal: ${patientId} is a fixed SEED patient`)
     }
-    const admin = await this.asAdmin()
-    const { error } = await admin.rpc('replace_patient_external_access', {
-      p_patient_id: patientId, p_profile_ids: [...profileIds],
+    let actor: SupabaseClient
+    let signOutAfter = false
+    if (options.as) {
+      actor = await this.signIn(options.as)
+      signOutAfter = true
+    } else {
+      const { data, error } = await this.db.from('patients').select('clinic_id').eq('id', patientId).maybeSingle()
+      if (error) throw new Error(`factory share with external patient: ${error.message}`)
+      const clinicId = typeof data?.clinic_id === 'string' ? data.clinic_id : CLINIC_A.id
+      actor = clinicId === CLINIC_A.id ? await this.asAdmin() : await this.asClinicAdmin(clinicId)
+    }
+    try {
+      const { error } = await actor.rpc('replace_patient_external_access', {
+        p_patient_id: patientId, p_profile_ids: [...profileIds],
+      })
+      if (error) throw new Error(`factory share with external: ${error.message}`)
+    } finally {
+      if (signOutAfter) await actor.auth.signOut({ scope: 'local' }).catch(() => {})
+    }
+  }
+
+  private async signIn(as: { email?: string | null; mobileNumber?: string; password?: string }): Promise<SupabaseClient> {
+    const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+      auth: { persistSession: false, autoRefreshToken: false },
     })
-    if (error) throw new Error(`factory share with external: ${error.message}`)
+    const password = as.password ?? PASSWORD
+    const { error } = as.email
+      ? await client.auth.signInWithPassword({ email: as.email, password })
+      : await client.auth.signInWithPassword({ phone: as.mobileNumber ?? '', password })
+    if (error) throw new Error(`factory sign-in: ${error.message}`)
+    return client
+  }
+
+  /** A signed-in admin of `clinicId` (not Clinic A), created as a disposable user on first use. */
+  private async asClinicAdmin(clinicId: string): Promise<SupabaseClient> {
+    const cached = this.clinicAdminSessions.get(clinicId)
+    if (cached) return cached
+    const admin = await this.createAuthUser({ clinicId, role: 'admin' })
+    const client = await this.signIn({ email: admin.email, password: admin.password })
+    this.clinicAdminSessions.set(clinicId, client)
+    return client
   }
 
   /**
@@ -1142,6 +1381,8 @@ export class E2EFactory {
       if (error || !data) throw new Error(`factory external booking: ${error?.message ?? 'no result'}`)
       const id = (data as { id: string }).id
       this.trackAppointment(id)
+      // On a fixed SEED patient the patient cleanup RPC never runs, so delete this one by id.
+      if (this.isProtected('patients', input.patientId)) this.slotAppointments.add(id)
       const { data: row, error: rowError } = await this.db.from('appointments').select('*').eq('id', id).single()
       if (rowError || !row) throw new Error(`factory external booking row: ${rowError?.message ?? 'missing'}`)
       return row as E2EAppointmentRow
@@ -1368,16 +1609,35 @@ export class E2EFactory {
         .eq('owner_email', ownerEmail)
         .eq('clinic_name', clinicName)
       if (error) failures.push(`discover onboarding request ${ownerEmail}: ${error.message}`)
+      const approvedClinicIds = new Set<string>()
       for (const row of data ?? []) {
         this.trackOnboardingRequest(row.id)
-        if (row.clinic_id) this.trackClinic(row.clinic_id)
+        if (row.clinic_id) approvedClinicIds.add(row.clinic_id)
       }
       const { data: clinics, error: clinicError } = await this.db
         .from('clinics')
         .select('id')
         .eq('name', clinicName)
       if (clinicError) failures.push(`discover approved clinic ${clinicName}: ${clinicError.message}`)
-      for (const clinic of clinics ?? []) this.trackClinic(clinic.id)
+      for (const clinic of clinics ?? []) approvedClinicIds.add(clinic.id)
+      for (const clinicId of approvedClinicIds) {
+        if (this.isProtected('clinics', clinicId)) continue
+        this.trackClinic(clinicId)
+        // Approval creates the owner's login and invite in the new clinic. Track that exact login
+        // now: its profile can only be deleted once the auth user is marked for cleanup (033).
+        const { data: invites, error: inviteError } = await this.db
+          .from('user_invites')
+          .select('id, auth_user_id, clinic_id')
+          .eq('email', ownerEmail)
+          .eq('clinic_id', clinicId)
+        if (inviteError) failures.push(`discover approved owner ${ownerEmail}: ${inviteError.message}`)
+        for (const invite of invites ?? []) {
+          this.track('user_invites', invite.id)
+          if (!invite.auth_user_id) continue
+          this.trackAuthUser(invite.auth_user_id, ownerEmail)
+          this.trackProfile(invite.auth_user_id, ownerEmail)
+        }
+      }
     }
     for (const name of this.watchedPatientNames) {
       const { data, error } = await this.db
@@ -1397,6 +1657,13 @@ export class E2EFactory {
         .eq('notes', notes)
       if (error) failures.push(`discover appointments ${notes}: ${error.message}`)
       for (const row of data ?? []) this.trackAppointment(row.id)
+    }
+    for (const slot of this.watchedAppointmentSlots.values()) {
+      try {
+        await this.findAppointmentsInSlot(slot)
+      } catch (error) {
+        failures.push(`discover appointments in slot ${slot.date} ${slot.time}: ${(error as Error).message}`)
+      }
     }
     for (const appointmentId of this.watchedSessionNoteAppointments) {
       const { data, error } = await this.db
@@ -1500,6 +1767,41 @@ export class E2EFactory {
         if (error) failures.push(`discover ${table} for clinic ${clinicId}: ${error.message}`)
         for (const row of data ?? []) this.track(table, row.id)
       }
+      // Every login of a disposable clinic is disposable too (e.g. an owner created by an approval
+      // the spec never tracked). Its profile cannot be deleted until its auth user is marked (033),
+      // so track the auth user as well; an email-less one gets a disposable address below.
+      const { data: members, error: memberError } = await this.db
+        .from('profiles')
+        .select('id, email, mobile_number')
+        .eq('clinic_id', clinicId)
+      if (memberError) failures.push(`discover logins for clinic ${clinicId}: ${memberError.message}`)
+      for (const member of members ?? []) {
+        const email = typeof member.email === 'string' ? member.email.trim().toLowerCase() : ''
+        if (email && protectedAuthEmails.has(email)) continue
+        if (typeof member.mobile_number === 'string' && protectedMobiles.has(member.mobile_number)) continue
+        if (email.endsWith('@carebook.test')) this.trackAuthUser(member.id, email)
+        else if (!email && !this.authUsers.has(member.id)) {
+          this.emailLessAuthUsers.set(member.id, String(member.mobile_number ?? member.id.slice(0, 8)))
+        }
+      }
+    }
+
+    // Before anything is deleted: an invited login (an approval's owner included) must be marked
+    // for cleanup before its profile row can go (033).
+    if (this.watchedInviteEmails.size > 0) {
+      for (let page = 1; page <= 20; page += 1) {
+        const { data, error } = await this.db.auth.admin.listUsers({ page, perPage: 200 })
+        if (error) {
+          failures.push(`list invited auth users: ${error.message}`)
+          break
+        }
+        for (const user of data.users) {
+          if (!user.email || !this.watchedInviteEmails.has(user.email.toLowerCase())) continue
+          this.trackAuthUser(user.id, user.email)
+          this.trackProfile(user.id, user.email)
+        }
+        if (data.users.length < 200) break
+      }
     }
 
     // The soft-delete guard (033) only lets teardown hard-delete identities it can recognise by
@@ -1552,27 +1854,23 @@ export class E2EFactory {
       this.created.delete('packages')
     }
 
+    // Appointments found by slot may belong to a fixed SEED patient, which the RPC never touches:
+    // delete them by id with their notes and payment links (SEED appointments were never added).
+    const slotAppointmentIds = [...this.slotAppointments]
+    if (slotAppointmentIds.length > 0) {
+      for (const table of ['session_notes', 'appointment_payments'] as const) {
+        const { error } = await this.db.from(table).delete().in('appointment_id', slotAppointmentIds)
+        if (error) failures.push(`${table} of slot appointments: ${error.message}`)
+      }
+      const { error } = await this.db.from('appointments').delete().in('id', slotAppointmentIds)
+      if (error) failures.push(`slot appointments: ${error.message}`)
+    }
+
     for (const table of cleanupOrder) {
       const ids = [...(this.created.get(table) ?? [])]
       if (ids.length === 0) continue
       const { error } = await this.db.from(table).delete().in('id', ids)
       if (error) failures.push(`${table}: ${error.message}`)
-    }
-    if (this.watchedInviteEmails.size > 0) {
-      for (let page = 1; page <= 20; page += 1) {
-        const { data, error } = await this.db.auth.admin.listUsers({ page, perPage: 200 })
-        if (error) {
-          failures.push(`list invited auth users: ${error.message}`)
-          break
-        }
-        for (const user of data.users) {
-          if (!user.email || !this.watchedInviteEmails.has(user.email.toLowerCase())) continue
-          this.trackAuthUser(user.id, user.email)
-          this.trackProfile(user.id, user.email)
-          await markAuthUserForCleanup(user.id, user.email.toLowerCase())
-        }
-        if (data.users.length < 200) break
-      }
     }
     for (const [id, email] of this.authUsers) {
       await markAuthUserForCleanup(id, email)
@@ -1595,10 +1893,16 @@ export class E2EFactory {
     this.watchedOnboardingRequests.clear()
     this.authUsers.clear()
     this.emailLessAuthUsers.clear()
+    this.watchedAppointmentSlots.clear()
+    this.slotAppointments.clear()
     if (this.adminSession) {
       await this.adminSession.auth.signOut({ scope: 'local' }).catch(() => {})
       this.adminSession = null
     }
+    for (const session of this.clinicAdminSessions.values()) {
+      await session.auth.signOut({ scope: 'local' }).catch(() => {})
+    }
+    this.clinicAdminSessions.clear()
     if (failures.length > 0) throw new Error(`factory cleanup failed: ${failures.join('; ')}`)
   }
 }
