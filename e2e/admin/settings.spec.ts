@@ -6,6 +6,7 @@ import { test, expect, type E2EFactory } from '../support/factories'
 import { expectFailureMessage } from '../support/fault-injection'
 import { isMobileProject, stubShare } from '../support/mobile'
 import { assertResponsiveClinicNavigation } from '../support/nav'
+import { TEMPORARY_STAFF_PHONE_NOT_MOBILE_MESSAGE } from '../../src/lib/auth/mobile-number'
 
 function stablePhone(token: string): string {
   let hash = 0
@@ -432,28 +433,27 @@ test('SA-5: Temporary Staff → Create login needs an email, links the invite, a
   await guards.assertClean()
 })
 
-test('SA-5: Temporary Staff with a +91-formatted phone → Create login re-enables and says why', async ({ page, factory }) => {
+test('SA-5: Temporary Staff whose phone is not a mobile number → Create login re-enables and says why', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
-  const mobile = factory.uniqueMobile()
-  const staff = await factory.createExternalStaff({ phone: `+91 ${formatMobile(mobile)}` })
-  const email = factory.uniqueEmail('temp-login-plus91')
+  const staff = await factory.createExternalStaff({ phone: '022 2345 6789' })
+  const email = factory.uniqueEmail('temp-login-landline')
   factory.watchUiInvite(email)
 
   await page.goto('/settings')
   const settings = new SettingsView(page)
   const button = await settings.createLoginForTemporaryStaff(staff.name, { email })
-  await expectFailureMessage(page, 'Enter your 10-digit mobile number, without +91 or 0.')
+  await expectFailureMessage(page, TEMPORARY_STAFF_PHONE_NOT_MOBILE_MESSAGE)
   await expect(button).toBeEnabled()
   await expect(button).toHaveAccessibleName('Create login')
   expect(await factory.findInviteByEmail(email)).toBeNull()
   await guards.assertClean()
 })
 
-// G-8: Temporary Staff → Create login dead-ends when the stored phone is not a bare 10-digit
-// number: the message asks for "your" number, but there is no field to edit it, so the admin can
-// never create this login. The fixed app creates the login (normalising the number) or lets the
-// admin correct it. Remove test.fail when G-8 is fixed.
-test.fail('G-8 SA-5: Temporary Staff with a +91-formatted phone can still be given a login', async ({ page, factory }) => {
+// G-8: a Temporary Staff phone stored as `+91 98765 43210` (there is no field to edit it) used to
+// dead-end Create login with "Enter your 10-digit mobile number". The login now takes the 10 digits
+// out of the stored phone, and the invitee signs in with them.
+test('G-8 SA-5: Temporary Staff with a +91-formatted phone can still be given a login', async ({ page, browser, factory }) => {
+  const guards = attachErrorGuards(page)
   const mobile = factory.uniqueMobile()
   const staff = await factory.createExternalStaff({ phone: `+91 ${formatMobile(mobile)}` })
   const email = factory.uniqueEmail('temp-login-g8')
@@ -463,8 +463,14 @@ test.fail('G-8 SA-5: Temporary Staff with a +91-formatted phone can still be giv
   await page.goto('/settings')
   const settings = new SettingsView(page)
   await settings.createLoginForTemporaryStaff(staff.name, { email })
-  await settings.takeTempPassword()
+  const tempPassword = await settings.takeTempPassword()
   expect(await factory.findInviteByEmail(email)).toMatchObject({ mobile_number: mobile, external_staff_id: staff.id })
+
+  // The 10 digits really are the login.
+  const invitee = await signInAs(browser, mobile, tempPassword)
+  await invitee.page.waitForURL('**/auth/change-password', { timeout: 15_000 })
+  await invitee.context.close()
+  await guards.assertClean()
 })
 
 test('SA-6: an Admin invited by mobile only signs in, sets a password and gets the admin workspace', async ({ page, browser, factory }) => {

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   existingProfile: vi.fn(),
   profileById: vi.fn(),
   getUserById: vi.fn(),
+  externalStaffUpdate: vi.fn(),
 }))
 
 // `@/lib/onboarding/invite-server` stays unmocked so the real syncInvitedProfile runs.
@@ -26,6 +27,7 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminCli
 vi.mock('@/lib/logger', () => ({ logger: { error: mocks.loggerError, warn: vi.fn(), info: vi.fn() } }))
 
 import { createUserInvite } from './actions'
+import { MOBILE_NUMBER_INVALID_MESSAGE, TEMPORARY_STAFF_PHONE_NOT_MOBILE_MESSAGE } from '@/lib/auth/mobile-number'
 
 const CLINIC_ID = 'clinic-1'
 const NEW_AUTH_ID = 'invited-auth-1'
@@ -54,6 +56,15 @@ function adminClient() {
         return {
           eq: () => ({ eq: () => ({ eq: () => ({ select: () => ({ single: mocks.inviteInsert }) }) }) }),
         }
+      },
+    },
+    external_staff: {
+      select: () => ({
+        eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: 'temporary-1' }, error: null }) }) }),
+      }),
+      update: (payload: unknown) => {
+        mocks.externalStaffUpdate(payload)
+        return { eq: () => ({ eq: () => ({ is: async () => ({ error: null }) }) }) }
       },
     },
     profiles: {
@@ -183,6 +194,37 @@ describe('createUserInvite', () => {
       expect.objectContaining({ success: false, errorCode: 'INVITE_INVALID_INPUT' })
     )
     expect(mocks.inviteUserByEmail).not.toHaveBeenCalled()
+  })
+
+  it('G-8: takes the 10 digits out of a +91-formatted Temporary Staff phone for the login', async () => {
+    const result = await createUserInvite({
+      email: 'temp@example.com', fullName: 'Temp Staff', mobileNumber: '+91 98765 43210', role: 'staff', externalStaffId: 'temporary-1',
+    })
+
+    expect(result.success).toBe(true)
+    expect(mocks.createUser).toHaveBeenCalledWith(expect.objectContaining({ phone: '9876543210' }))
+    expect(mocks.inviteInsertPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ mobile_number: '9876543210', external_staff_id: 'temporary-1' })
+    )
+    expect(mocks.externalStaffUpdate).toHaveBeenCalledWith({ email: 'temp@example.com', phone: '9876543210' })
+  })
+
+  it('G-8: says plainly when a Temporary Staff phone holds no mobile number', async () => {
+    const result = await createUserInvite({
+      email: 'temp@example.com', fullName: 'Temp Staff', mobileNumber: '022 2345 6789', role: 'staff', externalStaffId: 'temporary-1',
+    })
+
+    expect(result).toEqual(expect.objectContaining({ success: false, message: TEMPORARY_STAFF_PHONE_NOT_MOBILE_MESSAGE }))
+    expect(mocks.createUser).not.toHaveBeenCalled()
+  })
+
+  it('still validates what an admin types into Invite User strictly', async () => {
+    const result = await createUserInvite({
+      email: 'new@example.com', fullName: 'New User', mobileNumber: '+91 98765 43210', role: 'staff',
+    })
+
+    expect(result).toEqual(expect.objectContaining({ success: false, message: MOBILE_NUMBER_INVALID_MESSAGE }))
+    expect(mocks.createUser).not.toHaveBeenCalled()
   })
 
   it('records the captured name and mobile on the invite so acceptance can use them', async () => {

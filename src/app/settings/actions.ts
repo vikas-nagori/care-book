@@ -6,7 +6,12 @@ import { redirect } from 'next/navigation'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { isActiveMcpProfile } from '@/lib/mcp/access'
 import { getCurrentProfile } from '@/lib/auth'
-import { normalizeMobileNumber, toAuthPhone } from '@/lib/auth/mobile-number'
+import {
+  TEMPORARY_STAFF_PHONE_NOT_MOBILE_MESSAGE,
+  mobileNumberFromContactPhone,
+  normalizeMobileNumber,
+  toAuthPhone,
+} from '@/lib/auth/mobile-number'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -549,7 +554,18 @@ export async function createUserInvite(
       }
     }
 
-    const validation = validateInviteInput(input)
+    // A Temporary Staff login reuses the phone stored on that record, which may predate the
+    // 10-digit rule (`+91 98765 43210`) and has no field to correct it, so take the mobile number
+    // out of it here. What an admin types into Invite User is still validated strictly.
+    const temporaryStaffMobile = input.externalStaffId ? mobileNumberFromContactPhone(input.mobileNumber) : null
+    if (input.externalStaffId && input.mobileNumber?.trim() && !temporaryStaffMobile) {
+      return {
+        success: false,
+        errorCode: 'INVITE_INVALID_INPUT',
+        message: TEMPORARY_STAFF_PHONE_NOT_MOBILE_MESSAGE,
+      }
+    }
+    const validation = validateInviteInput(temporaryStaffMobile ? { ...input, mobileNumber: temporaryStaffMobile } : input)
     if (!validation.success) {
       return {
         success: false,
@@ -783,10 +799,15 @@ export async function createUserInvite(
       }
     }
 
-    if (externalStaffId && email) {
+    // Store what the login actually uses: the email typed for it, and the bare 10 digits when the
+    // record's phone was saved in another format (G-8).
+    const normalisedStaffPhone = temporaryStaffMobile && temporaryStaffMobile !== input.mobileNumber
+      ? temporaryStaffMobile
+      : null
+    if (externalStaffId && (email || normalisedStaffPhone)) {
       const { error: externalStaffUpdateError } = await adminSupabase
         .from('external_staff')
-        .update({ email })
+        .update({ ...(email ? { email } : {}), ...(normalisedStaffPhone ? { phone: normalisedStaffPhone } : {}) })
         .eq('id', externalStaffId)
         .eq('clinic_id', clinicId)
         .is('linked_profile_id', null)
@@ -830,7 +851,9 @@ export async function createExternalStaff(
     }
 
     const name = input.name.trim()
-    const phone = input.phone.trim()
+    // Stored as the bare 10 digits when it is a mobile number, so a later "Create login" can use
+    // it as the sign-in as is. Anything else (a landline) is kept as typed.
+    const phone = mobileNumberFromContactPhone(input.phone) ?? input.phone.trim()
     const email = input.email?.trim().toLowerCase() || null
     const notes = input.notes?.trim() || null
 

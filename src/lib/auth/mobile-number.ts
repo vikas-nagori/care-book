@@ -23,6 +23,22 @@ export function normalizeMobileNumber(raw: string | null | undefined): string | 
   return MOBILE_NUMBER_PATTERN.test(digits) ? digits : null
 }
 
+/**
+ * The 10-digit mobile number inside a contact phone someone typed for another purpose (a
+ * Temporary Staff record), or null. Unlike `normalizeMobileNumber`, which is strict because it
+ * validates what a person types as their login, this also takes off a `+91` / `91` country code
+ * or a trunk `0`, and ignores brackets and dots: the number was stored long before anyone
+ * decided to turn it into a login, and nobody can be asked to retype it.
+ */
+export function mobileNumberFromContactPhone(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  let digits = raw.trim().replace(/[\s\-().]/g, '')
+  if (digits.startsWith('+91')) digits = digits.slice(3)
+  else if (/^91[0-9]{10}$/.test(digits)) digits = digits.slice(2)
+  else if (/^0[0-9]{10}$/.test(digits)) digits = digits.slice(1)
+  return MOBILE_NUMBER_PATTERN.test(digits) ? digits : null
+}
+
 /** The `auth.users.phone` value for a mobile number: the same 10 digits. */
 export function toAuthPhone(mobileNumber: string): string {
   return mobileNumber
@@ -41,6 +57,10 @@ export function formatMobileNumber(raw: string | null | undefined): string {
 }
 
 export const MOBILE_NUMBER_INVALID_MESSAGE = 'Enter your 10-digit mobile number, without +91 or 0.'
+
+/** Temporary Staff → Create login when the stored phone holds no mobile number to sign in with. */
+export const TEMPORARY_STAFF_PHONE_NOT_MOBILE_MESSAGE =
+  "This Temporary Staff phone isn't a mobile number, so it can't be their login. Use Invite User with their mobile number instead."
 
 /** How to name a person: their name, else their email or mobile number. Never null. */
 export function accountDisplayName(account: {
