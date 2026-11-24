@@ -10,9 +10,11 @@ import type { Page, TestInfo } from '@playwright/test'
 import { AppointmentForm } from '../pages/appointment-form'
 import { PatientForm } from '../pages/patient-form'
 import { SessionNoteForm } from '../pages/session-note-form'
+import { EXTERNAL } from '../support/accounts'
 import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
-import { clinicDate } from '../support/clinic-date'
+import { clinicDate, wholeYearsSince } from '../support/clinic-date'
 import { test, expect } from '../support/factories'
+import { isSupabaseRequest } from '../support/fault-injection'
 import { IOS_TAG, projectRole } from '../support/mobile'
 
 function guardsFor(page: Page) {
@@ -103,6 +105,227 @@ test('a patient created inline while booking, with the age left blank, renders o
   await visitEveryPatientTab(page, patient!.id, testInfo)
   await openProfileTab(page, name)
   await expect(page.getByTestId('patient-age')).toHaveCount(0)
+  await guards.assertClean()
+})
+
+/** The patient's row on /patients, found through the search box. */
+async function searchPatientList(page: Page, name: string) {
+  await page.goto('/patients')
+  await page.getByPlaceholder('Search by name or phone…').fill(name)
+  const row = page.getByRole('link', { name: new RegExp(name) }).filter({ visible: true })
+  await expect(row).toBeVisible()
+  return row
+}
+
+/** No phone, email or age on the Profile tab, and no link to call or mail. */
+async function expectBlankContact(page: Page, name: string) {
+  await openProfileTab(page, name)
+  await expect(page.getByText('No phone number', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('patient-age')).toHaveCount(0)
+  await expect(page.locator('a[href^="tel:"], a[href^="mailto:"]')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: `Call ${name}`, exact: true })).toHaveCount(0)
+}
+
+// PA-1
+test('a fully filled patient edited back to a name clears every optional column and renders everywhere', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
+  const guards = guardsFor(page)
+  const name = factory.uniqueName('edit-to-blank')
+  factory.watchUiPatient(name)
+
+  await page.goto('/patients/new')
+  const form = new PatientForm(page)
+  await form.fill({
+    name,
+    phone: factory.uniqueMobile(),
+    email: `${factory.token}-edit-to-blank@carebook.test`,
+    age: '41',
+    gender: 'Female',
+    address: `${name} address`,
+    medicalHistory: `${name} history`,
+    notes: `${name} notes`,
+  })
+  await form.submitCreate()
+  await expect.poll(async () => (await factory.findPatientByName(name))?.age_years).toBe(41)
+  const patient = (await factory.findPatientByName(name))!
+
+  await page.goto(`/patients/${patient.id}/edit`)
+  for (const field of ['phone', 'email', 'age', 'address', 'medicalHistory', 'notes'] as const) await form.clear(field)
+  await form.submitUpdate()
+
+  await expect.poll(async () => (await factory.findPatientByName(name))?.phone).toBeNull()
+  // Gender is a select with no "none" option, so it keeps its value.
+  expect(await factory.findPatientByName(name)).toMatchObject({
+    phone: null, email: null, dob: null, age_years: null, age_recorded_on: null,
+    gender: 'female', address: null, medical_history: null, notes: null,
+  })
+
+  const row = await searchPatientList(page, name)
+  await expect(row).not.toContainText(/\d+ y\b/)
+  await expectNoLeakedNulls(page)
+  await visitEveryPatientTab(page, patient.id, testInfo)
+  await expectBlankContact(page, name)
+  await expectNoLeakedNulls(page)
+
+  await page.goto(`/patients/${patient.id}/edit`)
+  await expect(page.locator('input#name')).toHaveValue(name)
+  for (const label of ['Phone', 'Email', 'Age (years)', 'Address', 'Medical History', 'Notes']) {
+    await expect(page.getByLabel(label, { exact: true })).toHaveValue('')
+  }
+  await expectNoLeakedNulls(page)
+  await guards.assertClean()
+})
+
+// PA-2
+test('re-saving a name-only patient unchanged writes no age and leaves every optional column empty', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
+  const guards = guardsFor(page)
+  const patient = await factory.createPatient({ phone: null })
+
+  await page.goto(`/patients/${patient.id}/edit`)
+  await expect(page.locator('input#name')).toHaveValue(patient.name)
+  const update = page.waitForRequest((request) => isSupabaseRequest(request, { resource: 'rest/v1/patients', method: 'PATCH' }))
+  await new PatientForm(page).submitUpdate()
+  const body = (await update).postDataJSON() as Record<string, unknown>
+  // An unchanged (blank) age writes no age keys at all, and the date of birth is never sent.
+  expect(Object.keys(body)).not.toContain('age_years')
+  expect(Object.keys(body)).not.toContain('age_recorded_on')
+  expect(Object.keys(body)).not.toContain('dob')
+  expect(body).toMatchObject({
+    name: patient.name, phone: null, email: null, gender: null, address: null,
+    medical_history: null, notes: null, referral_source: null,
+  })
+  expect(await factory.findPatientByName(patient.name)).toMatchObject({
+    phone: null, email: null, dob: null, age_years: null, age_recorded_on: null, gender: null,
+    address: null, medical_history: null, notes: null, referral_source: null,
+  })
+
+  await searchPatientList(page, patient.name)
+  await expectNoLeakedNulls(page)
+  await visitEveryPatientTab(page, patient.id, testInfo)
+  await expectBlankContact(page, patient.name)
+  await guards.assertClean()
+})
+
+// PA-3 (decision D4a). C-1: clearing the age today writes age_years = NULL but keeps the legacy
+// dob, so patientAge() falls back to the dob and the age comes straight back.
+test('C-1: clearing Age on a patient with a legacy date of birth removes the age and the date of birth', { tag: IOS_TAG }, async ({ page, factory, browser }, testInfo) => {
+  test.fail(true, 'C-1: clearing Age keeps the legacy dob, so the age is still shown')
+  const guards = guardsFor(page)
+  const dob = '1980-05-05'
+  const patient = await factory.createPatient({ dob, phone: null })
+  const appointment = await factory.createAppointment({ patientId: patient.id, date: clinicDate(-3), time: '10:10' })
+  const external = await factory.findProfileByEmail(EXTERNAL.email)
+  await factory.shareWithExternal(patient.id, [external.id])
+
+  await page.goto(`/patients/${patient.id}/edit`)
+  await expect(page.getByLabel('Age (years)', { exact: true })).toHaveValue(String(wholeYearsSince(dob)))
+  const form = new PatientForm(page)
+  await form.clear('age')
+  await form.submitUpdate()
+  await expect.poll(async () => (await factory.findPatientByName(patient.name))?.dob ?? null).toBeNull()
+  expect(await factory.findPatientByName(patient.name)).toMatchObject({ dob: null, age_years: null, age_recorded_on: null })
+
+  // No age on the list, the detail, the edit prefill or the appointment.
+  const row = await searchPatientList(page, patient.name)
+  await expect(row).not.toContainText(/\d+ y\b/)
+  await visitEveryPatientTab(page, patient.id, testInfo)
+  await openProfileTab(page, patient.name)
+  await expect(page.getByTestId('patient-age')).toHaveCount(0)
+  await page.goto(`/patients/${patient.id}/edit`)
+  await expect(page.getByLabel('Age (years)', { exact: true })).toHaveValue('')
+  await page.goto(`/schedule/${appointment.id}`)
+  await expect(page.getByText(patient.name, { exact: true }).filter({ visible: true }).first()).toBeVisible()
+  await expect(page.getByText(/\b\d+ years?\b/)).toHaveCount(0)
+  await expectNoLeakedNulls(page)
+
+  // Nor in the External Staff view of the shared patient.
+  const externalContext = await browser.newContext({ storageState: EXTERNAL.storageState })
+  try {
+    const externalPage = await externalContext.newPage()
+    const externalGuards = guardsFor(externalPage)
+    await externalPage.goto('/external/patients')
+    await externalPage.getByPlaceholder('Search by name or phone…').fill(patient.name)
+    await externalPage.getByRole('button', { name: new RegExp(patient.name) }).filter({ visible: true }).click()
+    const profile = externalPage.getByRole('dialog', { name: patient.name, exact: true })
+    await expect(profile).toBeVisible()
+    await expect(profile.getByText(/\b\d+ years?\b/)).toHaveCount(0)
+    await expectNoLeakedNulls(externalPage, { scope: profile })
+    await externalGuards.assertClean()
+  } finally {
+    await externalContext.close()
+  }
+  await guards.assertClean()
+})
+
+// PA-3, the other side of D4a: only an emptied Age may delete the date of birth.
+test('an edit that leaves the age alone, or corrects it, never touches a legacy date of birth', { tag: IOS_TAG }, async ({ page, factory }) => {
+  const guards = guardsFor(page)
+  const dob = '1975-08-20'
+  const patient = await factory.createPatient({ dob, phone: null })
+  const form = new PatientForm(page)
+
+  // Phone only.
+  const phone = factory.uniqueMobile()
+  await page.goto(`/patients/${patient.id}/edit`)
+  await page.getByLabel('Phone', { exact: true }).fill(phone)
+  await form.submitUpdate()
+  await expect.poll(async () => (await factory.findPatientByName(patient.name))?.phone).toBe(phone)
+  expect(await factory.findPatientByName(patient.name)).toMatchObject({ dob, age_years: null, age_recorded_on: null })
+
+  // A corrected age is stored beside the date of birth.
+  const corrected = wholeYearsSince(dob) + 2
+  await page.goto(`/patients/${patient.id}/edit`)
+  await page.getByLabel('Age (years)', { exact: true }).fill(String(corrected))
+  await form.submitUpdate()
+  await expect.poll(async () => (await factory.findPatientByName(patient.name))?.age_years).toBe(corrected)
+  expect(await factory.findPatientByName(patient.name)).toMatchObject({ dob, age_recorded_on: clinicDate() })
+  await page.goto(`/patients/${patient.id}`)
+  await expect(page.getByTestId('patient-age')).toHaveText(`Age ${corrected} years`)
+  await expectNoLeakedNulls(page)
+  await guards.assertClean()
+})
+
+// PA-4
+test('a patient referred by a doctor with no specialty or address renders and saves', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
+  const guards = guardsFor(page)
+  const doctor = await factory.createDoctor()
+  const patient = await factory.createPatient({ phone: null, referral_source: 'doctor', referred_by_doctor_id: doctor.id })
+
+  await page.goto(`/patients/${patient.id}`)
+  await expect(page.getByText(doctor.name, { exact: true })).toHaveText(doctor.name)
+  await expect(page.getByText(`${doctor.name} ·`)).toHaveCount(0)
+  await expectNoLeakedNulls(page)
+
+  const notes = factory.uniqueName('referred notes')
+  await page.goto(`/patients/${patient.id}/edit`)
+  await expect(page.getByLabel('Referring Doctor', { exact: true })).toHaveText(doctor.name)
+  await expectNoLeakedNulls(page)
+  await page.getByLabel('Notes', { exact: true }).fill(notes)
+  await new PatientForm(page).submitUpdate()
+  await expect.poll(async () => (await factory.findPatientByName(patient.name))?.notes).toBe(notes)
+  expect(await factory.findPatientByName(patient.name)).toMatchObject({ referral_source: 'doctor', referred_by_doctor_id: doctor.id })
+  await visitEveryPatientTab(page, patient.id, testInfo)
+  await guards.assertClean()
+})
+
+// PA-4. G-13: the referral picker demands a referrer before the form may save, so a patient whose
+// referring patient or doctor was deleted (source kept, id set NULL) cannot be edited at all
+// until the source is changed.
+test('G-13: a patient whose referrer was deleted renders and can still be saved', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
+  test.fail(true, 'G-13: a dangling referral blocks every save of the patient')
+  const guards = guardsFor(page)
+  const dangling = [
+    await factory.createPatient({ phone: null, referral_source: 'patient', referred_by_patient_id: null }),
+    await factory.createPatient({ phone: null, referral_source: 'doctor', referred_by_doctor_id: null }),
+  ]
+  for (const patient of dangling) {
+    await visitEveryPatientTab(page, patient.id, testInfo)
+    const notes = factory.uniqueName('dangling referral notes')
+    await page.goto(`/patients/${patient.id}/edit`)
+    await expectNoLeakedNulls(page)
+    await page.getByLabel('Notes', { exact: true }).fill(notes)
+    await new PatientForm(page).submitUpdate()
+    await expect.poll(async () => (await factory.findPatientByName(patient.name))?.notes).toBe(notes)
+  }
   await guards.assertClean()
 })
 
