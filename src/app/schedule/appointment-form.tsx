@@ -15,6 +15,7 @@ import { ReferralFields, useReferralSelection } from '@/components/referral/refe
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
 import { parseAgeInput } from '@/lib/patients/age'
+import { accountDisplayName } from '@/lib/auth/mobile-number'
 import { cn } from '@/lib/utils'
 import {
   buildPatientInsertData,
@@ -88,8 +89,14 @@ function getAppointmentTypeSessionRate(type: DashboardAppointmentTypeOption): nu
     : null
 }
 
-function getAssigneeLabel(assignee: Pick<AppointmentAssigneeOption, 'full_name' | 'email'>) {
-  return assignee.full_name || assignee.email
+// Never blank: a nameless, email-less External Staff login is shown by its mobile number (G-2).
+function getAssigneeLabel(assignee: Pick<AppointmentAssigneeOption, 'full_name' | 'email'> & { mobile_number?: string | null }) {
+  return accountDisplayName(assignee)
+}
+
+/** A pending mobile-only invitee has neither a name nor an email yet: nothing to show (G-2). */
+function hasAssigneeName(assignee: Pick<AppointmentAssigneeOption, 'full_name' | 'email'>) {
+  return Boolean(assignee.full_name?.trim() || assignee.email?.trim())
 }
 
 const ASSIGNEE_TAGS = {
@@ -971,7 +978,8 @@ export function AppointmentForm({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={UNASSIGNED_ASSIGNEE_VALUE}>Unassigned</SelectItem>
-              {!isSharedType && assigneeOptions.filter((assignee) => assignee.role !== 'external_staff').map((assignee) => (
+              {!isSharedType && assigneeOptions.filter((assignee) => assignee.role !== 'external_staff' &&
+                (hasAssigneeName(assignee) || assignee.id === appointment?.assigned_to)).map((assignee) => (
                 <SelectItem key={assignee.id} value={`internal:${assignee.id}`}>
                   {getAssigneeLabel(assignee)}
                   <AssigneeTag kind={assignee.role === 'admin' ? 'admin' : 'staff'} />
@@ -1046,7 +1054,7 @@ export function AppointmentForm({
         <div className="space-y-2">
           <Label htmlFor="status">Status</Label>
           <Select name="status" defaultValue={appointment.status}>
-            <SelectTrigger>
+            <SelectTrigger id="status">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
