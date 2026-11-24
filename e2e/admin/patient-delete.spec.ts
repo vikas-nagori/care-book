@@ -57,5 +57,20 @@ test('admin cannot delete a patient whose immutable billing history must be reta
   expect((await factory.findAppointments({ patientId: patient.id })).map((row) => row.id)).toContain(appointment.id)
   expect(await factory.findPayment({ patientId: patient.id, notes: payment.notes as string })).not.toBeNull()
 
+  // PA-17: the refusal leaves the dialog usable. The confirm is enabled again, Cancel closes it,
+  // and reopening starts from an empty confirmation box.
+  const dialog = page.getByRole('alertdialog')
+  const confirm = dialog.getByRole('button', { name: /^(Delete|Deleting…)$/ })
+  await expect(confirm).toHaveAccessibleName('Delete')
+  await expect(confirm).toBeEnabled()
+  await expect(page.getByTestId('confirm-delete-patient-input')).toHaveValue(patientName)
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await page.getByRole('button', { name: 'Delete', exact: true }).filter({ visible: true }).first().click()
+  await expect(dialog).toBeVisible()
+  await expect(page.getByTestId('confirm-delete-patient-input')).toHaveValue('')
+  await expect(confirm).toBeDisabled()
+  expect(await factory.findPatientByName(patientName)).not.toBeNull()
+
   await guards.assertClean()
 })
