@@ -229,11 +229,19 @@ test('a booking sent after the session ended asks to sign in again and leaves th
   // G-18: the middleware used to answer this signed-out POST with a redirect to /login, which the
   // booking client (redirect: 'error') treated as a dropped connection: three resends, then
   // "Booking not confirmed" for a booking that was never sent. It now answers the 401 JSON.
-  const guards = attachErrorGuards(page, { expectedHttpErrors: [
-    { pathname: BOOKINGS, status: 401 },
-    { pathname: '/api/telemetry', status: 401 },
-    { pathname: '/api/telemetry', status: 429 },
-  ] })
+  const guards = attachErrorGuards(page, {
+    expectedHttpErrors: [
+      { pathname: BOOKINGS, status: 401 },
+      { pathname: '/api/telemetry', status: 401 },
+      { pathname: '/api/telemetry', status: 429 },
+    ],
+    // Chromium sometimes reports the booking 401 with no source URL, which expectedHttpErrors
+    // cannot match; this allows exactly that message and nothing else.
+    expectedFailures: [{
+      url: /^(?:http:\/\/localhost:3000\/api\/appointments\/bookings)?$/,
+      text: /^Failed to load resource: the server responded with a status of 401 \(Unauthorized\)$/,
+    }],
+  })
   const patient = await factory.createPatient()
   const type = await factory.findAppointmentType(true)
   const date = clinicDate(111)
