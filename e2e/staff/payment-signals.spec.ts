@@ -1,7 +1,6 @@
-import { test, expect } from '@playwright/test'
-
 import { attachErrorGuards } from '../support/assertions'
 import { clinicDate } from '../support/clinic-date'
+import { test, expect } from '../support/factories'
 import { SEED } from '../support/ids'
 
 test('hides appointment fees and payment signals from the staff dashboard', async ({ page }) => {
@@ -64,5 +63,21 @@ test('hides the patient billing tab, package, payment history, and amounts from 
   await expect(page.getByText('10-Session Physiotherapy Package', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Payment History', exact: true })).toHaveCount(0)
   await expect(page.getByText('₹8,000', { exact: true })).toHaveCount(0)
+  await guards.assertClean()
+})
+
+// S-18 (staff side): the audited fee adjustment is admin-only billing.
+test('never offers Adjust fee to staff, even on a completed shared appointment', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const appointment = await factory.createAppointment({
+    patientId: patient.id, date: clinicDate(-3), time: '11:45', fee: 800, status: 'completed',
+  })
+
+  await page.goto(`/schedule/${appointment.id}`)
+  await expect(page.getByRole('combobox').filter({ hasText: 'Completed' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Edit Notes|Add Notes/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Adjust fee', exact: true })).toHaveCount(0)
+  await expect(page.getByText('₹800', { exact: true })).toHaveCount(0)
   await guards.assertClean()
 })
