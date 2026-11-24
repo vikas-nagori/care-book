@@ -38,11 +38,16 @@ export function TreatmentPlanForm({ patientId, defaultDate, plan, onSuccess }: P
       status: (formData.get('status') as string) || 'active',
     }
 
-    let error
-    if (plan) {
-      ({ error } = await supabase.from('treatment_plans').update(data).eq('id', plan.id))
-    } else {
-      ({ error } = await supabase.from('treatment_plans').insert(data))
+    // A thrown client must not leave the button stuck on "Saving…" (G-7).
+    let error: unknown
+    try {
+      if (plan) {
+        ({ error } = await supabase.from('treatment_plans').update(data).eq('id', plan.id))
+      } else {
+        ({ error } = await supabase.from('treatment_plans').insert(data))
+      }
+    } catch (thrown) {
+      error = thrown ?? new Error('Unable to save the plan.')
     }
 
     if (error) {
