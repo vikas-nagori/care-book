@@ -237,8 +237,8 @@ test('a negative duration is refused on Edit and the stored duration is kept', a
 
 test('G-17c: a duration of 0 on Edit is refused instead of silently becoming 45 minutes', async ({ page, factory }, testInfo) => {
   adminPhoneOnly(testInfo)
-  testInfo.fail(true, 'G-17c: Edit turns a duration of 0 into 45 without a word')
-  const guards = guardsFor(page, { supabaseRejects: true })
+  // Refused in the form, before any write: nothing reaches Supabase, so no rejection is expected.
+  const guards = guardsFor(page)
   const patient = await factory.createPatient()
   const appointment = await factory.createAppointment({ patientId: patient.id, date: clinicDate(87), time: '08:40', duration_minutes: 50 })
   const detail = new AppointmentDetail(page)
@@ -250,7 +250,9 @@ test('G-17c: a duration of 0 on Edit is refused instead of silently becoming 45 
   const toast = notifications(page).locator('li').first()
   await expect(toast).toBeVisible()
   await expect(toast).not.toContainText('Appointment updated')
+  await expect(toast).toContainText('Duration must be')
   await expect(detail.editDialog()).toBeVisible()
+  await expect(detail.editDialog().getByRole('button', { name: 'Update', exact: true })).toBeEnabled()
   expect((await factory.findAppointments({ patientId: patient.id }))[0].duration_minutes).toBe(50)
   await guards.assertClean()
 })

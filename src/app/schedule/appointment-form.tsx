@@ -36,6 +36,7 @@ import {
 } from '@/lib/appointments/assignment'
 import { getExternalAssigneeOptions } from './external-assignees'
 import { generateRecurringAppointmentDates } from '@/lib/appointments/recurrence'
+import { parseDurationInput } from '@/lib/appointments/duration'
 import { resolveAppointmentStatus } from '@/lib/appointments/appointment-creation'
 import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
 import type { DashboardAppointmentTypeOption } from '@/lib/dashboard/appointment-options'
@@ -680,13 +681,20 @@ export function AppointmentForm({
       const notes = (formData.get('notes') as string) || null
 
       if (appointment) {
+        // Blank still means 45, but a typed 0 is refused instead of quietly saved as 45 (G-17c).
+        const duration = parseDurationInput(formData.get('duration_minutes') as string | null)
+        if (!duration.ok) {
+          reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'SCHEDULE_INVALID_DURATION' })
+          toast({ title: 'Appointment not updated', description: duration.message, variant: 'destructive' })
+          return
+        }
         const { error } = await withBookingDeadline(supabase
           .from('appointments')
           .update({
             patient_id: patientId,
             date: appointmentDate,
             time,
-            duration_minutes: durationMinutes,
+            duration_minutes: duration.minutes,
             appointment_type_id: appointmentTypeId,
             status: (formData.get('status') as string) || 'scheduled',
             ...(canViewPaymentSignals ? { fee: normalizedFee } : {}),

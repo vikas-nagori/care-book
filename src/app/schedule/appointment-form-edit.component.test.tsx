@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { Appointment, AppointmentType } from '@/lib/supabase/types'
 
-// Edit Appointment's own checks before it writes the row (C-3).
+// Edit Appointment's own checks before it writes the row (C-3, G-17c).
 
 const mocks = vi.hoisted(() => ({ toast: vi.fn(), update: vi.fn(), select: vi.fn() }))
 vi.mock('./external-assignees', () => ({ getExternalAssigneeOptions: async () => ({ ok: true, profiles: [] }) }))
@@ -98,6 +98,26 @@ describe('Edit Appointment', () => {
       submit()
       await waitFor(() => expect(onSuccess).toHaveBeenCalled())
       expect(mocks.update.mock.calls[0][0]).not.toHaveProperty('fee')
+    })
+  })
+
+  describe('duration (G-17c)', () => {
+    it('refuses a duration of 0 instead of saving 45', async () => {
+      const onSuccess = mountEdit(appointment)
+      fireEvent.change(screen.getByLabelText('Duration (min)'), { target: { value: '0' } })
+      submit()
+      await waitFor(() => expect(lastToast()).toMatchObject({ title: 'Appointment not updated', variant: 'destructive' }))
+      expect(lastToast()?.description).toMatch(/Duration must be/)
+      expect(mocks.update).not.toHaveBeenCalled()
+      expect(onSuccess).not.toHaveBeenCalled()
+    })
+
+    it('still saves a blank duration as the default 45 minutes', async () => {
+      const onSuccess = mountEdit(appointment)
+      fireEvent.change(screen.getByLabelText('Duration (min)'), { target: { value: '' } })
+      submit()
+      await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+      expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ duration_minutes: 45 }))
     })
   })
 })
