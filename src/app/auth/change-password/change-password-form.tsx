@@ -17,10 +17,11 @@ import {
 import { completeForcedPasswordChange } from './actions'
 
 type Props = {
-  email: string
+  /** The login being secured: its email, or its formatted mobile number. */
+  account: string
 }
 
-export function ChangePasswordForm({ email }: Props) {
+export function ChangePasswordForm({ account }: Props) {
   const confirmPasswordRef = useRef<HTMLInputElement>(null)
   const [password, setPassword] = useState('')
   const [passwordConfirmation, setPasswordConfirmation] = useState('')
@@ -101,7 +102,7 @@ export function ChangePasswordForm({ email }: Props) {
           <CardTitle>Set your new password</CardTitle>
           <CardDescription>
             You signed in with a temporary password. Choose your own password for{' '}
-            <span className="font-medium text-foreground">{email}</span> to continue.
+            <span className="font-medium text-foreground">{account}</span> to continue.
           </CardDescription>
         </CardHeader>
         <CardContent>

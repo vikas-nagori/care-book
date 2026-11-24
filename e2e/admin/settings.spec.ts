@@ -240,3 +240,56 @@ test('settings still renders with a pending mobile-only invite', async ({ page, 
   ).toBeVisible()
   await guards.assertClean()
 })
+
+// Email is optional since mobile-number sign-in. Incident 2026-11-24: inviting External Staff with
+// no email broke /settings, and the invitee's first sign-in would have looped between
+// /auth/change-password and /login (the page required an email). Drive the whole lifecycle blank.
+test('invites External Staff by mobile number only, and they can sign in and set a password', async ({ page, browser, factory }) => {
+  const guards = attachErrorGuards(page)
+  const name = factory.uniqueName('mobile-only-invitee')
+  const phone = stablePhone(name)
+  const account = `${phone.slice(0, 5)} ${phone.slice(5)}`
+  factory.watchUiMobileInvite(phone)
+
+  await page.goto('/settings')
+  const settings = new SettingsView(page)
+  await settings.inviteUser({ name, phone, role: 'External Staff' })
+  const invite = await factory.findInviteByMobile(phone)
+  expect(invite).toMatchObject({ email: null, role: 'external_staff', status: 'pending', full_name: name })
+  expect(invite!.auth_user_id).not.toBeNull()
+  const authUserId = invite!.auth_user_id!
+
+  // Settings must still render with the email-less invite and profile in it.
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
+  const tempPassword = await settings.issueNewTempPassword(account)
+
+  const invitee = await signInAs(browser, phone, tempPassword)
+  const inviteeGuards = attachErrorGuards(invitee.page)
+  await invitee.page.waitForURL('**/auth/change-password', { timeout: 15_000 })
+  await expect(invitee.page.getByText(account, { exact: true })).toBeVisible()
+
+  const newPassword = `E2e-${factory.token}-M0bile`
+  await invitee.page.getByLabel('New password', { exact: true }).fill(newPassword)
+  await invitee.page.getByLabel('Confirm new password', { exact: true }).fill(newPassword)
+  await invitee.page.getByLabel('Confirm new password', { exact: true }).press('Enter')
+  await invitee.page.waitForURL(
+    (url) => !url.pathname.startsWith('/auth/') && !url.pathname.startsWith('/login'),
+    { timeout: 15_000 },
+  )
+  await inviteeGuards.assertClean()
+  await invitee.context.close()
+
+  await expect.poll(async () => (await factory.findInviteByMobile(phone))?.status).toBe('accepted')
+  expect(await factory.findProfileById(authUserId)).toMatchObject({
+    role: 'external_staff',
+    clinic_id: CLINIC_A.id,
+    full_name: name,
+    mobile_number: phone,
+    email: null,
+  })
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
+  await guards.assertClean()
+})

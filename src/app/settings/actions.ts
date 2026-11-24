@@ -1194,7 +1194,7 @@ export async function changeOwnPassword(
     // Any signed-in user may change their own password — staff included — so this only needs
     // a profile, not admin settings access.
     const profile = await getCurrentProfile()
-    if (!profile?.email) {
+    if (!profile) {
       return {
         success: false,
         errorCode: 'PASSWORD_CHANGE_AUTH_REQUIRED',
