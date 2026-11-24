@@ -2,8 +2,10 @@ import type { Metadata, Viewport } from 'next'
 // Self-hosted (see fonts/fonts.css): the build must never depend on fetching from Google.
 import './fonts/fonts.css'
 import './globals.css'
-import { getCurrentProfile } from '@/lib/auth'
+import { getCurrentProfile, getSignedInUser } from '@/lib/auth'
 import { getRestrictedUiAccess } from '@/lib/access/restricted-visibility'
+import { resolveAppNavVariant } from '@/lib/layout/app-chrome'
+import { isPlatformAdminEmail } from '@/lib/platform/access'
 import { Sidebar } from '@/components/layout/sidebar'
 import { BottomNav } from '@/components/layout/bottom-nav'
 import { ResumeRefresh } from '@/components/layout/resume-refresh'
@@ -40,9 +42,15 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  const currentProfile = await getCurrentProfile()
+  const [currentProfile, signedInUser] = await Promise.all([getCurrentProfile(), getSignedInUser()])
   const isExternalStaff = currentProfile?.role === 'external_staff'
   const access = getRestrictedUiAccess(currentProfile)
+  // A blocked account (or inactive clinic) reads back no profile; it gets no navigation (G-26).
+  const navVariant = resolveAppNavVariant({
+    role: currentProfile?.role ?? null,
+    signedIn: signedInUser !== null,
+    isSuperadmin: isPlatformAdminEmail(signedInUser?.email),
+  })
 
   return (
     <html lang="en">
@@ -54,9 +62,8 @@ export default async function RootLayout({
       <body className="overflow-hidden font-sans">
         <TimezoneSync />
         <div className="flex h-dvh overflow-hidden">
-          {isExternalStaff
-            ? <Sidebar variant="external" />
-            : <Sidebar canViewBilling={access.canViewBilling} />}
+          {navVariant === 'external' && <Sidebar variant="external" />}
+          {navVariant === 'clinic' && <Sidebar canViewBilling={access.canViewBilling} />}
           <main className="h-full min-w-0 flex-1 overflow-y-auto overscroll-contain pb-bottom-nav md:pb-0">
             {currentProfile && !isExternalStaff ? (
               <GuidedTourProvider role={currentProfile.role}>{children}</GuidedTourProvider>
@@ -65,7 +72,8 @@ export default async function RootLayout({
             )}
           </main>
         </div>
-        {isExternalStaff ? <BottomNav variant="external" /> : <BottomNav canViewBilling={access.canViewBilling} />}
+        {navVariant === 'external' && <BottomNav variant="external" />}
+        {navVariant === 'clinic' && <BottomNav canViewBilling={access.canViewBilling} />}
         {currentProfile && <ResumeRefresh />}
         <ServiceWorkerRegistration />
         <Toaster />
