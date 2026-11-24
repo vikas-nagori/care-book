@@ -294,3 +294,44 @@ test('deletes a scheduled appointment through confirmation and redirects away', 
   })).toEqual([])
   await guards.assertClean()
 })
+
+test('creates a patient inline while booking and records the typed age', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const name = factory.uniqueName('inline-aged-patient')
+  factory.watchUiPatient(name)
+  const sharedType = await factory.findAppointmentType(true)
+  const date = clinicDate(71)
+
+  await page.goto('/schedule/new')
+  const form = new AppointmentForm(page, sharedType.name)
+  await form.fill({ patientName: name, date, time: '08:20', newPatient: { phone: `9${Date.now().toString().slice(-9)}`, age: '42' } })
+  await expect(page.getByLabel(/date of birth/i)).toHaveCount(0)
+  await form.submitAndExpectBooked()
+
+  await expect.poll(async () => (await factory.findPatientByName(name))?.age_years).toBe(42)
+  const patient = await factory.findPatientByName(name)
+  expect(patient).toMatchObject({ dob: null, age_years: 42, age_recorded_on: clinicDate() })
+  expect(await factory.findAppointments({ patientId: patient!.id, date })).toHaveLength(1)
+
+  await page.goto(`/patients/${patient!.id}`)
+  await expect(page.getByTestId('patient-age')).toHaveText('Age 42 years')
+  await guards.assertClean()
+})
+
+test('refuses an inline patient age that is not whole years from 0 to 120', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const name = factory.uniqueName('inline-bad-age')
+  factory.watchUiPatient(name)
+  const sharedType = await factory.findAppointmentType(true)
+
+  await page.goto('/schedule/new')
+  const form = new AppointmentForm(page, sharedType.name)
+  await form.fill({ patientName: name, date: clinicDate(72), time: '08:25', newPatient: { phone: `9${Date.now().toString().slice(-9)}`, age: '130' } })
+  await page.getByRole('button', { name: 'Book Appointment', exact: true }).click()
+  const notifications = page.getByRole('region', { name: 'Notifications (F8)' })
+  await expect(notifications.getByText('Check the age', { exact: true })).toBeVisible()
+  await expect(notifications).toContainText('Age must be a whole number between 0 and 120.')
+  await expect(page).toHaveURL(/\/schedule\/new/)
+  expect(await factory.findPatientByName(name)).toBeNull()
+  await guards.assertClean()
+})

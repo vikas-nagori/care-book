@@ -1,5 +1,6 @@
 import { PatientForm, type PatientFormData } from '../pages/patient-form'
 import { attachErrorGuards } from '../support/assertions'
+import { clinicDate, wholeYearsSince } from '../support/clinic-date'
 import { test, expect, type E2EFactory } from '../support/factories'
 
 function stableDigits(value: string): string {
@@ -18,7 +19,7 @@ function patientData(factory: E2EFactory, kind: string): FullPatientFormData {
     name: unique,
     phone: `9${stableDigits(unique)}`,
     email: `${factory.token}-${kind.replace(/[^a-z0-9]/gi, '-').toLowerCase()}@carebook.test`,
-    dob: '1992-04-18',
+    age: '34',
     gender: 'Female',
     referralSource: 'Walk-in',
     address: `${unique} address`,
@@ -48,7 +49,9 @@ test('creates a representative patient and finds the exact row through list sear
   const patient = await factory.findPatientByName(data.name)
   expect(patient).toMatchObject({
     phone: data.phone,
-    dob: data.dob,
+    dob: null,
+    age_years: 34,
+    age_recorded_on: clinicDate(),
     gender: 'female',
     address: data.address,
     medical_history: data.medicalHistory,
@@ -68,12 +71,15 @@ test('edits a factory-owned patient and shows the persisted fields on detail and
     gender: 'male',
   })
   const updated = patientData(factory, 'edited-patient')
-  updated.dob = '1991-05-15'
+  updated.age = '50'
   updated.gender = 'Other'
   updated.referralSource = 'Other'
   updated.referralOther = `${updated.name} health camp`
 
   await page.goto(`/patients/${original.id}/edit`)
+  // The stored date of birth is offered as an age; the form no longer asks for a date.
+  await expect(page.getByLabel('Age (years)', { exact: true })).toHaveValue(String(wholeYearsSince('1988-01-02')))
+  await expect(page.getByLabel(/date of birth/i)).toHaveCount(0)
   const form = new PatientForm(page)
   await form.fill(updated)
   await form.submitUpdate()
@@ -87,7 +93,8 @@ test('edits a factory-owned patient and shows the persisted fields on detail and
   await expect(page.getByText(updated.name, { exact: true }).filter({ visible: true })).toBeVisible()
   await expect(page.getByText(updated.email, { exact: true })).toBeVisible()
   await expect(page.getByText(updated.address, { exact: true })).toBeVisible()
-  await expect(page.getByText('15 May 1991', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('patient-age')).toHaveText('Age 50 years')
+  await expect(page.getByText('02 Jan 1988', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Other', { exact: true }).filter({ visible: true })).toBeVisible()
   await expect(page.getByText(updated.referralOther, { exact: true })).toBeVisible()
   await expect(page.getByText(updated.medicalHistory, { exact: true })).toBeVisible()
@@ -98,7 +105,10 @@ test('edits a factory-owned patient and shows the persisted fields on detail and
     id: original.id,
     phone: updated.phone,
     email: updated.email,
-    dob: updated.dob,
+    // A corrected age is stored beside the date of birth, which is never rewritten.
+    dob: '1988-01-02',
+    age_years: 50,
+    age_recorded_on: clinicDate(),
     gender: 'other',
     address: updated.address,
     medical_history: updated.medicalHistory,
@@ -194,5 +204,50 @@ test('finds a patient that sorts past the first page of the list', async ({ page
   // Clearing restores the paginated list rather than leaving the match set on screen.
   await search.fill('')
   await expect(page.getByTestId('patient-list-count')).toContainText(`showing ${PAGE_SIZE}`)
+  await guards.assertClean()
+})
+
+test('an existing date of birth shows as an age and survives an edit that leaves the age alone', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const dob = '1990-03-10'
+  const age = wholeYearsSince(dob)
+  const patient = await factory.createPatient({ dob, gender: 'female' })
+  const name = patient.name as string
+
+  await page.goto('/patients')
+  await page.getByPlaceholder('Search by name or phone…').fill(name)
+  await expect(page.getByRole('link', { name: new RegExp(name) }).filter({ visible: true })).toContainText(`${age} y`)
+
+  await page.goto(`/patients/${patient.id}`)
+  await expect(page.getByTestId('patient-age')).toHaveText(`Age ${age} years`)
+  await expect(page.getByText('10 Mar 1990', { exact: true })).toHaveCount(0)
+
+  await page.goto(`/patients/${patient.id}/edit`)
+  await expect(page.getByLabel('Age (years)', { exact: true })).toHaveValue(String(age))
+  await page.getByLabel('Notes', { exact: true }).fill(`${name} follow-up`)
+  await page.getByRole('button', { name: 'Update Patient', exact: true }).click()
+  await expect(page).toHaveURL(/\/patients$/)
+
+  await expect.poll(async () => (await factory.findPatientByName(name))?.notes).toBe(`${name} follow-up`)
+  expect(await factory.findPatientByName(name)).toMatchObject({ dob, age_years: null, age_recorded_on: null })
+  await guards.assertClean()
+})
+
+test('refuses an age outside whole years 0 to 120 and saves nothing', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const name = factory.uniqueName('bad-age-patient')
+  factory.watchUiPatient(name)
+
+  await page.goto('/patients/new')
+  const form = new PatientForm(page)
+  for (const age of ['121', '4.5', 'forty']) {
+    await form.fill({ name, age })
+    await form.submitCreateExpectingAgeError()
+  }
+  expect(await factory.findPatientByName(name)).toBeNull()
+
+  await form.fill({ name, age: '0' })
+  await form.submitCreate()
+  await expect.poll(async () => (await factory.findPatientByName(name))?.age_years).toBe(0)
   await guards.assertClean()
 })

@@ -40,10 +40,15 @@ function isBookingDuration(value: unknown): value is number {
 function projectPatient(value: unknown): ExternalPatient | null {
   if (!isRecord(value)) return null
   const { id, name, phone, dob, gender, email, address } = value
+  // Absent (not just null) until the patient-age migration is applied, so treat missing as unknown.
+  const age_years = value.age_years ?? null
+  const age_recorded_on = value.age_recorded_on ?? null
   if (typeof id !== 'string' || typeof name !== 'string') return null
   if (!isOptionalText(phone) || (dob !== null && !isExternalDate(dob))) return null
+  if (age_years !== null && !(typeof age_years === 'number' && Number.isInteger(age_years) && age_years >= 0)) return null
+  if (age_recorded_on !== null && !isExternalDate(age_recorded_on)) return null
   if (!isOptionalText(gender) || !isOptionalText(email) || !isOptionalText(address)) return null
-  return { id, name, phone, dob, gender, email, address }
+  return { id, name, phone, dob, age_years, age_recorded_on, gender, email, address }
 }
 
 export function projectExternalAppointment(value: unknown): ExternalAppointment | null {

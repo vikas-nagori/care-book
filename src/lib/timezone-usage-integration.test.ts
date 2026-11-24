@@ -58,7 +58,9 @@ test('patient flows use the browser date default and preserve date-only calendar
   assert.match(treatmentPlanForm, /defaultDate: string/)
   assert.match(treatmentPlanForm, /plan\?\.start_date \?\? defaultDate/)
 
-  assert.match(patientDetail, /formatDateOnly\(patient\.dob, 'dd MMM yyyy'\)/)
+  // Age comes from date-only keys via the shared helper, never from `new Date(patient.dob)`.
+  assert.match(patientDetail, /patientAge\(patient\)/)
+  assert.doesNotMatch(patientDetail, /new Date\(patient\.dob\)/)
   assert.match(appointmentDetail, /formatDateOnly\(appointment\.date, 'EEEE, dd MMM yyyy'\)/)
   // Package timeline items sort by `created_at`, which is a full timestamptz — not a
   // date-only key — so it must be parsed with parseISO, not formatDateOnly (which throws

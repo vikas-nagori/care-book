@@ -52,7 +52,7 @@ A mobile-first CRM for a solo physiotherapy practice. The tool replaces manual r
 - Tap a patient card → goes to patient detail
 
 #### New Patient (`/patients/new`)
-- Form fields: Name (required), Phone (required), Email, Date of Birth, Gender, Address, Medical History, Notes
+- Form fields: Name (required), Phone (required), Email, Age (whole years, 0–120), Gender, Address, Medical History, Notes
 - On submit: `supabase.from('patients').insert(...)` → redirect to `/patients`
 
 #### Edit Patient (`/patients/[id]/edit`)
@@ -165,7 +165,7 @@ Used to auto-fill the Fee field when booking appointments. Values are editable p
 
 | Table | Purpose | Key Columns |
 |---|---|---|
-| `patients` | Patient records | `name`, `phone`, `email`, `dob`, `gender`, `address`, `medical_history` |
+| `patients` | Patient records | `name`, `phone`, `email`, `dob` (legacy, never rewritten), `age_years` + `age_recorded_on`, `gender`, `address`, `medical_history` |
 | `appointments` | Scheduled/completed sessions | `patient_id`, `date`, `time`, `duration_minutes`, `type`, `status`, `payment_status`, `fee` |
 | `treatment_plans` | Clinical plans per patient | `patient_id`, `diagnosis`, `goals`, `planned_sessions`, `notes` |
 | `session_notes` | SOAP notes per appointment | `appointment_id`, `subjective`, `objective`, `assessment`, `plan`, `exercises_prescribed` |

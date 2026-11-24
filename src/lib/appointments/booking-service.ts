@@ -9,7 +9,7 @@ export type BookingRow = ReturnType<typeof buildAppointmentInsertRows>[number] &
   clinic_id: string
   created_by: string
 }
-export type PatientRow = NewPatientInput & { id: string; clinic_id: string }
+export type PatientRow = NewPatientInput & { id: string; clinic_id: string; age_recorded_on?: string | null }
 type DatabaseError = { code?: string; message?: string }
 type DatabaseResult<T> = { data: T | null; error: DatabaseError | null }
 export type BookingStore = {
@@ -63,7 +63,8 @@ function statementRejected(error: DatabaseError) {
   return typeof error.code === 'string' && /^(?:22|23|42)[0-9A-Z]{3}$/.test(error.code)
 }
 function matchingPatient(actual: PatientRow, expected: PatientRow): boolean {
-  return Object.entries(expected).every(([key, value]) => actual[key as keyof PatientRow] === value)
+  // age_recorded_on is stamped by the server, not submitted: a retry after IST midnight must still match.
+  return Object.entries(expected).every(([key, value]) => key === 'age_recorded_on' || actual[key as keyof PatientRow] === value)
 }
 function matchingAppointment(actual: BookingRow, expected: BookingRow, compareFee: boolean): boolean {
   // Status/payment fields can change after creation and are not part of the submitted intent.
@@ -108,7 +109,11 @@ export async function executeBooking(request: BookingRequest, mode: 'create' | '
     } catch {
       return failed('SCHEDULE_INVALID_RECURRENCE', 'The repeat schedule is invalid.')
     }
-    const patientRow = input.newPatient ? { ...input.newPatient, id: patientId, clinic_id: context.clinicId } : null
+    const patientRow = input.newPatient ? {
+      ...input.newPatient,
+      age_recorded_on: input.newPatient.age_years == null ? null : context.today,
+      id: patientId, clinic_id: context.clinicId,
+    } : null
     async function reconcile(): Promise<CreateAppointmentResult | null> {
       const existing = await store.findAppointments(ids.appointmentIds)
       log('reconciliation', existing.error)

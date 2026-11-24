@@ -205,3 +205,25 @@ test('a forged external assignment from internal staff is denied before writes',
   if (!result.success) assert.equal(result.errorCode, 'SCHEDULE_UNAUTHORIZED')
   assert.equal(memory.writes, 0)
 })
+
+test('an inline patient age is recorded against the clinic day and a retry the next day still matches', async () => {
+  const memory = memoryStore()
+  const value = inlineRequest()
+  value.input.newPatient!.age_years = 42
+  const first = await executeBooking(value, 'create', { ...actor, store: memory.store })
+  assert.equal(first.success, true)
+  const [patient] = [...memory.patients.values()]
+  assert.equal(patient.age_years, 42)
+  assert.equal(patient.age_recorded_on, actor.today)
+  assert.equal(patient.dob, null)
+  const retry = await executeBooking(value, 'create', { ...actor, today: '2026-10-18', store: memory.store })
+  assert.deepEqual(retry, first)
+  assert.equal(memory.patients.size, 1)
+})
+
+test('an inline patient without an age stores no recorded date', async () => {
+  const memory = memoryStore()
+  assert.equal((await executeBooking(inlineRequest(), 'create', { ...actor, store: memory.store })).success, true)
+  const [patient] = [...memory.patients.values()]
+  assert.equal(patient.age_recorded_on, null)
+})

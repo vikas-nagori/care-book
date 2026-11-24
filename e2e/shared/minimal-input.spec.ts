@@ -47,6 +47,8 @@ test('a patient saved with only a name renders on every patient screen', async (
     phone: null,
     email: null,
     dob: null,
+    age_years: null,
+    age_recorded_on: null,
     gender: null,
     address: null,
     medical_history: null,
@@ -61,7 +63,33 @@ test('a patient saved with only a name renders on every patient screen', async (
   await page.goto(`/patients/${patient!.id}/edit`)
   await expect(page.getByLabel('Name *', { exact: true })).toHaveValue(name)
   await expect(page.getByLabel('Phone', { exact: true })).toHaveValue('')
+  await expect(page.getByLabel('Age (years)', { exact: true })).toHaveValue('')
   await expectNoLeakedNulls(page)
+  await guards.assertClean()
+})
+
+test('a patient created inline while booking, with the age left blank, renders on every patient screen', async ({ page, factory }) => {
+  const guards = guardsFor(page)
+  const name = factory.uniqueName('inline-no-age')
+  factory.watchUiPatient(name)
+  const sharedType = await factory.findAppointmentType(true)
+  const date = clinicDate(0)
+
+  await page.goto('/schedule/new')
+  const form = new AppointmentForm(page, sharedType.name)
+  await form.fill({ patientName: name, date, time: '21:40', newPatient: { phone: `9${Date.now().toString().slice(-9)}` } })
+  await form.submitAndExpectBooked()
+
+  await expect.poll(async () => (await factory.findPatientByName(name))?.name).toBe(name)
+  const patient = await factory.findPatientByName(name)
+  expect(patient).toMatchObject({ dob: null, age_years: null, age_recorded_on: null, email: null, gender: null })
+
+  await page.goto('/patients')
+  await page.getByPlaceholder('Search by name or phone…').fill(name)
+  await expect(page.getByRole('link', { name: new RegExp(name) }).filter({ visible: true })).toBeVisible()
+  await expectNoLeakedNulls(page)
+  await visitEveryPatientTab(page, patient!.id)
+  await expect(page.getByTestId('patient-age')).toHaveCount(0)
   await guards.assertClean()
 })
 

@@ -1,3 +1,5 @@
+import { parseAgeInput } from '../patients/age.ts'
+
 export type AppointmentPatientOption = {
   id: string
   name: string
@@ -7,7 +9,8 @@ export type AppointmentPatientDraft = {
   name: string
   phone: string
   email: string
-  dob: string
+  /** Raw Age field text; validated with parseAgeInput before booking. */
+  age: string
   gender: string
   address: string
   medical_history: string
@@ -18,7 +21,7 @@ type PatientInsertData = {
   name: string
   phone: string
   email: string | null
-  dob: string | null
+  age_years: number | null
   gender: string | null
   address: string | null
   medical_history: string | null
@@ -69,12 +72,18 @@ export function createPatientDraftFromName(name: string): AppointmentPatientDraf
     name: name.trim(),
     phone: '',
     email: '',
-    dob: '',
+    age: '',
     gender: '',
     address: '',
     medical_history: '',
     notes: '',
   }
+}
+
+// Callers validate with parseAgeInput first; an invalid value is never sent as an age.
+function draftAgeYears(value: string) {
+  const parsed = parseAgeInput(value)
+  return parsed.ok ? parsed.age : null
 }
 
 export function buildPatientInsertData(
@@ -84,7 +93,7 @@ export function buildPatientInsertData(
     name: draft.name.trim(),
     phone: draft.phone.trim(),
     email: normalizeOptionalField(draft.email),
-    dob: normalizeOptionalField(draft.dob),
+    age_years: draftAgeYears(draft.age),
     gender: normalizeOptionalField(draft.gender),
     address: normalizeOptionalField(draft.address),
     medical_history: normalizeOptionalField(draft.medical_history),

@@ -8,7 +8,8 @@ export type PatientFormData = {
   name: string
   phone?: string
   email?: string
-  dob?: string
+  /** Whole years, as typed into the Age field. */
+  age?: string
   gender?: 'Male' | 'Female' | 'Other'
   referralSource?: 'Walk-in' | 'Google page' | 'Referred by existing patient' | 'Other'
   /** Typed source for an "Other" referral. */
@@ -37,7 +38,7 @@ export class PatientForm {
     await this.page.getByLabel('Name *', { exact: true }).fill(data.name)
     if (data.phone !== undefined) await this.page.getByLabel('Phone', { exact: true }).fill(data.phone)
     if (data.email !== undefined) await this.page.getByLabel('Email', { exact: true }).fill(data.email)
-    if (data.dob !== undefined) await this.page.getByLabel('Date of Birth', { exact: true }).fill(data.dob)
+    if (data.age !== undefined) await this.page.getByLabel('Age (years)', { exact: true }).fill(data.age)
     if (data.gender !== undefined) await this.chooseGender(data.gender)
     if (data.referralSource !== undefined) await this.chooseNamed('How were they referred?', data.referralSource)
     if (data.referrerPatientName !== undefined) await this.chooseReferrerPatient(data.referrerPatientName)
@@ -62,6 +63,14 @@ export class PatientForm {
   async submitUpdate(): Promise<void> {
     await this.page.getByRole('button', { name: 'Update Patient', exact: true }).click()
     await expect(this.page).toHaveURL(/\/patients$/)
+  }
+
+  /** Submit expecting the Age field to be refused: the form stays put and says why. */
+  async submitCreateExpectingAgeError(): Promise<void> {
+    await this.page.getByRole('button', { name: 'Add Patient', exact: true }).click()
+    await expect(this.page.getByRole('alert').filter({ hasText: 'Age must be a whole number between 0 and 120.' })).toBeVisible()
+    await expect(this.page.getByLabel('Age (years)', { exact: true })).toHaveAttribute('aria-invalid', 'true')
+    await expect(this.page).toHaveURL(/\/patients\/new$/)
   }
 
   async expectDuplicateWarning(existingPatientName: string): Promise<void> {

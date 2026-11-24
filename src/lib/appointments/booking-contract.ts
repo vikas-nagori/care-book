@@ -1,12 +1,16 @@
 import type { AppointmentRecurrence } from './appointment-creation.ts'
 import { generateRecurringAppointmentDates } from './recurrence.ts'
 import type { ReferralSource } from '../supabase/types.ts'
+import { MAX_PATIENT_AGE } from '../patients/age.ts'
 
 export type NewPatientInput = {
   name: string
   phone: string
   email: string | null
-  dob: string | null
+  /** Legacy: the booking form now sends age_years; still accepted from older cached PWA bundles. */
+  dob?: string | null
+  /** Whole years. The server stamps age_recorded_on with the clinic's today. */
+  age_years?: number | null
   gender: string | null
   address: string | null
   medical_history: string | null
@@ -66,12 +70,14 @@ function parsePatient(value: unknown): NewPatientInput | null {
   const fields = { email: 254, dob: 10, gender: 50, address: 2000, medical_history: 10000, notes: 10000, referral_other: 2000 }
   for (const [key, max] of Object.entries(fields)) if (!text(value[key], max)) return null
   if (value.dob && !date(value.dob)) return null
+  if (value.age_years != null && !(Number.isInteger(value.age_years) && (value.age_years as number) >= 0 && (value.age_years as number) <= MAX_PATIENT_AGE)) return null
   if (!id(value.referred_by_doctor_id) || !id(value.referred_by_patient_id)) return null
   const sources: unknown[] = [null, undefined, 'walk_in', 'doctor', 'google', 'patient', 'other']
   if (!sources.includes(value.referral_source)) return null
   return {
     name: value.name.trim(), phone: value.phone.trim(), email: (value.email as string) || null,
-    dob: (value.dob as string) || null, gender: (value.gender as string) || null,
+    dob: (value.dob as string) || null, age_years: (value.age_years as number | null | undefined) ?? null,
+    gender: (value.gender as string) || null,
     address: (value.address as string) || null, medical_history: (value.medical_history as string) || null,
     notes: (value.notes as string) || null, referral_source: (value.referral_source as ReferralSource) || null,
     referred_by_doctor_id: normalizedId(value.referred_by_doctor_id),

@@ -10,6 +10,8 @@ const patient = {
   name: 'Asha Patel',
   phone: '9876543210',
   dob: '1980-06-07',
+  age_years: null,
+  age_recorded_on: null,
   gender: null,
   email: null,
   address: 'Example address',
@@ -42,6 +44,20 @@ test('rejects malformed RPC payloads rather than rendering a partial workspace',
     appointments: [{ ...appointment, patient_name: null }],
     appointment_types: [type],
   }), null)
+})
+
+test('a shared patient carries an entered age, and a database without the age columns reads as unknown', () => {
+  const aged = { ...patient, dob: null, age_years: 46, age_recorded_on: '2026-11-24' }
+  assert.deepEqual(projectExternalWorkspace({ patients: [aged], appointments: [], appointment_types: [] }),
+    { patients: [aged], appointments: [], appointment_types: [] })
+  const legacy: Record<string, unknown> = { ...patient }
+  delete legacy.age_years
+  delete legacy.age_recorded_on
+  assert.deepEqual(projectExternalWorkspace({ patients: [legacy], appointments: [], appointment_types: [] }),
+    { patients: [patient], appointments: [], appointment_types: [] })
+  for (const bad of [{ age_years: -1 }, { age_years: 4.5 }, { age_years: '46' }, { age_recorded_on: '24-11-2026' }]) {
+    assert.equal(projectExternalWorkspace({ patients: [{ ...aged, ...bad }], appointments: [], appointment_types: [] }), null)
+  }
 })
 
 test('an admin-set duration beyond the booking limit still displays instead of hiding the calendar', () => {

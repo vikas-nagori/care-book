@@ -23,13 +23,13 @@ import {
 import { ReferralFields, useReferralSelection, type ReferralPatientOption } from '@/components/referral/referral-fields'
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
+import { ageFieldsForSave, parseAgeInput, patientAge, type PatientAgeFields } from '@/lib/patients/age'
 import type { Doctor, Patient } from '@/lib/supabase/types'
 
 type PatientFormValues = {
   name: string
   phone: string | null
   email: string | null
-  dob: string | null
   gender: string | null
   address: string | null
   medical_history: string | null
@@ -38,7 +38,8 @@ type PatientFormValues = {
   referred_by_doctor_id: string | null
   referred_by_patient_id: string | null
   referral_other: string | null
-}
+  // The legacy `dob` is never written: an edit that leaves the shown age alone omits these keys.
+} & Partial<PatientAgeFields>
 
 export function PatientForm({
   patient,
@@ -54,6 +55,8 @@ export function PatientForm({
   const supabase = createClient()
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
+  const [ageError, setAgeError] = useState<string | null>(null)
+  const initialAge = patient ? patientAge(patient) : null
   // Synchronous re-entrancy guard: blocks a second save (main submit or the
   // "Add anyway" confirm) while one insert/update is already in flight.
   const savingRef = useRef(false)
@@ -108,6 +111,12 @@ export function PatientForm({
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const formData = new FormData(e.currentTarget)
+    const ageInput = parseAgeInput(formData.get('age') as string | null)
+    if (!ageInput.ok) {
+      setAgeError(ageInput.message)
+      return
+    }
+    setAgeError(null)
     setLoading(true)
 
     try {
@@ -121,13 +130,13 @@ export function PatientForm({
         name: formData.get('name') as string,
         phone: (formData.get('phone') as string) || null,
         email: (formData.get('email') as string) || null,
-        dob: (formData.get('dob') as string) || null,
         gender: (formData.get('gender') as string) || null,
         address: (formData.get('address') as string) || null,
         medical_history: (formData.get('medical_history') as string) || null,
         notes: (formData.get('notes') as string) || null,
         referral_source: referral.referralSource || null,
         ...resolvedReferral,
+        ...ageFieldsForSave(ageInput.age, patient ?? null),
       }
 
       // On create, warn if an existing patient in this clinic already has this phone.
@@ -194,8 +203,21 @@ export function PatientForm({
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="dob">Date of Birth</Label>
-              <Input id="dob" name="dob" type="date" defaultValue={patient?.dob ?? ''} />
+              <Label htmlFor="age">Age (years)</Label>
+              {/* Text + numeric keypad rather than type="number": blank, letters and fractions all
+                  reach parseAgeInput, so every bad value gets the same message. */}
+              <Input
+                id="age"
+                name="age"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={3}
+                defaultValue={initialAge ?? ''}
+                aria-invalid={ageError ? true : undefined}
+                aria-describedby={ageError ? 'age-error' : undefined}
+                onChange={() => { if (ageError) setAgeError(null) }}
+              />
+              {ageError && <p id="age-error" role="alert" className="text-sm text-destructive">{ageError}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="gender">Gender</Label>

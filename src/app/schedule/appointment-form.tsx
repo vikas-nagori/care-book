@@ -14,6 +14,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select'
 import { ReferralFields, useReferralSelection } from '@/components/referral/referral-fields'
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
+import { parseAgeInput } from '@/lib/patients/age'
 import { cn } from '@/lib/utils'
 import {
   buildPatientInsertData,
@@ -587,6 +588,12 @@ export function AppointmentForm({
       }
 
       if (!appointment && isCreatingPatient) {
+        const ageInput = parseAgeInput(patientDraft.age)
+        if (!ageInput.ok) {
+          reportBookingEvent({ correlationId, phase: 'rejected', errorCode: 'PATIENT_INVALID_AGE' })
+          toast({ title: 'Check the age', description: ageInput.message, variant: 'destructive' })
+          return
+        }
         const basePatientData = buildPatientInsertData(patientDraft)
 
         if (!basePatientData.name || !basePatientData.phone) {
@@ -1101,12 +1108,14 @@ export function AppointmentForm({
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="new_patient_dob">Date of Birth</Label>
+                <Label htmlFor="new_patient_age">Age (years)</Label>
                 <Input
-                  id="new_patient_dob"
-                  type="date"
-                  value={patientDraft.dob}
-                  onChange={(e) => updatePatientDraft('dob', e.target.value)}
+                  id="new_patient_age"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  maxLength={3}
+                  value={patientDraft.age}
+                  onChange={(e) => updatePatientDraft('age', e.target.value)}
                 />
               </div>
               <div className="space-y-2">

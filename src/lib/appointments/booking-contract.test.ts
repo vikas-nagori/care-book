@@ -51,6 +51,26 @@ test('requires one patient source and validates optional inline-patient fields',
   assert.equal(parseBookingRequest({ ...request(), input: { ...input, newPatient: { ...newPatient, referral_source: 'invalid' } } }).success, false)
 })
 
+test('an inline patient age is optional and must be whole years from 0 to 120', () => {
+  const input: Omit<ReturnType<typeof request>['input'], 'patientId'> & { patientId?: string } = { ...request().input }
+  delete input.patientId
+  const newPatient = { name: 'Patient', phone: '123' }
+  const parsed = (extra: Record<string, unknown>) => parseBookingRequest({ ...request(), input: { ...input, newPatient: { ...newPatient, ...extra } } })
+  const blank = parsed({})
+  assert.equal(blank.success, true)
+  if (blank.success) assert.equal(blank.request.input.newPatient?.age_years, null)
+  for (const age of [0, 42, 120]) {
+    const result = parsed({ age_years: age })
+    assert.equal(result.success, true, String(age))
+    if (result.success) assert.equal(result.request.input.newPatient?.age_years, age)
+  }
+  for (const age of [-1, 121, 4.5, '42']) assert.equal(parsed({ age_years: age }).success, false, String(age))
+  // An older cached bundle still sends a date of birth.
+  const legacy = parsed({ dob: '1990-03-10' })
+  assert.equal(legacy.success, true)
+  if (legacy.success) assert.equal(legacy.request.input.newPatient?.dob, '1990-03-10')
+})
+
 test('parses a separate external profile and rejects multiple assignees or inline patient creation', () => {
   const base = request()
   const externalProfileId = 'AB222222-2222-4222-8222-222222222222'

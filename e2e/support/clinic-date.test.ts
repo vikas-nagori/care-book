@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { clinicDate, upcomingClinicSlot } from './clinic-date.ts'
+import { clinicDate, upcomingClinicSlot, wholeYearsSince } from './clinic-date.ts'
 
 test('clinicDate uses the Asia/Kolkata calendar date near midnight IST', () => {
   const halfPastMidnightIst = new Date('2026-07-19T19:00:00.000Z')
@@ -16,4 +16,10 @@ test('upcomingClinicSlot rolls a future fixture across the clinic-day boundary',
     date: '2026-07-20',
     time: '05:59',
   })
+})
+
+test('wholeYearsSince counts a year only once its anniversary is reached', () => {
+  assert.equal(wholeYearsSince('1990-03-10', '2026-03-09'), 35)
+  assert.equal(wholeYearsSince('1990-03-10', '2026-03-10'), 36)
+  assert.equal(wholeYearsSince('2030-01-01', '2026-11-24'), 0)
 })
