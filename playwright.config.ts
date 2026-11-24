@@ -22,7 +22,11 @@ export default defineConfig({
   forbidOnly: CI,
   retries: CI ? 1 : 0,
   workers: 1,
-  reporter: CI ? [['html', { open: 'never' }], ['github']] : [['html', { open: 'never' }], ['list']],
+  // CI also writes a JSON report: the workflow turns it into per-project test time on the job summary
+  // (scripts/e2e-timing-summary.mjs), which is what the CI split is weighted by.
+  reporter: CI
+    ? [['html', { open: 'never' }], ['github'], ['json', { outputFile: 'test-results/e2e-results.json' }]]
+    : [['html', { open: 'never' }], ['list']],
 
   use: {
     baseURL: 'http://localhost:3000',
@@ -85,6 +89,19 @@ export default defineConfig({
       testMatch: ['shared/**/*.spec.ts', 'admin/**/*.spec.ts'],
       use: { ...devices['Pixel 5'], storageState: ADMIN.storageState },
     },
+
+    // iPhone (WebKit). Every iPhone runs the app on WebKit, which the Pixel 5 projects never
+    // exercise. Runs only tests tagged @ios (route smoke, minimal input, fault injection and the
+    // phone lifecycle cases), signed in as the clinic admin. CI runs this project in its own
+    // `e2e-ios` job, the only one that installs WebKit, in parallel with the shards
+    // (E2E_SKIP_IOS keeps it out of the sharded run).
+    ...(process.env.E2E_SKIP_IOS === '1' ? [] : [{
+      name: 'mobile-ios',
+      dependencies: ['setup'],
+      testMatch: ['shared/**/*.spec.ts', 'admin/**/*.spec.ts'],
+      grep: /@ios/,
+      use: { ...devices['iPhone 14'], storageState: ADMIN.storageState },
+    }]),
 
     // Clinic staff — no Billing, narrowed appointment visibility. Runs shared + staff specs.
     {

@@ -1,4 +1,4 @@
-import { SEED } from './ids.ts'
+import { SEED, SPARSE_NAMES } from './ids.ts'
 
 export type RouteAccessGroup = 'shared' | 'admin' | 'platform' | 'public' | 'external'
 
@@ -28,19 +28,19 @@ export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
   {
     pattern: '/external',
     access: 'external',
-    owner: 'e2e/external/coordination.spec.ts',
+    owner: 'e2e/external/routes.spec.ts',
     cases: [{ requestPath: '/external', expected: { kind: 'render', pathname: '/external' }, landmark: { kind: 'heading', name: 'Schedule' } }],
   },
   {
     pattern: '/external/patients',
     access: 'external',
-    owner: 'e2e/external/coordination.spec.ts',
+    owner: 'e2e/external/routes.spec.ts',
     cases: [{ requestPath: '/external/patients', expected: { kind: 'render', pathname: '/external/patients' }, landmark: { kind: 'heading', name: 'Patients' } }],
   },
   {
     pattern: '/external/account',
     access: 'external',
-    owner: 'e2e/external/coordination.spec.ts',
+    owner: 'e2e/external/routes.spec.ts',
     cases: [{ requestPath: '/external/account', expected: { kind: 'render', pathname: '/external/account' }, landmark: { kind: 'heading', name: 'Your account' } }],
   },
   {
@@ -69,6 +69,11 @@ export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
       requestPath: `/patients/${SEED.patientAsha}`,
       expected: { kind: 'render', pathname: `/patients/${SEED.patientAsha}` },
       landmark: { kind: 'text', name: 'Asha Rao' },
+    }, {
+      // Sparse fixture: every optional column NULL (plan F3).
+      requestPath: `/patients/${SEED.patientSparse}`,
+      expected: { kind: 'render', pathname: `/patients/${SEED.patientSparse}` },
+      landmark: { kind: 'text', name: SPARSE_NAMES.patient },
     }],
   },
   {
@@ -78,6 +83,10 @@ export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
     cases: [{
       requestPath: `/patients/${SEED.patientAsha}/edit`,
       expected: { kind: 'render', pathname: `/patients/${SEED.patientAsha}/edit` },
+      landmark: { kind: 'heading', name: 'Edit Patient' },
+    }, {
+      requestPath: `/patients/${SEED.patientSparse}/edit`,
+      expected: { kind: 'render', pathname: `/patients/${SEED.patientSparse}/edit` },
       landmark: { kind: 'heading', name: 'Edit Patient' },
     }],
   },
@@ -100,6 +109,11 @@ export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
     cases: [{
       requestPath: `/schedule/${SEED.appointmentShared}`,
       expected: { kind: 'render', pathname: `/schedule/${SEED.appointmentShared}` },
+      landmark: { kind: 'text', name: 'Appointment' },
+    }, {
+      // Completed, notes NULL, fee NULL, with an all-NULL session note.
+      requestPath: `/schedule/${SEED.appointmentSparse}`,
+      expected: { kind: 'render', pathname: `/schedule/${SEED.appointmentSparse}` },
       landmark: { kind: 'text', name: 'Appointment' },
     }],
   },
@@ -133,6 +147,11 @@ export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
       requestPath: `/billing/packages/${SEED.packageAsha}`,
       expected: { kind: 'render', pathname: `/billing/packages/${SEED.packageAsha}` },
       landmark: { kind: 'text', name: '10-Session Physiotherapy Package' },
+    }, {
+      // Legacy shape: billing_version 1, no appointment type, no start date.
+      requestPath: `/billing/packages/${SEED.packageSparse}`,
+      expected: { kind: 'render', pathname: `/billing/packages/${SEED.packageSparse}` },
+      landmark: { kind: 'text', name: SPARSE_NAMES.packageLegacy },
     }],
   },
   {
@@ -143,6 +162,10 @@ export const PAGE_ROUTE_MANIFEST: readonly PageRouteDeclaration[] = [
       requestPath: `/billing/payment-due/${SEED.patientPaymentDue}`,
       expected: { kind: 'render', pathname: `/billing/payment-due/${SEED.patientPaymentDue}` },
       landmark: { kind: 'text', name: 'Meera Payment Due' },
+    }, {
+      requestPath: `/billing/payment-due/${SEED.patientSparse}`,
+      expected: { kind: 'render', pathname: `/billing/payment-due/${SEED.patientSparse}` },
+      landmark: { kind: 'text', name: SPARSE_NAMES.patient },
     }],
   },
   {

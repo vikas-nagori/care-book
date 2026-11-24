@@ -58,6 +58,15 @@ export function useReferralSelection(initial?: {
   const [referrerPatientId, setReferrerPatientId] = useState<string | null>(initial?.referrerPatientId ?? null)
   const [referralOther, setReferralOther] = useState(initial?.other ?? '')
 
+  // A stored "referred by doctor/patient" whose referrer was deleted since (the FK is ON DELETE
+  // SET NULL, so the source stays and the id is gone). Such a record must stay editable: keeping
+  // that source with no referrer is saved as it is, rather than demanding a pick (G-13).
+  const danglingSource: ReferralSource | null =
+    (initial?.source === 'patient' && !initial.referrerPatientId) ||
+    (initial?.source === 'doctor' && !initial.doctorId)
+      ? initial.source
+      : null
+
   // Detail only belongs to its own source (the database enforces this too), so
   // switching away from a source drops what was entered for it.
   function handleReferralSourceChange(value: string) {
@@ -91,6 +100,7 @@ export function useReferralSelection(initial?: {
 
     if (referralSource === 'patient') {
       if (!referrerPatientId) {
+        if (danglingSource === 'patient') return none
         toast({ title: 'Referring patient required', description: 'Search for and select the patient who referred them.', variant: 'destructive' })
         return null
       }
@@ -142,6 +152,7 @@ export function useReferralSelection(initial?: {
     }
 
     if (!selectedDoctorId) {
+      if (danglingSource === 'doctor') return { doctorId: null }
       toast({ title: 'Doctor required', description: 'Select or add the referring doctor.', variant: 'destructive' })
       return null
     }
@@ -150,6 +161,7 @@ export function useReferralSelection(initial?: {
 
   return {
     referralSource,
+    danglingSource,
     selectedDoctorId,
     isCreatingDoctor,
     newDoctorName,
@@ -185,6 +197,7 @@ export function ReferralFields({
 }) {
   const {
     referralSource,
+    danglingSource,
     selectedDoctorId,
     isCreatingDoctor,
     newDoctorName,
@@ -236,6 +249,11 @@ export function ReferralFields({
             onCreate={startCreatingDoctor}
             createLabel={(q) => `Add doctor “${q}”`}
           />
+          {danglingSource === 'doctor' && !selectedDoctorId && !isCreatingDoctor && (
+            <p className="text-sm text-muted-foreground">
+              The referring doctor is no longer on file. Pick or add another, or save without one.
+            </p>
+          )}
 
           {isCreatingDoctor && (
             <Card>
@@ -289,6 +307,11 @@ export function ReferralFields({
             searchPlaceholder="Search patient name…"
             emptyText="No matching patient."
           />
+          {danglingSource === 'patient' && !referrerPatientId && (
+            <p className="text-sm text-muted-foreground">
+              The referring patient is no longer on file. Pick another, or save without one.
+            </p>
+          )}
         </div>
       )}
 

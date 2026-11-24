@@ -171,6 +171,11 @@ function DashboardNewAppointment({
               defaultDate={defaultDate}
               onSuccess={() => {
                 setOpen(false)
+                // A booking may have created its patient inline: drop the cached options so the
+                // next open lists that patient instead of offering to create it again (G-17b).
+                requestIdRef.current += 1
+                requestInFlightRef.current = false
+                setOptions({ status: 'idle' })
                 router.refresh()
               }}
             />

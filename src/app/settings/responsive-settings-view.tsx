@@ -29,7 +29,6 @@ import { UsersList } from './users-list'
 type ResponsiveSettingsViewProps = {
   accessLevel: 'admin' | 'profile_only'
   profile: Profile
-  logoutAction: () => Promise<void>
   appointmentTypes?: AppointmentType[]
   settings?: GlobalSettings | null
   packageTemplates?: PackageTemplate[]
@@ -62,7 +61,6 @@ function useSettingsDesktopLayout() {
 export function SettingsResponsiveView({
   accessLevel,
   profile,
-  logoutAction,
   appointmentTypes = [],
   settings = null,
   packageTemplates = [],
@@ -79,7 +77,7 @@ export function SettingsResponsiveView({
     return (
       <div className="hidden space-y-6 md:block">
         <GuidedTourLauncher />
-        <AccountSummary profile={profile} logoutAction={logoutAction} />
+        <AccountSummary profile={profile} />
         <ConnectedApps apps={connectedApps} revokeAction={revokeConnectedAppAction} />
         {accessLevel === 'admin' && (
           <div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
@@ -109,7 +107,6 @@ export function SettingsResponsiveView({
       <MobileSettingsView
         accessLevel={accessLevel}
         profile={profile}
-        logoutAction={logoutAction}
         appointmentTypes={appointmentTypes}
         settings={settings}
         packageTemplates={packageTemplates}

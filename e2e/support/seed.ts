@@ -15,7 +15,7 @@ import {
   STAFF2,
   type Account,
 } from './accounts.ts'
-import { SEED } from './ids.ts'
+import { SEED, SPARSE_NAMES, SPARSE_PROFILES } from './ids.ts'
 import { clinicDate, upcomingClinicSlot } from './clinic-date.ts'
 
 async function upsertClinic(db: SupabaseClient, clinic: { id: string; name: string }) {
@@ -362,6 +362,174 @@ async function seedPendingOnboardingRequest(db: SupabaseClient) {
   if (error) throw new Error(`seed pending onboarding request: ${error.message}`)
 }
 
+/** Create-or-find an auth user that may have no email (found by its mobile number then). */
+async function ensureSparseAuthUser(db: SupabaseClient, input: { email: string | null; mobile: string }): Promise<string> {
+  const { data, error } = await db.auth.admin.createUser({
+    ...(input.email ? { email: input.email, email_confirm: true } : {}),
+    phone: input.mobile,
+    phone_confirm: true,
+    password: PASSWORD,
+  })
+  if (!error && data.user) return data.user.id
+  for (let page = 1; page <= 20; page++) {
+    const { data: list, error: listError } = await db.auth.admin.listUsers({ page, perPage: 200 })
+    if (listError) throw new Error(`listUsers: ${listError.message}`)
+    const found = list.users.find((user) => user.phone === input.mobile
+      || (input.email !== null && user.email?.toLowerCase() === input.email))
+    if (found) return found.id
+    if (list.users.length < 200) break
+  }
+  throw new Error(`could not create or find sparse auth user ${input.mobile}: ${error?.message ?? 'unknown'}`)
+}
+
+/**
+ * Plan F3: rows whose optional columns are all NULL, so route smoke and every list renders them.
+ * Each is checked against its table's constraints and upserted by a fixed ID (see ids.ts). Ledger
+ * rows (payments, packages) cannot be rewritten once posted, so they are insert-if-missing.
+ */
+async function seedSparseFixtures(db: SupabaseClient, accountIds: ReadonlyMap<string, string>) {
+  const adminId = accountIds.get(ADMIN.slug)!
+  const externalId = accountIds.get(EXTERNAL.slug)!
+  const sharedType = await appointmentTypeId(db, CLINIC_A.id, true)
+  const clinicBType = await appointmentTypeId(db, CLINIC_B.id, true)
+  const fail = (what: string, error: { message: string } | null) => {
+    if (error) throw new Error(`seed sparse ${what}: ${error.message}`)
+  }
+
+  fail('doctor', (await db.from('doctors').upsert({
+    id: SEED.doctorSparse, clinic_id: CLINIC_A.id, name: SPARSE_NAMES.doctor, specialty: null, address: null,
+  }, { onConflict: 'id' })).error)
+
+  fail('patients', (await db.from('patients').upsert([
+    { id: SEED.patientSparse, clinic_id: CLINIC_A.id, name: SPARSE_NAMES.patient },
+    {
+      id: SEED.patientReferredByDoctor, clinic_id: CLINIC_A.id, name: SPARSE_NAMES.patientReferredByDoctor,
+      referral_source: 'doctor', referred_by_doctor_id: SEED.doctorSparse,
+    },
+    { id: SEED.patientExternalSparse, clinic_id: CLINIC_A.id, name: SPARSE_NAMES.patientExternal },
+  ], { onConflict: 'id' })).error)
+
+  fail('appointment', (await db.from('appointments').upsert({
+    id: SEED.appointmentSparse,
+    clinic_id: CLINIC_A.id,
+    patient_id: SEED.patientSparse,
+    appointment_type_id: sharedType,
+    type: 'Clinic',
+    type_is_shared: true,
+    date: clinicDate(-120),
+    time: '10:00',
+    status: 'completed',
+    payment_status: 'unpaid',
+    fee: null,
+    notes: null,
+    created_by: adminId,
+    assigned_to: null,
+  }, { onConflict: 'id' })).error)
+
+  fail('session note', (await db.from('session_notes').upsert({
+    id: SEED.sessionNoteSparse, appointment_id: SEED.appointmentSparse,
+    subjective: null, objective: null, assessment: null, plan: null, exercises_prescribed: null,
+  }, { onConflict: 'id' })).error)
+
+  fail('treatment plan', (await db.from('treatment_plans').upsert({
+    id: SEED.treatmentPlanSparse, clinic_id: CLINIC_A.id, patient_id: SEED.patientSparse,
+    diagnosis: SPARSE_NAMES.treatmentPlanDiagnosis, start_date: clinicDate(-120),
+    goals: null, expected_end_date: null, status: 'active',
+  }, { onConflict: 'id' })).error)
+
+  // billing_version 1 is the pre-ledger shape: no appointment type, no start date.
+  fail('legacy package', (await db.from('packages').upsert({
+    id: SEED.packageSparse, clinic_id: CLINIC_A.id, patient_id: SEED.patientSparse,
+    name: SPARSE_NAMES.packageLegacy, total_sessions: 4, used_sessions: 0, total_amount: 2000,
+    per_session_amount: 500, paid_amount: 0, payment_timing: 'prepaid', status: 'active',
+    appointment_type_id: null, starts_on: null, billing_version: 1,
+  }, { onConflict: 'id', ignoreDuplicates: true })).error)
+
+  fail('payment', (await db.from('payments').upsert({
+    id: SEED.paymentSparse, clinic_id: CLINIC_A.id, patient_id: SEED.patientSparse,
+    package_id: null, appointment_id: null, amount: 500, payment_method: 'Cash',
+    date: clinicDate(-120), notes: null, funding_scope: 'ordinary', status: 'posted', billing_version: 2,
+  }, { onConflict: 'id', ignoreDuplicates: true })).error)
+
+  fail('Clinic B package', (await db.from('packages').upsert({
+    id: SEED.packageClinicB, clinic_id: CLINIC_B.id, patient_id: SEED.patientClinicB,
+    name: SPARSE_NAMES.packageClinicB, total_sessions: 5, used_sessions: 0, total_amount: 4000,
+    per_session_amount: 800, paid_amount: 0, payment_timing: 'prepaid', status: 'active',
+    appointment_type_id: clinicBType, starts_on: clinicDate(-2), billing_version: 2,
+  }, { onConflict: 'id', ignoreDuplicates: true })).error)
+
+  fail('reminder', (await db.from('reminders').upsert({
+    id: SEED.reminderSparse, clinic_id: CLINIC_A.id, title: SPARSE_NAMES.reminderTitle, date: clinicDate(0),
+    time: null, patient_id: null, contact_name: null, phone: null, notes: null, status: 'pending',
+  }, { onConflict: 'id' })).error)
+
+  fail('temporary staff', (await db.from('external_staff').upsert({
+    id: SEED.externalStaffSparse, clinic_id: CLINIC_A.id, name: SPARSE_NAMES.externalStaff,
+    phone: SPARSE_NAMES.externalStaffPhone, email: null, notes: null, status: 'active',
+  }, { onConflict: 'id' })).error)
+
+  fail('invites', (await db.from('user_invites').upsert([
+    {
+      id: SEED.inviteMobileOnly, clinic_id: CLINIC_A.id, email: null, role: 'staff', status: 'pending',
+      auth_user_id: null, invited_by: adminId, full_name: SPARSE_NAMES.inviteMobileOnly.fullName,
+      mobile_number: SPARSE_NAMES.inviteMobileOnly.mobile, revoked_at: null, accepted_at: null,
+    },
+    {
+      id: SEED.inviteLegacy, clinic_id: CLINIC_A.id, email: SPARSE_NAMES.inviteLegacy.email, role: 'staff',
+      status: 'pending', auth_user_id: null, invited_by: adminId, full_name: null, mobile_number: null,
+      revoked_at: null, accepted_at: null,
+    },
+    {
+      id: SEED.inviteRevoked, clinic_id: CLINIC_A.id, email: SPARSE_NAMES.inviteRevoked.email, role: 'staff',
+      status: 'revoked', auth_user_id: null, invited_by: adminId, full_name: SPARSE_NAMES.inviteRevoked.fullName,
+      mobile_number: SPARSE_NAMES.inviteRevoked.mobile, revoked_at: new Date().toISOString(), accepted_at: null,
+    },
+  ], { onConflict: 'id' })).error)
+
+  for (const profile of Object.values(SPARSE_PROFILES)) {
+    const id = await ensureSparseAuthUser(db, profile)
+    fail(`profile ${profile.mobile}`, (await db.from('profiles').upsert({
+      id, email: profile.email, role: 'staff', clinic_id: CLINIC_A.id, status: 'active',
+      full_name: profile.fullName, mobile_number: profile.mobile,
+    }, { onConflict: 'id' })).error)
+  }
+
+  fail('onboarding request', (await db.from('clinic_onboarding_requests').upsert({
+    id: SEED.onboardingPendingSparse, clinic_name: SPARSE_NAMES.onboardingClinic,
+    owner_full_name: 'Sparse Pending Owner', owner_email: SPARSE_NAMES.onboardingOwnerEmail,
+    owner_mobile_number: '9000000041', clinic_phone: null, clinic_address: null, status: 'pending',
+    approved_by: null, approved_at: null, rejected_by: null, rejected_at: null, rejection_reason: null,
+    clinic_id: null,
+  }, { onConflict: 'id' })).error)
+
+  // External Staff rows go through the same admin session the coordination fixture uses: sharing
+  // needs a real clinic admin, and the assignment guard checks the grant.
+  const actor = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  const login = await actor.auth.signInWithPassword({ email: ADMIN.email, password: PASSWORD })
+  if (login.error) throw new Error(`seed sparse external admin login: ${login.error.message}`)
+  try {
+    fail('external grant', (await actor.rpc('replace_patient_external_access', {
+      p_patient_id: SEED.patientExternalSparse, p_profile_ids: [externalId],
+    })).error)
+    const external = (id: string, date: string, time: string, status: string) => ({
+      id, clinic_id: CLINIC_A.id, patient_id: SEED.patientExternalSparse, date, time,
+      duration_minutes: 45, appointment_type_id: sharedType, type: 'Clinic', status, fee: null,
+      notes: null, external_profile_id: externalId, assigned_to: null, external_staff_id: null,
+    })
+    fail('external appointments', (await actor.from('appointments').upsert([
+      // 07:00 is the first hour of the schedule grid. Before ~07:00 IST it can be the admin's "Up next";
+      // no spec asserts that card's content.
+      external(SEED.appointmentExternalSparse, clinicDate(0), '07:00', 'scheduled'),
+      external(SEED.externalApptYesterday, clinicDate(-1), '10:00', 'scheduled'),
+      external(SEED.externalApptCompleted, clinicDate(-2), '10:00', 'completed'),
+    ], { onConflict: 'id' })).error)
+  } finally {
+    await actor.auth.signOut({ scope: 'local' })
+  }
+}
+
 /** Seed the fixed local baseline used by read-only and dynamic-route specs. Idempotent. */
 export async function seedDatabase(): Promise<void> {
   const db = adminClient()
@@ -378,4 +546,5 @@ export async function seedDatabase(): Promise<void> {
   await seedExternalCoordination(db, accountIds)
   await seedPayment(db)
   await seedPendingOnboardingRequest(db)
+  await seedSparseFixtures(db, accountIds)
 }

@@ -14,6 +14,7 @@ type ScheduleAppointmentRow = Pick<
   'id' | 'patient_id' | 'date' | 'time' | 'duration_minutes' | 'type' | 'type_is_shared' | 'status'
 > & {
   payment_status?: Appointment['payment_status']
+  fee?: Appointment['fee']
   assigned_to?: string | null
   external_staff_id?: string | null
   external_profile_id?: string | null
@@ -40,7 +41,7 @@ export default async function SchedulePage({
   let appointmentsQuery = access.canViewPaymentSignals
     ? supabase
         .from('appointments')
-        .select('id, patient_id, date, time, duration_minutes, type, type_is_shared, status, payment_status, assigned_to, external_staff_id, external_profile_id, external_profile:profiles!appointments_external_profile_id_fkey(id, full_name, email), patient:patients(id, name, phone), external_staff:external_staff(id, clinic_id, name, phone, status, linked_profile_id)')
+        .select('id, patient_id, date, time, duration_minutes, type, type_is_shared, status, payment_status, fee, assigned_to, external_staff_id, external_profile_id, external_profile:profiles!appointments_external_profile_id_fkey(id, full_name, email), patient:patients(id, name, phone), external_staff:external_staff(id, clinic_id, name, phone, status, linked_profile_id)')
         .gte('date', rangeStart)
         .lte('date', rangeEnd)
         .order('date')

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { validateBillingEntry, validateReasonedMutation, validateRecordPayment } from './mutations.ts'
+import { PATIENT_DELETED_ERROR_CODE, PATIENT_DELETED_MESSAGE, callBillingRpc, explainPatientRefusal, validateBillingEntry, validateReasonedMutation, validateRecordPayment } from './mutations.ts'
 
 test('a standalone payment is always ordinary-scoped with no package', () => {
   const result = validateRecordPayment({ patientId: 'p1', amount: 500, paymentMethod: 'cash', date: '2026-08-15', notes: 'session fee' })
@@ -56,4 +56,64 @@ test('a refund requires a positive amount, a method and a date', () => {
   const result = validateReasonedMutation('record_refund', { entityId: 'pay-1', reason: 'Overcharged', amount: 500, refundMethod: '', refundDate: '2026-08-15' })
   assert.equal(result.ok, false)
   if (!result.ok) assert.equal(result.errorCode, 'REFUND_METHOD_REQUIRED')
+})
+
+test('a valid request key selects the idempotent overload; anything else is left out (G-14)', () => {
+  const key = '6f1c2a4e-8b7d-4c3a-9e2f-1a2b3c4d5e6f'
+  const payment = validateRecordPayment({ patientId: 'p1', amount: 500, paymentMethod: 'cash', date: '2026-08-15', notes: null, requestKey: key })
+  assert.equal(payment.ok && payment.params.p_request_id, key)
+  const entry = validateBillingEntry({ patientId: 'p1', mode: 'package_with_payment', packageName: 'Pack', packageTotalSessions: 2, packagePerSessionAmount: 500, appointmentTypeId: 't1', packageStartsOn: '2026-08-15', paymentAmount: 1000, paymentMethod: 'cash', paymentDate: '2026-08-15', requestKey: key })
+  assert.equal(entry.ok && entry.params.p_request_id, key)
+  for (const requestKey of [undefined, '', 'not-a-uuid', `${key}'; drop table payments; --`]) {
+    const result = validateRecordPayment({ patientId: 'p1', amount: 500, paymentMethod: 'cash', date: '2026-08-15', notes: null, requestKey })
+    assert.equal(result.ok && 'p_request_id' in result.params, false, `requestKey ${JSON.stringify(requestKey)}`)
+  }
+})
+
+test('callBillingRpc retries without p_request_id when the overload is not deployed yet', async () => {
+  const calls: Record<string, unknown>[] = []
+  const supabase = {
+    rpc: async (_name: string, params: Record<string, unknown>) => {
+      calls.push(params)
+      return 'p_request_id' in params
+        ? { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } }
+        : { data: { success: true, paymentId: 'pay-1' }, error: null }
+    },
+  } as unknown as Parameters<typeof callBillingRpc>[0]
+  const result = await callBillingRpc(supabase, 'record_payment_v2', { p_patient_id: 'p1', p_request_id: 'k' }, {})
+  assert.deepEqual(result, { success: true, paymentId: 'pay-1' })
+  assert.deepEqual(calls, [{ p_patient_id: 'p1', p_request_id: 'k' }, { p_patient_id: 'p1' }])
+})
+
+test('callBillingRpc does not retry other errors', async () => {
+  let calls = 0
+  const supabase = {
+    rpc: async () => { calls++; return { data: null, error: { code: '42501', message: 'nope' } } },
+  } as unknown as Parameters<typeof callBillingRpc>[0]
+  const result = await callBillingRpc(supabase, 'record_payment_v2', { p_request_id: 'k' }, {})
+  assert.equal(result?.success, false)
+  assert.equal(calls, 1)
+})
+
+test('a patient refusal for a deleted patient says the patient was deleted (G-27)', async () => {
+  const refused = { success: false, errorCode: '42501', message: 'Selected patient does not belong to your clinic.' }
+  const deleted = await explainPatientRefusal(refused, 'p1', async () => false)
+  assert.equal(deleted?.errorCode, PATIENT_DELETED_ERROR_CODE)
+  assert.equal(deleted?.message, PATIENT_DELETED_MESSAGE)
+  assert.doesNotMatch(String(deleted?.message), /clinic/)
+
+  // Still visible (another clinic's id, or a role refusal) or the lookup failed: unchanged.
+  assert.equal(await explainPatientRefusal(refused, 'p1', async () => true), refused)
+  assert.equal(await explainPatientRefusal(refused, 'p1', async () => null), refused)
+})
+
+test('only a 42501 refusal triggers the patient lookup', async () => {
+  let lookups = 0
+  const lookup = async () => { lookups++; return false }
+  const ok = { success: true, paymentId: 'pay-1' }
+  const invalid = { success: false, errorCode: '22023', message: 'Choose a payment date.' }
+  assert.equal(await explainPatientRefusal(ok, 'p1', lookup), ok)
+  assert.equal(await explainPatientRefusal(invalid, 'p1', lookup), invalid)
+  assert.equal(await explainPatientRefusal(null, 'p1', lookup), null)
+  assert.equal(lookups, 0)
 })

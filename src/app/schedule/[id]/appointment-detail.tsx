@@ -1,7 +1,7 @@
 'use client'
 
 import { callServerAction } from '@/lib/actions/call-server-action'
-import { useRef, useState, useTransition } from 'react'
+import { Fragment, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Edit, FileText, IndianRupee, Loader2, MapPin, Phone, Trash2, User, UserRound } from 'lucide-react'
@@ -25,6 +25,7 @@ import { SessionNoteForm } from './session-note-form'
 import { deleteAppointment, updateAppointmentStatus } from '../actions'
 import { adjustAppointmentFee } from '@/app/billing/actions'
 import type { Appointment, AppointmentAssigneeOption, ExternalStaff, SessionNote } from '@/lib/supabase/types'
+import { sessionNoteSections } from '@/lib/schedule/session-note-sections'
 
 interface Props {
   appointment: Omit<Appointment, 'fee' | 'payment_status' | 'patient'> &
@@ -75,6 +76,9 @@ export function AppointmentDetail({
     ? appointment.external_profile?.full_name || appointment.external_profile?.email
     : appointment.external_staff?.name ?? (assignedProfile?.full_name || assignedProfile?.email)
   const assignmentRole = hasExternalAssignee ? 'External Staff' : appointment.external_staff ? 'Temporary Staff' : null
+  // Only the sections that have text, with a divider between them: a note cleared of every field
+  // shows no card, and the first section never sits under a divider (G-17g).
+  const noteSections = sessionNoteSections(sessionNote)
 
   function updateStatus(status: string) {
     if (status === appointment.status) return
@@ -344,54 +348,21 @@ export function AppointmentDetail({
         )}
       </div>
 
-      {sessionNote && (
+      {noteSections.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Session Notes</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {sessionNote.subjective && (
-              <div>
-                <p className="text-sm font-medium text-primary">Subjective</p>
-                <p className="text-sm whitespace-pre-wrap">{sessionNote.subjective}</p>
-              </div>
-            )}
-            {sessionNote.objective && (
-              <>
-                <Separator />
+            {noteSections.map((section, index) => (
+              <Fragment key={section.label}>
+                {index > 0 && <Separator />}
                 <div>
-                  <p className="text-sm font-medium text-primary">Objective</p>
-                  <p className="text-sm whitespace-pre-wrap">{sessionNote.objective}</p>
+                  <p className="text-sm font-medium text-primary">{section.label}</p>
+                  <p className="text-sm whitespace-pre-wrap">{section.text}</p>
                 </div>
-              </>
-            )}
-            {sessionNote.assessment && (
-              <>
-                <Separator />
-                <div>
-                  <p className="text-sm font-medium text-primary">Assessment</p>
-                  <p className="text-sm whitespace-pre-wrap">{sessionNote.assessment}</p>
-                </div>
-              </>
-            )}
-            {sessionNote.plan && (
-              <>
-                <Separator />
-                <div>
-                  <p className="text-sm font-medium text-primary">Plan</p>
-                  <p className="text-sm whitespace-pre-wrap">{sessionNote.plan}</p>
-                </div>
-              </>
-            )}
-            {sessionNote.exercises_prescribed && (
-              <>
-                <Separator />
-                <div>
-                  <p className="text-sm font-medium text-primary">Exercises Prescribed</p>
-                  <p className="text-sm whitespace-pre-wrap">{sessionNote.exercises_prescribed}</p>
-                </div>
-              </>
-            )}
+              </Fragment>
+            ))}
           </CardContent>
         </Card>
       )}

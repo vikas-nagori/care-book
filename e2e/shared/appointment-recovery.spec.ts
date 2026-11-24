@@ -221,3 +221,52 @@ test('an outage that outlasts automatic resends unlocks Retry same booking with 
   expect(rows[0]).toMatchObject({ date, time: '16:45:00', notes })
   expect(pageErrors).toEqual([])
 })
+
+// S-28: the session ended while the form was open (cookies gone). The booking API answers 401 and
+// the form must say to sign in again instead of hanging or claiming the booking is unconfirmed.
+test('a booking sent after the session ended asks to sign in again and leaves the form usable', async ({ page, factory }, testInfo) => {
+  testInfo.skip(testInfo.project.name !== 'admin-mobile', 'one signed-out booking proof is enough: admin-mobile')
+  // G-18: the middleware used to answer this signed-out POST with a redirect to /login, which the
+  // booking client (redirect: 'error') treated as a dropped connection: three resends, then
+  // "Booking not confirmed" for a booking that was never sent. It now answers the 401 JSON.
+  const guards = attachErrorGuards(page, {
+    expectedHttpErrors: [
+      { pathname: BOOKINGS, status: 401 },
+      { pathname: '/api/telemetry', status: 401 },
+      { pathname: '/api/telemetry', status: 429 },
+    ],
+    // The signed-out 401 is this test's expected outcome, but CI reports its console line with a
+    // source that neither filter above matches (the service worker is live in this spec). Allow
+    // exactly that 401 line from any source; every other console error still fails the test.
+    expectedFailures: [{
+      url: /^/,
+      text: /^Failed to load resource: the server responded with a status of 401 \(Unauthorized\)$/,
+    }],
+  })
+  const patient = await factory.createPatient()
+  const type = await factory.findAppointmentType(true)
+  const date = clinicDate(111)
+  const notes = factory.uniqueName('signed-out-booking')
+  factory.watchUiAppointments({ patientId: patient.id, notes })
+  await page.goto('/schedule/new')
+  await fillBooking(page, type.name, patient.name as string, date, '17:25', notes)
+
+  await page.context().clearCookies()
+  let bookingPosts = 0
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === BOOKINGS) bookingPosts += 1
+  })
+  const book = page.getByRole('button', { name: 'Book Appointment', exact: true })
+  await book.tap()
+  const notifications = page.getByRole('region', { name: 'Notifications (F8)' })
+  await expect(notifications.getByText('Appointment not booked', { exact: true })).toBeVisible()
+  await expect(notifications).toContainText('Sign in again to manage appointments.')
+  // A final answer, not a dropped connection: sent once, never resent.
+  expect(bookingPosts).toBe(1)
+  await expect(book).toBeEnabled()
+  await expect(page.getByLabel('Notes', { exact: true })).toBeEnabled()
+  await expect(page.getByLabel('Notes', { exact: true })).toHaveValue(notes)
+  await expect(page.getByRole('alert').filter({ hasText: 'Booking not confirmed' })).toHaveCount(0)
+  expect(await factory.findAppointments({ patientId: patient.id, notes })).toEqual([])
+  await guards.assertClean()
+})

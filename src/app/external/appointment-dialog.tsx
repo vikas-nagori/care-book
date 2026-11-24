@@ -20,7 +20,8 @@ type Props = {
   timeZone: string
   returnFocus: HTMLElement
   onClose: () => void
-  onSaved: (message: string, date: string) => void
+  /** `appointment` is the row as the server stored it, so the page can show it before its refresh lands. */
+  onSaved: (message: string, date: string, appointment: ExternalAppointment) => void
   onDenied: () => void
 }
 
@@ -50,7 +51,7 @@ export function ExternalAppointmentDialog({ appointment, types, minDate, timeZon
       const result = await callServerAction(() => updateExternalAppointment(request), {
         failureMessage: 'Unable to confirm this change. Refresh to check whether it was saved.',
       })
-      if (result.success) onSaved(success, date)
+      if (result.success) onSaved(success, date, result.appointment)
       else if ('accessDenied' in result && result.accessDenied) onDenied()
       else setMessage(result.message)
     } catch {

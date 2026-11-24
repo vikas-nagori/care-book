@@ -1,7 +1,7 @@
 'use client'
 
 import { callServerAction } from '@/lib/actions/call-server-action'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,14 +21,25 @@ type ClinicRequestsListProps = {
 
 export function ClinicRequestsList({ requests }: ClinicRequestsListProps) {
   const { toast } = useToast()
-  const [busyId, setBusyId] = useState<string | null>(null)
+  // One entry per request with a call in flight: finishing (or starting) work on one request must
+  // never unlock another that is still running (G-5). The ref also stops a double click from
+  // sending the same request twice before React re-renders the disabled button.
+  const inFlight = useRef(new Set<string>())
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(() => new Set())
   const [rejectionReasons, setRejectionReasons] = useState<Record<string, string>>({})
   const [ownerCredentials, setOwnerCredentials] = useState<OwnerCredentials | null>(null)
 
+  function setBusy(requestId: string, busy: boolean) {
+    if (busy) inFlight.current.add(requestId)
+    else inFlight.current.delete(requestId)
+    setBusyIds(new Set(inFlight.current))
+  }
+
   async function approve(requestId: string) {
-    setBusyId(requestId)
+    if (inFlight.current.has(requestId)) return
+    setBusy(requestId, true)
     const result = await callServerAction(() => approveClinicOnboardingRequest({ requestId }))
-    setBusyId(null)
+    setBusy(requestId, false)
 
     toast({
       title: result.success ? 'Clinic approved' : 'Approval failed',
@@ -44,12 +55,13 @@ export function ClinicRequestsList({ requests }: ClinicRequestsListProps) {
   }
 
   async function reject(requestId: string) {
-    setBusyId(requestId)
+    if (inFlight.current.has(requestId)) return
+    setBusy(requestId, true)
     const result = await callServerAction(() => rejectClinicOnboardingRequest({
       requestId,
       rejectionReason: rejectionReasons[requestId] ?? null,
     }))
-    setBusyId(null)
+    setBusy(requestId, false)
 
     toast({
       title: result.success ? 'Request rejected' : 'Rejection failed',
@@ -77,7 +89,7 @@ export function ClinicRequestsList({ requests }: ClinicRequestsListProps) {
         onClose={() => setOwnerCredentials(null)}
       />
       {requests.map((request) => {
-        const isBusy = busyId === request.id
+        const isBusy = busyIds.has(request.id)
         const isPending = request.status === 'pending'
 
         return (

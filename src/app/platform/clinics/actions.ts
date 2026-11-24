@@ -34,13 +34,15 @@ async function setBan(
   adminSupabase: ReturnType<typeof createAdminClient>,
   userId: string,
   banDuration: string
-): Promise<void> {
+): Promise<boolean> {
   const { error } = await adminSupabase.auth.admin.updateUserById(userId, {
     ban_duration: banDuration,
   })
   if (error) {
     logger.error('platform/setBan', error, { userId, banDuration })
+    return false
   }
+  return true
 }
 
 export async function blockClinic(
@@ -70,7 +72,15 @@ export async function blockClinic(
     }
 
     const members = await loadClinicMembers(adminSupabase, input.clinicId)
-    await Promise.all(members.map((member) => setBan(adminSupabase, member.id, BAN_DURATION)))
+    const banned = await Promise.all(members.map((member) => setBan(adminSupabase, member.id, BAN_DURATION)))
+    if (banned.includes(false)) {
+      // Anyone whose ban failed is still signed in, so the block is not done; a retry re-bans.
+      return {
+        success: false,
+        errorCode: 'CLINIC_BAN_FAILED',
+        message: 'Some of its users could not be signed out. Try blocking the clinic again.',
+      }
+    }
 
     revalidatePath('/platform/clinics')
     revalidatePath('/platform/users')

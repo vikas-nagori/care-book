@@ -30,6 +30,7 @@ e2e/
   support/                # seed harness, route manifest/guard, nav + route assertions
   shared/                 # specs that run under BOTH admin and staff × desktop and mobile
   admin/  staff/          # role-specific specs
+  external/               # External Staff workspace (desktop + mobile)
   platform/  public/      # super-admin console / unauthenticated flows
 .env.e2e                  # committed local-stack URL + well-known local keys (NOT secret)
 ```
@@ -56,6 +57,15 @@ npm run e2e:db:down        # supabase stop
 
 `npm run test:e2e -- --project=admin-desktop` runs a single project.
 
+The `mobile-ios` project (iPhone 14, WebKit, signed in as the clinic admin) needs WebKit once per
+machine: `npx playwright install webkit`. It runs only tests tagged `@ios` (route smoke, both
+minimal-input specs, the fault-injection smoke, and the phone lifecycle cases); tag a test with
+`test('…', { tag: IOS_TAG }, …)` from `support/mobile.ts`. `E2E_SKIP_IOS=1` leaves the project out
+of a run. CI runs `--project=mobile-ios` in its own `e2e-ios` matrix, in parallel with the
+`e2e-shard` runners (which set `E2E_SKIP_IOS=1`); it is the only job that installs WebKit. It also
+installs Chromium, because the `setup` project it depends on signs in on Playwright's default
+browser.
+
 Stop any existing app on port 3000 before running Playwright. The configured server is always built
 with `.env.e2e`; intentionally disabling server reuse prevents mutation specs from driving an
 unrelated local app while their service-role verification and cleanup target local Supabase.
@@ -72,12 +82,61 @@ complete matrix is proven stable at higher concurrency.
 
 CI runs on every branch push and pull request. Its `test` check gates four parallel jobs: lint +
 app/E2E typechecks, unit + component suites, the integration suite, and a production
-E2E-environment build. Its `e2e` check gates the `e2e-shard` matrix, where each runner boots its
-own isolated local Supabase stack (in the background, while Chromium installs and `next build`
-runs) and then serves that build with `E2E_PREBUILT=1` for its slice of the complete project
-matrix. The HTML report plus failure traces/screenshots in `test-results/` are uploaded as the
-`playwright-report-shard-<n>` artifacts only when that shard fails, and kept for 7 days. Both checks must remain
-required for `main`; see `.github/BRANCH_PROTECTION.md`.
+E2E-environment build. Its `e2e` check gates every entry of the `e2e-shard` and `e2e-ios`
+matrices. Each runner boots its own isolated local Supabase stack (in the background, while the
+browsers install and `next build` runs) and then serves that build with `E2E_PREBUILT=1`.
+
+### How CI splits the suite
+
+The split is weighted by measured test **time**, not test count: the projects differ several-fold
+in seconds per test (the desktop projects skip most mobile-only cases), so a flat
+`--shard=i/n` over the whole suite gave one runner twice the work of another. Instead each matrix
+entry in `.github/workflows/test.yml` names a **group** of projects and one **slice** of it:
+
+```yaml
+- { group: admin-mobile, projects: 'admin-mobile', slice: 2, slices: 6 }
+```
+
+runs `playwright test --project=admin-mobile --shard=2/6` as the check
+`e2e-shard (admin-mobile 2/6)`. `mobile-ios` is the `ios` group of the separate `e2e-ios` matrix
+(`e2e-ios (1/2)`, …). `setup` is a dependency of every project, so it runs on every runner and
+seeds that runner's stack.
+
+- **Re-weighting.** Every e2e job summary has a "Summarise test time" table (per-project and
+  slowest-file test time from the JSON reporter, `scripts/e2e-timing-summary.mjs`); the job log
+  has one `E2E-TIMING` line per test in execution order, enough to simulate a different split.
+  Give a group more slices when its runners are the slowest; each runner pays the same fixed boot
+  cost (~2 min), so stop when the slowest runner's test time no longer dominates it. Slices split
+  a group by test *count*, so a run of slow files (admin `settings*` specs) lands in one slice:
+  `admin-mobile` gains nothing from a 7th slice and needs about 9 to beat its 6-slice maximum.
+  Simulate before adding runners.
+- **Adding a project.** `support/playwright-config.test.ts` (in `test:e2e:support`) fails until
+  every project except `setup` is in exactly one group, every group's slices are exactly
+  `1..slices`, and a project with a non-setup dependency (`platform-signout` → `platform-desktop`)
+  shares an unsliced group with it; otherwise Playwright would run the dependency again in every
+  slice.
+- **Setup savings.** `node_modules` is restored from a cache keyed on OS, architecture, Node
+  version and `package-lock.json` (it holds the Supabase CLI binary and the Playwright package), so
+  `npm ci` runs only on a miss. There is no stop step: the runner is discarded.
+- **Port clash.** Supabase's ports 54320–54329 lie inside Linux's ephemeral range (32768–60999),
+  so any outbound connection can hold one as its source port, and `supabase start` then fails with
+  "failed to bind host port 0.0.0.0:54322/tcp: address already in use". A failing job showed the
+  holder: the runner's own HTTPS connection (`Runner.Worker`), opened during "Set up job" and kept
+  all job, so a stop-and-retry met the same socket. Each job therefore reserves the block
+  (`net.ipv4.ip_local_reserved_ports`) as its first step, so nothing opened later can take it, and
+  `scripts/ci-start-supabase.sh` destroys any socket that took one earlier (`ss -K`, logged as a
+  warning; its owner reconnects outside the block). A failed start dumps sockets, containers and
+  networks, force-removes the stack and retries once.
+- **Supabase images and services.** `SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io` makes the CLI pull
+  from ghcr.io directly: its default, public.ecr.aws, often answers the shared runner IPs with
+  "Data limit exceeded", and its backoff-then-fallback cost single runners over three minutes.
+  `-x` uses this CLI's container names (`storage-api`, `postgres-meta`, `logflare`, …); unknown
+  names are only warned about. Only db, auth, kong, rest and mailpit (GoTrue's SMTP target) run.
+
+The HTML report plus failure traces/screenshots in `test-results/` are uploaded as the
+`playwright-report-<group>-<slice>of<slices>` artifact (e.g. `playwright-report-admin-mobile-2of6`,
+`playwright-report-ios-1of2`) only when that job fails, and kept for 7 days. Both checks must
+remain required for `main`; see `.github/BRANCH_PROTECTION.md`.
 
 The normal test command never resets the database. It starts the local stack if necessary and
 idempotently restores fixed fixture rows. Use `npm run e2e:db:reset` only when you intentionally
@@ -190,14 +249,104 @@ the current Next runtime. The denial helper therefore asserts the observed soft-
 exactly: HTTP 200 document response, no redirect, unchanged requested URL, and the visible
 `This page could not be found.` heading. This outcome is kept distinct from successful route smoke.
 
+## Error guards and local console noise
+
+`attachErrorGuards` ignores exactly one kind of noise the app does not cause: the Vercel
+Analytics / Speed Insights scripts (`/_vercel/insights/*`, `/_vercel/speed-insights/*`), which
+local `next start` does not serve. Depending on the session the middleware answers them with a
+plain-text 404 or redirects them to a role landing page (`/login?next=…`, `/auth/change-password`,
+`/external`, `/platform`), whose HTML the browser then refuses as a script. `support/console-noise.ts`
+recognises that from the exact Chromium / WebKit refusal wording alone, for every role, so it
+holds while a catch-all `page.route()` hides the redirect chain and when the `response` event
+arrives after the console message. Anything else (an app chunk or any other page refused as a
+script, another origin, another wording) still fails. Specs need no local entry for it.
+
+## Phones first
+
+Almost every clinic user runs the installed app on a phone, so a case that runs on one project
+runs on a mobile one. `support/mobile.ts` provides `isMobileProject` / `projectRole` (which know
+that `mobile-ios` is an admin phone), `backgroundApp(page, { minutes })` (hide, fast-forward the
+page clock, show; `persisted: true` replays a back/forward-cache restore), `serveAppVersion`
+(answers `/api/version`; the e2e build reports `E2E_APP_VERSION` from `.env.e2e`, so any other
+value is a newer deployment and a resume reloads), `expectInViewport` (inside the visual viewport
+and not covered by the bottom navigation), `expectNoHorizontalOverflow`, `tapTwice` (two
+activations before React re-renders), `stubShare` (records `navigator.share`, optionally rejects
+with `AbortError`) and `SMALL_PHONE_VIEWPORT` (320 × 568).
+
+**`mobile-ios` is the clinic admin.** Its name does not start with `admin-`, so never branch on
+`testInfo.project.name.startsWith('admin-')` or `.endsWith('-mobile')`: use `projectRole(testInfo)`
+for the role and `isMobileProject(testInfo)` for the viewport. A check written the other way runs
+the staff branch (or the desktop branch) on the iPhone.
+
+`expectInViewport` also accepts a disabled control: shadcn's `disabled:pointer-events-none` takes
+a disabled button out of hit-testing, so the helper makes it hit-testable for the probe only and
+still reports anything covering it. An *enabled* control with `pointer-events: none` is reported
+as untappable.
+
+## Fault injection
+
+`support/fault-injection.ts` makes one request fail on purpose so a spec can prove the control
+recovers. `failNextServerAction(page, 'abort' | 'http-500' | 'lost-response' | 'stale-deployment')`
+matches the next `POST` carrying a `next-action` header; `failNextSupabaseCall(page, { resource:
+'rest/v1/<table>', method, mode: 'abort' | 'http-400' | 'http-500' })` matches the browser's direct
+Supabase call; `holdNext…` keeps one in flight until `release()`. `expectButtonRecovers` asserts
+the message, an enabled idle button, no pending label and `fault.hit()`. Message constants come
+from the app source. Specs using these set `test.use({ serviceWorkers: 'block' })`, pass
+`expectedFaultConsoleErrors(…)` to `attachErrorGuards({ expectedFailures })`, and assert
+`fault.hit()`. `admin/fault-injection-smoke.spec.ts` proves every mode on admin-mobile and
+mobile-ios.
+
+- For an `auth/v1/*` target, `expectedFaultConsoleErrors` also covers supabase-js logging the
+  aborted call's `TypeError: Failed to fetch` (`Load failed` on WebKit) from its bundled chunk
+  (`AUTH_FETCH_REJECTION_CONSOLE_ERROR`); no spec-local entry is needed for it.
+- A toast raised while a dialog or alertdialog is open is still found: Radix marks the toast
+  region `aria-hidden` then, so the helpers query it with `includeHidden` (`toastRegion(page)` is
+  exported for specs that need the region itself) and check the toast is painted.
+- Some forms (several auth forms) print their error as plain text under the form, not as
+  `role=alert`. Opt in per call: `expectButtonRecovers(button, { …, inline: true })` accepts the
+  message as text inside the button's `<form>`, `inline: locator` inside that element, and
+  `expectFailureMessage(page, message, { inline: locator })` likewise. Without the option only a
+  toast or alert counts.
+
+## Sparse fixtures
+
+The seed keeps fixed-ID rows whose optional columns are NULL (`SEED.patientSparse`,
+`appointmentSparse`, `sessionNoteSparse`, `treatmentPlanSparse`, `paymentSparse`, the legacy
+`packageSparse`, `reminderSparse` dated today, `externalStaffSparse`, `inviteMobileOnly` /
+`inviteLegacy` / `inviteRevoked`, `doctorSparse` + `patientReferredByDoctor`,
+`onboardingPendingSparse`, `patientExternalSparse` with `appointmentExternalSparse` /
+`externalApptYesterday` / `externalApptCompleted`, `packageClinicB`) plus two sparse staff profiles
+looked up by mobile (`SPARSE_PROFILES`). Route smoke renders the sparse patient, appointment and
+package, and `gotoSuccessfulRoute` runs `expectNoLeakedNulls`, so every route smoke run sees
+NULL-bearing rows. They are protected from teardown and from the destructive factory helpers;
+never edit them in a spec. A spec that counts rows on a shared screen must scope its count to its
+own rows (the reminders and invites specs do).
+
+## Mutation manifest
+
+`support/mutation-manifest.ts` lists every write surface in `src/` (server action call sites,
+form actions, client Supabase writes and auth calls, client POSTs to `/api`) with its happy,
+minimal-input and failure tests. `support/mutation-manifest.test.ts` (part of
+`test:e2e:support`) discovers the surfaces itself and fails on a missing or stale entry, a named
+test that does not exist, a failure test that injects no fault, a minimal test without
+`expectNoLeakedNulls`, or a client form with no declared surface. During Phase 1 an entry may say
+`todo('<package>')`, inside that package's delimited block only.
+
+A named test's body is the real extent of its callback, found with the TypeScript parser
+(`support/test-body.ts`): `test.setTimeout()`, `test.fail()`, `test.skip()`, `test.step()` or a
+nested `test.describe` inside a test no longer hide the rest of it. Earlier specs routed these
+through `testInfo` (`testInfo.setTimeout`, `testInfo.fail()`) only to keep the guard reading; that
+is no longer necessary, and either form is fine in new specs.
+
 ## Route coverage guard
 
 `support/route-manifest.test.ts` recursively inventories `src/app/**/page.tsx` by filename only and
 compares those route patterns with `PAGE_ROUTE_MANIFEST`. Each manifest entry
 declares its access group, owning spec, runtime path or expected redirect, and visible landmark.
 A new `page.tsx` therefore fails `npm run test:e2e:support` until its route contract and ownership
-are declared. The guard intentionally inventories routes; it does not scan page implementation
-details.
+are declared, and the owning spec must actually load the route (call `pageRoutesFor('<access>')`
+or quote the request path). The guard intentionally inventories routes; it does not scan page
+implementation details.
 
 ## Adding specs (keep this current with every feature)
 
@@ -221,6 +370,23 @@ details.
   registered auth IDs. Approval watchers use the unique request email/name and invite email to
   recover partially-created clinic/settings/type/invite/auth artifacts. Service-role find helpers
   both verify persistence and track returned mutable rows. Never update or delete fixed `SEED` rows.
+- Approvals: teardown finds the owner login an approval creates (through the approval's invite in
+  the new clinic) and every login of a disposable clinic *before* deleting anything, because the
+  soft-delete guard (migration 033) refuses a profile whose auth user is not yet marked for
+  cleanup. `watchUiOnboardingRequest` is enough; `factory.trackApprovedOwner(email)` tracks the
+  owner, invite and clinic explicitly and fails if the approval left no login.
+- Helpers instead of raw `adminClient()` writes (each refuses seeded accounts / `SEED` rows):
+
+  | Need | Helper |
+  | --- | --- |
+  | Block / unblock a user after creation | `setProfileStatus(userId, 'blocked' \| 'active', { ban? })` (profile only by default; `ban: true` also bans/unbans like the platform console) |
+  | Arm the first-login password change | `setMustChangePassword(userId, armed = true)` |
+  | Take a request out of `pending` | `rejectOnboardingRequest(id \| { ownerEmail }, { reason? })` |
+  | Several requests for one owner email | `findOnboardingRequestsByEmail(email)`; `findOnboardingRequestByEmail` returns the newest |
+  | Every invite row for a mobile | `findInvitesByMobile(mobile, { clinicId? })`, `countInvitesByMobile(…)` (`findInviteByMobile` is the newest only) |
+  | Distinct amounts / created times in bulk | `createPayments(n, { …, perRow: (i) => ({ amount: 1001 + i }) })`, same for `createPackages` (defaults unchanged) |
+  | Share a patient of another clinic | `shareWithExternal(patientId, profileIds, { as? })` acts as a disposable admin of the patient's clinic (or `as`) |
+  | A browser booking on a fixed SEED patient | `watchUiAppointmentSlot({ patientId, date, time, externalOnly? })` before submitting; `findAppointmentsInSlot(…)` reads and tracks them; teardown deletes them by id with their notes and payment links, never a `SEED` appointment |
 
 ## Minimal-input coverage
 
@@ -228,5 +394,5 @@ Every spec used to fill every field, so nothing ever stored a NULL in an optiona
 
 - Page objects (`e2e/pages/*`) fill an optional field **only when the spec passes it**. Omitting a field leaves it blank, as a user would.
 - `e2e/shared/minimal-input.spec.ts` (admin + staff) and `e2e/admin/minimal-input.spec.ts` submit each form with required fields only. They then visit every screen that renders the record.
-- `expectNoLeakedNulls(page)` (`support/assertions.ts`) fails on visible `null`/`undefined`/`NaN` text and on `tel:null`-style links. `attachErrorGuards` catches the crashes.
+- `expectNoLeakedNulls(page, { scope? })` (`support/assertions.ts`) fails on `null`/`undefined`/`NaN` (also glued, as in `NaNyears`), `Invalid Date`, `[object Object]` and `Infinity` in visible text, in `aria-label`/`title`/`placeholder`/`alt` and form values, on `tel:null`-style and empty `tel:`/`mailto:`/`sms:`/`wa.me` links, and in the hidden desktop/mobile twin (reported as `hiddenWords`). `attachErrorGuards` catches the crashes, including the app's own "Unable to load this page" boundary.
 - A new optional field or newly nullable column needs a blank case here. The Supabase clients are untyped, so `tsc` will not flag a `.trim()` on the new NULL.

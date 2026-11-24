@@ -440,6 +440,8 @@ export type RecordPaymentInput = {
   paymentMethod: string
   date: string
   notes: string | null
+  /** One id per form attempt, reused for every resend of the same input (G-14). */
+  requestKey?: string
 }
 
 export type RecordPaymentSuccessResult = {
@@ -466,6 +468,8 @@ export type CreateBillingEntryInput = {
   paymentMethod?: string
   paymentDate?: string
   paymentNotes?: string | null
+  /** One id per form attempt, reused for every resend of the same input (G-14). */
+  requestKey?: string
 }
 
 export type CreateBillingEntrySuccessResult = {

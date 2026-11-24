@@ -106,6 +106,39 @@ describe('referred by an existing patient', () => {
   })
 })
 
+describe('a referrer deleted since (G-13)', () => {
+  const none = { referred_by_doctor_id: null, referred_by_patient_id: null, referral_other: null }
+
+  it('saves a patient whose referring patient is gone without demanding a new one', async () => {
+    render(<Harness initial={{ source: 'patient', referrerPatientId: null }} />)
+    expect(screen.getByText(/referring patient is no longer on file/)).toBeTruthy()
+    await expect(latest().resolveReferral()).resolves.toEqual(none)
+    expect(mocks.toast).not.toHaveBeenCalled()
+  })
+
+  it('saves a patient whose referring doctor is gone without demanding a new one', async () => {
+    render(<Harness initial={{ source: 'doctor', doctorId: null }} />)
+    expect(screen.getByText(/referring doctor is no longer on file/)).toBeTruthy()
+    await expect(latest().resolveReferral()).resolves.toEqual(none)
+    expect(mocks.toast).not.toHaveBeenCalled()
+  })
+
+  it('still lets the dangling referral be replaced', async () => {
+    render(<Harness initial={{ source: 'patient', referrerPatientId: null }} />)
+    fireEvent.click(screen.getByLabelText('Referring Patient'))
+    fireEvent.click(screen.getByRole('button', { name: /Ravi Kumar/ }))
+    expect(screen.queryByText(/no longer on file/)).toBeNull()
+    await expect(latest().resolveReferral()).resolves.toEqual({ ...none, referred_by_patient_id: 'p-ravi' })
+  })
+
+  it('still demands a referrer for a source newly chosen on this edit', async () => {
+    render(<Harness initial={{ source: 'patient', referrerPatientId: null }} />)
+    chooseSource('doctor')
+    await expect(latest().resolveReferral()).resolves.toBeNull()
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Doctor required' }))
+  })
+})
+
 describe('other referrals', () => {
   it('lets the source be typed and records it trimmed', async () => {
     render(<Harness />)

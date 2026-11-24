@@ -1,7 +1,11 @@
+import type { Page } from '@playwright/test'
+import { format, parseISO } from 'date-fns'
 import { PatientForm, type PatientFormData } from '../pages/patient-form'
-import { attachErrorGuards } from '../support/assertions'
+import { TreatmentPlanForm } from '../pages/treatment-plan-form'
+import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { clinicDate, wholeYearsSince } from '../support/clinic-date'
 import { test, expect, type E2EFactory } from '../support/factories'
+import { holdNextSupabaseCall, isSupabaseRequest } from '../support/fault-injection'
 
 function stableDigits(value: string): string {
   let hash = 0
@@ -10,8 +14,8 @@ function stableDigits(value: string): string {
 }
 
 // Fully populated on purpose; the sparse case lives in minimal-input.spec.ts.
-type FullPatientFormData = Required<Omit<PatientFormData, 'referralOther' | 'referrerPatientName'>> &
-  Pick<PatientFormData, 'referralOther' | 'referrerPatientName'>
+type ReferralDetail = 'referralOther' | 'referrerPatientName' | 'doctorName' | 'newDoctor'
+type FullPatientFormData = Required<Omit<PatientFormData, ReferralDetail>> & Pick<PatientFormData, ReferralDetail>
 
 function patientData(factory: E2EFactory, kind: string): FullPatientFormData {
   const unique = factory.uniqueName(kind)
@@ -204,6 +208,23 @@ test('finds a patient that sorts past the first page of the list', async ({ page
   // Clearing restores the paginated list rather than leaving the match set on screen.
   await search.fill('')
   await expect(page.getByTestId('patient-list-count')).toContainText(`showing ${PAGE_SIZE}`)
+
+  // PA-10: Load more pages through the rest of the list until the button runs out.
+  const loadMore = page.getByRole('button', { name: /^(Load more \(\d+ remaining\)|Loading…)$/ })
+  let shown = PAGE_SIZE
+  for (let pages = 0; await loadMore.isVisible(); pages += 1) {
+    expect(pages, 'Load more never ran out').toBeLessThan(20)
+    await expect(loadMore).toHaveAccessibleName(/^Load more \(\d+ remaining\)$/)
+    await loadMore.click()
+    await expect.poll(async () => Number((await page.getByTestId('patient-list-count').textContent())?.match(/showing (\d+)/)?.[1]))
+      .toBeGreaterThan(shown)
+    shown = Number((await page.getByTestId('patient-list-count').textContent())?.match(/showing (\d+)/)?.[1])
+  }
+  const [total] = (await page.getByTestId('patient-list-count').textContent())!.match(/\d+/)!
+  expect(shown, 'every patient is loaded once Load more is gone').toBe(Number(total))
+  await expect(loadMore).toHaveCount(0)
+  await expect(targetRow.filter({ visible: true })).toBeVisible()
+  await expectNoLeakedNulls(page)
   await guards.assertClean()
 })
 
@@ -249,5 +270,213 @@ test('refuses an age outside whole years 0 to 120 and saves nothing', async ({ p
   await form.fill({ name, age: '0' })
   await form.submitCreate()
   await expect.poll(async () => (await factory.findPatientByName(name))?.age_years).toBe(0)
+  await guards.assertClean()
+})
+
+/** Every request the page sends that matches one Supabase resource and method, counted from now. */
+function countSupabaseRequests(page: Page, input: Parameters<typeof isSupabaseRequest>[1]) {
+  let count = 0
+  page.on('request', (request) => { if (isSupabaseRequest(request, input)) count += 1 })
+  return () => count
+}
+
+// PA-5
+test('a referring doctor added while creating a patient is stored once and reused, whatever the case', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const doctorName = factory.uniqueName('referring doctor')
+  const first = factory.uniqueName('doctor-referred-first')
+  const second = factory.uniqueName('doctor-referred-second')
+  factory.watchUiPatient(first)
+  factory.watchUiPatient(second)
+
+  await page.goto('/patients/new')
+  const form = new PatientForm(page)
+  // Name only: specialty and address stay blank.
+  await form.fill({ name: first, referralSource: 'Referred by doctor', newDoctor: { name: doctorName } })
+  await form.submitCreate()
+
+  await expect.poll(async () => (await factory.findDoctors({ name: doctorName })).length).toBe(1)
+  const [doctor] = await factory.findDoctors({ name: doctorName })
+  expect(doctor).toMatchObject({ name: doctorName, specialty: null, address: null })
+  expect(await factory.findPatientByName(first)).toMatchObject({ referral_source: 'doctor', referred_by_doctor_id: doctor.id })
+
+  // The next patient types the same doctor in another case: the stored doctor is offered and
+  // picked, and no second doctor is created.
+  await page.goto('/patients/new')
+  await form.fill({ name: second, referralSource: 'Referred by doctor', doctorName: doctorName.toUpperCase() })
+  await form.submitCreate()
+  await expect.poll(async () => (await factory.findPatientByName(second))?.referred_by_doctor_id).toBe(doctor.id)
+  expect((await factory.findDoctors({ name: doctorName })).map((row) => row.id)).toEqual([doctor.id])
+
+  const secondRow = await factory.findPatientByName(second)
+  await page.goto(`/patients/${secondRow!.id}`)
+  await expect(page.getByText('Referred by doctor', { exact: true })).toBeVisible()
+  // The doctor line is the bare name: no " · " left over for the missing specialty.
+  const doctorLine = page.getByText(doctorName, { exact: true })
+  await expect(doctorLine).toBeVisible()
+  await expect(doctorLine).toHaveText(doctorName)
+  await expect(page.getByText(`${doctorName} ·`)).toHaveCount(0)
+  await expectNoLeakedNulls(page)
+  await guards.assertClean()
+})
+
+// PA-6
+test('"Add anyway" saves a patient whose phone is already on file, exactly once', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const existing = await factory.createPatient()
+  const name = factory.uniqueName('add-anyway')
+  factory.watchUiPatient(name)
+  const inserts = countSupabaseRequests(page, { resource: 'rest/v1/patients', method: 'POST' })
+
+  await page.goto('/patients/new')
+  const form = new PatientForm(page)
+  await form.fill({ name, phone: existing.phone as string })
+  await form.submitButton().click()
+  await form.expectDuplicateWarning(existing.name as string)
+  expect(inserts(), 'nothing is inserted while the warning is open').toBe(0)
+  await form.confirmDuplicate()
+
+  await expect(page).toHaveURL(/\/patients$/)
+  // findPatientByName reads one row and throws on two: exactly one patient was added.
+  await expect.poll(async () => (await factory.findPatientByName(name))?.phone).toBe(existing.phone)
+  expect(inserts()).toBe(1)
+  expect(await factory.findPatientByName(existing.name as string)).toMatchObject({ id: existing.id })
+  await guards.assertClean()
+})
+
+// PA-6, pending state (G-17a): closing the dialog on "Add anyway" must not clear `loading` while
+// the insert is still in flight.
+test('"Add anyway" shows the submit button as saving while the insert is in flight', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const existing = await factory.createPatient()
+  const name = factory.uniqueName('add-anyway-pending')
+  factory.watchUiPatient(name)
+
+  await page.goto('/patients/new')
+  const form = new PatientForm(page)
+  await form.fill({ name, phone: existing.phone as string })
+  await form.submitButton().click()
+  await form.expectDuplicateWarning(existing.name as string)
+
+  const hold = await holdNextSupabaseCall(page, { resource: 'rest/v1/patients', method: 'POST' })
+  await form.confirmDuplicate()
+  await hold.whenHeld()
+  try {
+    await expect(form.submitButton()).toHaveAccessibleName('Saving…')
+    await expect(form.submitButton()).toBeDisabled()
+  } finally {
+    await hold.release()
+  }
+  await expect(page).toHaveURL(/\/patients$/)
+  await expect.poll(async () => (await factory.findPatientByName(name))?.phone).toBe(existing.phone)
+  await guards.assertClean()
+})
+
+// PA-7
+test('a blank name, a name of only spaces and a malformed email are refused and nothing is saved', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const name = factory.uniqueName('validated-patient')
+  factory.watchUiPatient(name)
+  const inserts = countSupabaseRequests(page, { resource: 'rest/v1/patients', method: 'POST' })
+
+  await page.goto('/patients/new')
+  const form = new PatientForm(page)
+  const nameInput = page.locator('input#name')
+  const emailInput = page.getByLabel('Email', { exact: true })
+
+  // Empty: the browser refuses the required field.
+  await form.submitButton().click()
+  expect(await nameInput.evaluate((input: HTMLInputElement) => input.validity.valueMissing)).toBe(true)
+  await expect(page).toHaveURL(/\/patients\/new$/)
+
+  // Only spaces: passes `required`, so the form must refuse it itself (G-11).
+  await form.fill({ name: '   ' })
+  await form.submitButton().click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Enter the patient’s name.' })).toBeVisible()
+  await expect(nameInput).toHaveAttribute('aria-invalid', 'true')
+  await expect(page).toHaveURL(/\/patients\/new$/)
+
+  // A malformed email: the browser refuses the type=email field.
+  await form.fill({ name, email: 'abc' })
+  await form.submitButton().click()
+  expect(await emailInput.evaluate((input: HTMLInputElement) => input.validity.typeMismatch)).toBe(true)
+  await expect(page).toHaveURL(/\/patients\/new$/)
+  await form.expectSubmitReady('Add Patient')
+  expect(inserts(), 'no refused submit reached the database').toBe(0)
+  expect(await factory.findPatientByName(name)).toBeNull()
+
+  // Corrected, with stray spaces round the name: saved once, trimmed.
+  const email = `${factory.token}-validated@carebook.test`
+  await form.fill({ name: `  ${name}  `, email })
+  await expect(page.getByRole('alert').filter({ hasText: 'Enter the patient’s name.' })).toHaveCount(0)
+  await form.submitCreate()
+  await expect.poll(async () => (await factory.findPatientByName(name))?.email).toBe(email)
+  expect(inserts()).toBe(1)
+  await guards.assertClean()
+})
+
+// PA-8
+test('an age of 120 is accepted while -1 and 1e2 are refused and save nothing', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const name = factory.uniqueName('edge-age-patient')
+  factory.watchUiPatient(name)
+
+  await page.goto('/patients/new')
+  const form = new PatientForm(page)
+  for (const age of ['-1', '1e2']) {
+    await form.fill({ name, age })
+    await form.submitCreateExpectingAgeError()
+  }
+  expect(await factory.findPatientByName(name)).toBeNull()
+
+  await form.fill({ name, age: '120' })
+  await form.submitCreate()
+  await expect.poll(async () => (await factory.findPatientByName(name))?.age_years).toBe(120)
+  const patient = await factory.findPatientByName(name)
+  await page.goto(`/patients/${patient!.id}`)
+  await expect(page.getByTestId('patient-age')).toHaveText('Age 120 years')
+  await guards.assertClean()
+})
+
+/** The plan card on the visible Plans tab that shows `diagnosis`. */
+function planCard(page: Page, diagnosis: string) {
+  return page.getByRole('tabpanel').filter({ visible: true }).locator('div.p-4').filter({ hasText: diagnosis })
+}
+
+// PA-9
+test('a full treatment plan and a diagnosis-only plan both render, and only the full one shows a target date', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  const full = { diagnosis: factory.uniqueName('full plan'), goals: factory.uniqueName('plan goals'), expectedEndDate: clinicDate(60) }
+  const bare = factory.uniqueName('bare plan')
+
+  await page.goto(`/patients/${patient.id}`)
+  const form = new TreatmentPlanForm(page)
+  await form.open()
+  await form.fill(full)
+  await form.submit()
+  await form.open()
+  await form.fill({ diagnosis: bare })
+  await form.submit()
+
+  await expect.poll(async () => (await factory.findTreatmentPlans(patient.id)).length).toBe(2)
+  const plans = await factory.findTreatmentPlans(patient.id)
+  expect(plans.find((plan) => plan.diagnosis === full.diagnosis)).toMatchObject({
+    goals: full.goals, expected_end_date: full.expectedEndDate, start_date: clinicDate(), status: 'active',
+  })
+  expect(plans.find((plan) => plan.diagnosis === bare)).toMatchObject({
+    goals: null, expected_end_date: null, start_date: clinicDate(), status: 'active',
+  })
+
+  await page.reload()
+  await page.getByRole('tab', { name: 'Plans', exact: true }).click()
+  const fullCard = planCard(page, full.diagnosis)
+  const bareCard = planCard(page, bare)
+  await expect(fullCard).toContainText(full.goals)
+  await expect(fullCard).toContainText(`Target: ${format(parseISO(full.expectedEndDate), 'dd MMM yyyy')}`)
+  await expect(bareCard).toContainText(`Started ${format(parseISO(clinicDate()), 'dd MMM yyyy')}`)
+  await expect(bareCard).not.toContainText('Target')
+  await expect(bareCard).not.toContainText('·')
+  await expectNoLeakedNulls(page)
   await guards.assertClean()
 })

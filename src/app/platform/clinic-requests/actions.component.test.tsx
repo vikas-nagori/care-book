@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   profileUpsert: vi.fn(),
   inviteInsert: vi.fn(),
   requestRow: vi.fn(),
+  settingsInsert: vi.fn(),
+  settingsDelete: vi.fn(),
+  clinicDelete: vi.fn(),
 }))
 
 // `@/lib/onboarding/invite-server` is left unmocked so this test covers the real
@@ -46,8 +49,12 @@ function adminClient() {
       insert: () => ({
         select: () => ({ single: async () => ({ data: { id: CLINIC_ID }, error: null }) }),
       }),
+      delete: () => ({ eq: mocks.clinicDelete }),
     },
-    global_settings: { insert: async () => ({ error: null }) },
+    global_settings: {
+      insert: mocks.settingsInsert,
+      delete: () => ({ eq: mocks.settingsDelete }),
+    },
     profiles: { upsert: mocks.profileUpsert },
     user_invites: { insert: mocks.inviteInsert },
   }
@@ -79,7 +86,57 @@ describe('approveClinicOnboardingRequest', () => {
     })
     mocks.profileUpsert.mockResolvedValue({ error: null })
     mocks.inviteInsert.mockResolvedValue({ error: null })
+    mocks.settingsInsert.mockResolvedValue({ error: null })
+    mocks.settingsDelete.mockResolvedValue({ error: null })
+    mocks.clinicDelete.mockResolvedValue({ error: null })
     adminClient()
+  })
+
+  it('G-5: removes the new clinic again when the owner already has a login', async () => {
+    mocks.createUser.mockResolvedValue({
+      data: { user: null },
+      error: { code: 'email_exists', message: 'A user with this email address has already been registered' },
+    })
+
+    const result = await approveClinicOnboardingRequest({ requestId: 'request-1' })
+
+    expect(result.success).toBe(false)
+    expect(mocks.settingsDelete).toHaveBeenCalledWith('clinic_id', CLINIC_ID)
+    expect(mocks.clinicDelete).toHaveBeenCalledWith('id', CLINIC_ID)
+    expect(mocks.settingsDelete.mock.invocationCallOrder[0]).toBeLessThan(mocks.clinicDelete.mock.invocationCallOrder[0])
+    expect(mocks.profileUpsert).not.toHaveBeenCalled()
+  })
+
+  it('G-5: removes the new clinic again when its settings row cannot be created', async () => {
+    mocks.settingsInsert.mockResolvedValue({ error: { code: '500', message: 'boom' } })
+
+    const result = await approveClinicOnboardingRequest({ requestId: 'request-1' })
+
+    expect(result.success).toBe(false)
+    expect(mocks.clinicDelete).toHaveBeenCalledWith('id', CLINIC_ID)
+    expect(mocks.createUser).not.toHaveBeenCalled()
+  })
+
+  it('G-5: still reports the original failure when the cleanup itself fails', async () => {
+    mocks.createUser.mockResolvedValue({ data: { user: null }, error: { code: 'email_exists', message: 'exists' } })
+    mocks.clinicDelete.mockResolvedValue({ error: { code: '23503', message: 'still referenced' } })
+
+    const result = await approveClinicOnboardingRequest({ requestId: 'request-1' })
+
+    expect(result).toEqual(expect.objectContaining({ success: false, errorCode: 'email_exists' }))
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      'platform/approveClinicOnboardingRequest/discardClinic',
+      expect.objectContaining({ code: '23503' }),
+      { requestId: 'request-1', clinicId: CLINIC_ID },
+    )
+  })
+
+  it('keeps the clinic once the owner login exists (it cannot be removed again)', async () => {
+    mocks.profileUpsert.mockResolvedValue({ error: { code: '23503', message: 'fk violation' } })
+
+    await approveClinicOnboardingRequest({ requestId: 'request-1' })
+
+    expect(mocks.clinicDelete).not.toHaveBeenCalled()
   })
 
   it('creates the owner with a confirmed email, a policy-passing temp password, and the forced-change flag', async () => {
