@@ -115,8 +115,11 @@ export function attachErrorGuards(page: Page, options: {
     const expectedFailure = options.expectedFailures?.some(({ url, text }) =>
       url.test(message.location().url) && text.test(message.text()))
     if (expectedFailure) return
-    // Next's console report of the same WebKit teardown abort (see the pageerror handler above).
-    const rscAbortedByUnload = /^Failed to fetch RSC payload for \S+\. Falling back to browser navigation\. TypeError: (?:Load failed|.*access control checks\.)$/.test(message.text())
+    // Next's console report of the same WebKit teardown abort (see the pageerror handler above),
+    // and the bare `TypeError: Load failed` a library (supabase-js) console.errors when the
+    // navigation aborts its in-flight fetch. Only right after a main-frame navigation starts.
+    const rscAbortedByUnload = (/^Failed to fetch RSC payload for \S+\. Falling back to browser navigation\. TypeError: (?:Load failed|.*access control checks\.)$/.test(message.text())
+      || message.text() === 'TypeError: Load failed')
       && Date.now() - mainFrameNavigationAt < UNLOAD_ABORT_WINDOW_MS
     if (rscAbortedByUnload) return
     if (!isKnownNonAppConsoleError(message, observabilityRedirectTargets)) consoleErrors.push(message.text())
