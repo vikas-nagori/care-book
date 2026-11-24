@@ -51,6 +51,10 @@ for (const flowId of ['book-schedule', 'book-dashboard', 'session-notes', 'remin
   test(`M-9 a double tap to ${flow.title} saves exactly once`, { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
     const reason = phoneSkipReason(testInfo, flow)
     test.skip(reason !== null, reason ?? '')
+    // On WebKit the G-14 race is timing-dependent (it double-records on a Mac, not on the Linux
+    // CI runner), so a test.fail pin would flip at random there. It is pinned on the Chromium
+    // phones, where it reproduces every time; the fix branch should drop this skip.
+    test.skip(flowId === 'payment' && testInfo.project.name === 'mobile-ios', 'G-14 is timing-dependent on WebKit; pinned on Chromium')
     const bug = DOUBLE_TAP_BUGS[flowId]
     if (bug) test.fail(true, bug)
     const guards = phoneGuards(page)

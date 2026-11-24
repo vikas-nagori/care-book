@@ -37,7 +37,7 @@ function fullDateLabel(date: string) {
 
 /**
  * The document response re-issued the session cookie, and the device now keeps it for its full
- * 400-day life. Chromium reports each Set-Cookie as sent (Max-Age=34560000); WebKit may fold them
+ * lifetime. Chromium reports each Set-Cookie as sent (Max-Age=34560000); WebKit may fold them
  * into one header and drop attributes, so the stored cookie's expiry is checked on every engine.
  */
 async function expectSessionRenewed(response: Response, context: BrowserContext) {
@@ -52,7 +52,10 @@ async function expectSessionRenewed(response: Response, context: BrowserContext)
   }
   const stored = (await context.cookies()).filter((cookie) => /^sb-.*-auth-token/.test(cookie.name))
   expect(stored.length).toBeGreaterThan(0)
-  for (const cookie of stored) expect(cookie.expires).toBeGreaterThan(Date.now() / 1000 + 399 * 86_400)
+  // Engines cap how long they keep a cookie (Chromium 400 days, WebKit on Linux one year), so
+  // "renewed" means a lifetime of about a year or more from now, not the 7 days a script-written
+  // cookie gets on iOS.
+  for (const cookie of stored) expect(cookie.expires).toBeGreaterThan(Date.now() / 1000 + 360 * 86_400)
 }
 
 const appointmentLandmark = (page: Page) => page.getByText('Appointment', { exact: true }).filter({ visible: true }).first()
