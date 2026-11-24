@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  DEFAULT_INVITE_NEXT_PATH,
   INVITE_PASSWORD_MIN_LENGTH,
   INVITE_PASSWORD_POLICY_MESSAGE,
   excludePendingInviteeProfiles,
@@ -9,9 +10,36 @@ import {
   getInviteCompletionFieldErrorTarget,
   normalizeEmail,
   normalizeSiteOrigin,
+  sanitizeNextPath,
   validateInviteInput,
   validateInviteCompletionInput,
 } from './invite-helpers.ts'
+
+test('sanitizeNextPath follows a plain same-origin path', () => {
+  assert.equal(sanitizeNextPath('/auth/update-password'), '/auth/update-password')
+  assert.equal(sanitizeNextPath('/auth/complete-invite'), '/auth/complete-invite')
+  assert.equal(sanitizeNextPath('/schedule?date=2026-11-24'), '/schedule?date=2026-11-24')
+})
+
+test('sanitizeNextPath replaces anything that could leave the origin with the default page', () => {
+  for (const hostile of [
+    null,
+    undefined,
+    '',
+    'evil.example',
+    'https://evil.example/steal',
+    '//evil.example',
+    '/\\evil.example',
+    '\\/evil.example',
+    '/auth\\..\\evil',
+    '/\t/evil.example',
+    '/\n/evil.example',
+    '/ /evil.example',
+    '/\u0000/evil.example',
+  ]) {
+    assert.equal(sanitizeNextPath(hostile), DEFAULT_INVITE_NEXT_PATH, `next=${JSON.stringify(hostile)}`)
+  }
+})
 
 test('normalizeEmail trims whitespace and lowercases addresses', () => {
   assert.equal(normalizeEmail(' Staff.Member@Example.com '), 'staff.member@example.com')

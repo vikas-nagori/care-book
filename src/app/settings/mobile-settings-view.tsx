@@ -61,7 +61,6 @@ const sectionIcons: Record<MobileSettingsSectionKey, LucideIcon> = {
 type MobileSettingsViewProps = {
   accessLevel: 'admin' | 'profile_only'
   profile: Profile
-  logoutAction: () => Promise<void>
   appointmentTypes?: AppointmentType[]
   settings?: GlobalSettings | null
   packageTemplates?: PackageTemplate[]
@@ -76,7 +75,6 @@ type MobileSettingsViewProps = {
 export function MobileSettingsView({
   accessLevel,
   profile,
-  logoutAction,
   appointmentTypes = [],
   settings = null,
   packageTemplates = [],
@@ -103,7 +101,7 @@ export function MobileSettingsView({
   function renderOpenSection() {
     switch (selectedSection) {
       case 'account':
-        return <AccountSummary profile={profile} logoutAction={logoutAction} variant="sheet" />
+        return <AccountSummary profile={profile} variant="sheet" />
       case 'connected_apps':
         return <ConnectedApps apps={connectedApps} variant="sheet" revokeAction={revokeConnectedAppAction} />
       case 'types':

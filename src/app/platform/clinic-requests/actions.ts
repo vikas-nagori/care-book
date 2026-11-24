@@ -18,6 +18,29 @@ import type {
   ClinicOnboardingRequest,
 } from '@/lib/supabase/types'
 
+type AdminSupabase = ReturnType<typeof createAdminClient>
+
+/**
+ * Remove a clinic this approval inserted moments ago, while nothing but its own settings row and
+ * the seeded appointment types (which cascade) refers to it. Only for failures *before* the owner
+ * login exists: after that the owner's profile points at the clinic, and production logins cannot
+ * be hard-deleted, so a later failure leaves the clinic for a platform admin to sort out.
+ * Best effort: a cleanup failure is logged and the caller still reports the original error.
+ */
+async function discardUnownedClinic(
+  adminSupabase: AdminSupabase,
+  { clinicId, requestId }: { clinicId: string; requestId: string },
+): Promise<void> {
+  try {
+    const { error: settingsError } = await adminSupabase.from('global_settings').delete().eq('clinic_id', clinicId)
+    if (settingsError) throw settingsError
+    const { error: clinicError } = await adminSupabase.from('clinics').delete().eq('id', clinicId)
+    if (clinicError) throw clinicError
+  } catch (error) {
+    logger.error('platform/approveClinicOnboardingRequest/discardClinic', error, { requestId, clinicId })
+  }
+}
+
 export async function approveClinicOnboardingRequest(
   input: ManageClinicOnboardingRequestInput
 ): Promise<ManageClinicOnboardingRequestResult> {
@@ -80,6 +103,7 @@ export async function approveClinicOnboardingRequest(
         requestId: request.id,
         clinicId: clinic.id,
       })
+      await discardUnownedClinic(adminSupabase, { clinicId: clinic.id, requestId: request.id })
       return {
         success: false,
         errorCode: settingsError.code ?? 'CLINIC_SETTINGS_CREATE_FAILED',
@@ -106,6 +130,9 @@ export async function approveClinicOnboardingRequest(
         requestId: request.id,
         clinicId: clinic.id,
       })
+      // Usually the owner's email or mobile number already has a login. Nothing refers to the new
+      // clinic yet, so take it back out: otherwise every retry leaves one more behind (G-5).
+      await discardUnownedClinic(adminSupabase, { clinicId: clinic.id, requestId: request.id })
       return {
         success: false,
         errorCode: inviteUserError.code ?? 'CLINIC_OWNER_CREATE_FAILED',

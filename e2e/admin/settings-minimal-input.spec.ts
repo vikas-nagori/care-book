@@ -124,11 +124,9 @@ test('SA-1: a mobile-only Staff invitee who has signed in renders cleanly in Set
   await guards.assertClean()
 })
 
-// The Active Users row of an email-less user should name them by their formatted mobile number,
-// as the phone sheet does. On desktop the table shows the raw 10 digits and an em dash for the
-// email (src/app/settings/users-list.tsx:81-82). New finding SA-NEW-1 (not in the plan's G list).
+// The Active Users row of an email-less user names them by their formatted mobile number on both
+// layouts (G-24 / SA-NEW-1: the desktop table used to show the raw 10 digits and an em dash).
 test('SA-1: the Active Users row of a mobile-only user shows the formatted mobile number', async ({ page, factory }, testInfo) => {
-  testInfo.fail(!isMobileProject(testInfo), 'SA-NEW-1: desktop Active Users shows the raw mobile number, not the formatted one')
   const guards = attachErrorGuards(page)
   const user = await factory.createAuthUser({ clinicId: CLINIC_A.id, email: null, role: 'staff' })
   await page.goto('/settings')
@@ -141,6 +139,8 @@ test('SA-1: the Active Users row of a mobile-only user shows the formatted mobil
     : scope.getByRole('row').filter({ hasText: name })
   await expect(row).toBeVisible()
   await expect(row.getByText(formatMobile(user.mobileNumber), { exact: true })).toBeVisible()
+  await expect(row).not.toContainText(user.mobileNumber)
+  await expect(row).not.toContainText('—')
   await expectNoLeakedNulls(page, { scope: row })
   await guards.assertClean()
 })

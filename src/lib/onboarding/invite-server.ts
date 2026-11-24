@@ -6,24 +6,13 @@ import { BAN_DURATION, UNBAN_DURATION } from '@/lib/platform/block'
 import { MUST_CHANGE_PASSWORD_FLAG } from '@/lib/security/forced-password-change'
 import { isPlatformAdminEmail } from '@/lib/platform/access'
 import { toAuthPhone } from '@/lib/auth/mobile-number'
-import {
-  DEFAULT_INVITE_NEXT_PATH,
-  normalizeSiteOrigin,
-} from './invite-helpers'
+import { normalizeSiteOrigin } from './invite-helpers'
 import { generateTempPassword } from './temp-password'
 
 const DEFAULT_APP_ORIGIN = 'http://localhost:3000'
 
 export function getAppOrigin() {
   return normalizeSiteOrigin(process.env.NEXT_PUBLIC_SITE_URL) ?? DEFAULT_APP_ORIGIN
-}
-
-export function sanitizeNextPath(nextPath: string | null | undefined) {
-  if (!nextPath || !nextPath.startsWith('/') || nextPath.startsWith('//')) {
-    return DEFAULT_INVITE_NEXT_PATH
-  }
-
-  return nextPath
 }
 
 export type InvitedProfileSync = {

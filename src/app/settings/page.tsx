@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation'
 import { getSettingsAccessLevel } from '@/lib/settings/access'
 import { createClient } from '@/lib/supabase/server'
 import type { ConnectedMcpApp, Profile } from '@/lib/supabase/types'
-import { logoutFromSettings, revokeConnectedMcpApp } from './actions'
+import { revokeConnectedMcpApp } from './actions'
 import { SettingsResponsiveView } from './responsive-settings-view'
 
 async function loadConnectedApps(): Promise<ConnectedMcpApp[]> {
@@ -42,7 +42,6 @@ export default async function SettingsPage() {
         <SettingsResponsiveView
           accessLevel="profile_only"
           profile={currentProfile}
-          logoutAction={logoutFromSettings}
           connectedApps={connectedApps}
           revokeConnectedAppAction={revokeConnectedMcpApp}
         />
@@ -80,7 +79,6 @@ export default async function SettingsPage() {
       <SettingsResponsiveView
         accessLevel="admin"
         profile={currentProfile}
-        logoutAction={logoutFromSettings}
         connectedApps={connectedApps}
         revokeConnectedAppAction={revokeConnectedMcpApp}
         appointmentTypes={appointmentTypes ?? []}

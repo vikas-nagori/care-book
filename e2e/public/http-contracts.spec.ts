@@ -85,8 +85,9 @@ test.describe('HTTP contracts (PL-10, PL-11)', () => {
       const location = redirectTarget(response)
       expect(location.origin, `Location: ${raw}`).toBe(APP_ORIGIN)
       expect(location.pathname, `Location: ${raw}`).not.toBe('/login')
-      // Protocol-relative and absolute values are replaced by the default page, never followed.
-      if (next !== '/\\evil.example') expect(location.pathname).toBe(DEFAULT_INVITE_NEXT_PATH)
+      // Protocol-relative, backslashed and absolute values are replaced by the default page, never
+      // followed (G-25: `/\evil.example` used to come back as the path `//evil.example`).
+      expect(location.pathname, `Location: ${raw}`).toBe(DEFAULT_INVITE_NEXT_PATH)
     })
   }
 
@@ -135,17 +136,43 @@ test.describe('HTTP contracts (PL-10, PL-11)', () => {
   })
 
   for (const path of ['/api/appointments/bookings', '/api/appointments/bookings/status']) {
-    test(`an unauthenticated POST to ${path} answers 401 JSON (G-18)`, async ({ request }, testInfo) => {
-      // G-18 (new, found by PL-11; needs its own fix branch): the middleware answers an
-      // unauthenticated POST with a 307 to /login?next=… before the route's own 401
-      // SCHEDULE_UNAUTHORIZED reply can run (only the PDF API has a JSON carve-out). The booking
-      // client fetches with redirect: 'error', so a phone whose session lapsed gets a generic
-      // failure instead of "Sign in again to manage appointments."
-      testInfo.fail()
+    test(`an unauthenticated POST to ${path} answers 401 JSON (G-18)`, async ({ request }) => {
+      // G-18: like the PDF API, the booking endpoints answer a signed-out POST with the route's own
+      // 401 SCHEDULE_UNAUTHORIZED JSON instead of a 307 to /login, which the booking client
+      // (redirect: 'error') could only treat as a dropped connection.
       const response = await request.post(path, { maxRedirects: 0, data: {} })
       expect(response.status()).toBe(401)
       expect(response.headers()['content-type']).toContain('application/json')
-      expect(await response.json()).toMatchObject({ success: false, errorCode: 'SCHEDULE_UNAUTHORIZED' })
+      expect(await response.json()).toEqual({
+        success: false,
+        errorCode: 'SCHEDULE_UNAUTHORIZED',
+        message: 'Sign in again to manage appointments.',
+      })
     })
   }
+
+  // G-18 only changes the signed-out answer: a signed-in session still reaches the route, which
+  // rejects this empty body as invalid input rather than as signed out.
+  test('a signed-in POST to the booking API still reaches the route', async ({ baseURL }) => {
+    const context = await apiRequest.newContext({ baseURL, storageState: ADMIN.storageState })
+    try {
+      const response = await context.post('/api/appointments/bookings', {
+        maxRedirects: 0,
+        data: {},
+        headers: { origin: APP_ORIGIN },
+      })
+      expect(response.status()).toBe(400)
+      expect(await response.json()).toMatchObject({ success: false, errorCode: 'BOOKING_INVALID_REQUEST' })
+    } finally {
+      await context.dispose()
+    }
+  })
+
+  // G-18 changed nothing for pages: a signed-out page request still goes to sign-in.
+  test('a signed-out request for a page still redirects to /login with the return path', async ({ request }) => {
+    const location = redirectTarget(await request.get('/schedule/new', { maxRedirects: 0 }))
+    expect(location.origin).toBe(APP_ORIGIN)
+    expect(location.pathname).toBe('/login')
+    expect(location.searchParams.get('next')).toBe('/schedule/new')
+  })
 })

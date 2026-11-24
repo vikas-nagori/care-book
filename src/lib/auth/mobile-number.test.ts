@@ -5,9 +5,27 @@ import {
   accountDisplayName,
   formatMobileNumber,
   fromAuthPhone,
+  mobileNumberFromContactPhone,
   normalizeMobileNumber,
   toAuthPhone,
 } from './mobile-number.ts'
+
+describe('mobileNumberFromContactPhone (G-8)', () => {
+  it('takes the 10 digits out of a stored phone with a country code, trunk 0 or punctuation', () => {
+    for (const raw of [
+      '9876543210', '98765 43210', '+91 98765 43210', '+919876543210', '+91-98765-43210',
+      '919876543210', '91 98765 43210', '09876543210', '098765 43210', '(+91) 98765.43210',
+    ]) {
+      assert.equal(mobileNumberFromContactPhone(raw), '9876543210', raw)
+    }
+  })
+
+  it('refuses anything that is not an Indian mobile number', () => {
+    for (const raw of [null, undefined, '', '12345', '+44 20 7946 0958', '022 2345 6789', '5876543210', '+91 5876543210', '+91 98765 4321']) {
+      assert.equal(mobileNumberFromContactPhone(raw), null, String(raw))
+    }
+  })
+})
 
 describe('normalizeMobileNumber', () => {
   it('accepts the 10 digits, with or without spaces or dashes between them', () => {

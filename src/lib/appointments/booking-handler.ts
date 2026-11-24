@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { evaluateRoleAccess, type ProfileAccessShape } from '@/lib/auth-access'
 import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
 import { logger } from '@/lib/logger'
+import { SIGNED_OUT_BOOKING_REPLY } from '@/lib/security/signed-out-api'
 import { isBookingCorrelationId, parseBookingRequest, type CreateAppointmentResult } from './booking-contract'
 import { executeBooking, bookingDatabaseErrorCode } from './booking-service'
 import { createBookingStore } from './booking-supabase'
@@ -61,7 +62,7 @@ export async function handleBookingRequest(request: Request, mode: 'create' | 's
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
       log('auth', 'SCHEDULE_UNAUTHORIZED')
-      return respond({ success: false, errorCode: 'SCHEDULE_UNAUTHORIZED', message: 'Sign in again to manage appointments.' }, 401)
+      return respond({ ...SIGNED_OUT_BOOKING_REPLY }, 401)
     }
     const { data: profile, error: profileError } = await supabase.from('profiles')
       .select('id,role,clinic_id,status,clinic:clinics(status)').eq('id', user.id).maybeSingle()

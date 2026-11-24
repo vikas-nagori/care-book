@@ -26,12 +26,9 @@ test('signs out through the platform UI and revokes access to the console', asyn
   await guards.assertClean()
 })
 
-test('a dropped sign-out request keeps the console usable and the retry signs out (G-15)', async ({ page }, testInfo) => {
-  // G-15 (needs its own fix branch): Sign out is a native <form action={signOutFromPlatform}> in
-  // src/app/platform/layout.tsx, outside callServerAction, with no pending state or failure path —
-  // the same shape as the clinic Logout listed under G-15. (testInfo.fail(), not test.fail(): the
-  // mutation manifest reads this body only up to the next line starting with `test.`.)
-  testInfo.fail()
+test('a dropped sign-out request keeps the console usable and the retry signs out (G-15)', async ({ page }) => {
+  // G-15: Sign out goes through callServerAction (src/app/platform/sign-out-button.tsx), so a
+  // dropped request shows the usual message and leaves the console signed in and usable.
   await signIn(page, PLATFORM_SIGNOUT)
   const guards = attachErrorGuards(page, { expectedFailures: expectedFaultConsoleErrors('server-action') })
   await page.goto('/platform')

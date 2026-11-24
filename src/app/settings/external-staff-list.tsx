@@ -1,6 +1,7 @@
 'use client'
 
 import { callServerAction } from '@/lib/actions/call-server-action'
+import { formatMobileNumber } from '@/lib/auth/mobile-number'
 import { useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
@@ -217,7 +218,7 @@ export function ExternalStaffList({
                     </Badge>
                   </div>
                   <div className="space-y-1 text-xs text-muted-foreground">
-                    <p>{staff.phone}</p>
+                    <p>{formatMobileNumber(staff.phone)}</p>
                     {!canInvite && (
                       <p className="break-all">{staff.email ?? pendingInvite?.email ?? 'Email not set'}</p>
                     )}
@@ -293,7 +294,7 @@ export function ExternalStaffList({
                   return (
                     <TableRow key={staff.id}>
                       <TableCell className="font-medium">{staff.name}</TableCell>
-                      <TableCell>{staff.phone}</TableCell>
+                      <TableCell>{formatMobileNumber(staff.phone)}</TableCell>
                       <TableCell>
                         {canInvite ? (
                           <Input

@@ -1,7 +1,7 @@
 import type { Browser, Page, Request } from '@playwright/test'
 
 import { SettingsView, STAFF_SETTINGS_SECTIONS } from '../pages/settings-view'
-import { ADMIN, CLINIC_A } from '../support/accounts'
+import { ADMIN, CLINIC_A, PLATFORM } from '../support/accounts'
 import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { test, expect } from '../support/factories'
 import { isServerActionRequest } from '../support/fault-injection'
@@ -161,26 +161,71 @@ test('SA-16: a captured admin "save session fees" call replayed with staff cooki
 
 // ---------------------------------------------------------------------------------------------
 // SA-17 (decision D4d, change C-4): /auth/update-password is only for a session that arrived from
-// a reset link. A signed-in user who opens it directly is sent to Settings, where changing a
-// password needs the current one. Today any signed-in session gets the form (G-16). A throwaway
-// staff user is used so nothing here can touch the seeded shared sessions.
+// a reset link. A signed-in user who opens it directly is sent to where changing a password needs
+// the current one: Settings for clinic users, the account page for External Staff, the console
+// for platform admins (it has no password form). They stay signed in. Throwaway users are used so
+// nothing here can touch the seeded shared sessions; the platform case only reads with its own.
 // ---------------------------------------------------------------------------------------------
 
-test.fail('C-4 SA-17: signed-in staff opening /auth/update-password directly are sent to Settings', async ({ browser, factory }, testInfo) => {
-  testInfo.skip(!isMobileProject(testInfo), 'phone-only (S-M)')
-  const user = await factory.createAuthUser({ clinicId: CLINIC_A.id, role: 'staff' })
+/** A fresh, signed-out context in which `mobile` signs in; the guided tour is skipped. */
+async function signInFreshByMobile(browser: Browser, mobile: string, password: string) {
   const context = await browser.newContext({ storageState: { cookies: [], origins: [] } })
   const page = await context.newPage()
+  await page.addInitScript(() => window.localStorage.setItem('care-book:guided-tour-seen', 'true'))
   await page.goto('http://localhost:3000/login')
-  await page.getByLabel('Mobile number', { exact: true }).fill(user.mobileNumber)
-  await page.getByLabel('Password').fill(user.password)
+  await page.getByLabel('Mobile number', { exact: true }).fill(mobile)
+  await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
-  await page.waitForURL('http://localhost:3000/')
+  await page.waitForURL((url) => url.pathname !== '/login', { timeout: 15_000 })
+  return { context, page }
+}
+
+test('C-4 SA-17: signed-in staff opening /auth/update-password directly are sent to Settings', async ({ browser, factory }, testInfo) => {
+  testInfo.skip(!isMobileProject(testInfo), 'phone-only (S-M)')
+  const user = await factory.createAuthUser({ clinicId: CLINIC_A.id, role: 'staff' })
+  const { context, page } = await signInFreshByMobile(browser, user.mobileNumber, user.password)
+  await expect(page).toHaveURL('http://localhost:3000/')
+  const guards = attachErrorGuards(page)
 
   await page.goto('/auth/update-password')
-  expect(new URL(page.url()).pathname).toBe('/settings')
+  // The root loading.tsx streams first, so the redirect lands in the browser: wait for it.
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/settings')
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
   await expect(page.getByLabel('Current password', { exact: true }).or(page.getByRole('button', { name: /^Your Account/ })).first()).toBeVisible()
+  await expect(page.getByText('Reset your password', { exact: true })).toHaveCount(0)
+
+  // Still signed in: the dashboard opens without a sign-in prompt.
+  await page.goto('/')
+  await expect(page).toHaveURL('http://localhost:3000/')
+  await guards.assertClean()
+  await context.close()
+})
+
+test('C-4 SA-17: signed-in External Staff opening /auth/update-password directly are sent to their account page', async ({ browser, factory }, testInfo) => {
+  testInfo.skip(!isMobileProject(testInfo), 'phone-only (S-M)')
+  const user = await factory.createAuthUser({ clinicId: CLINIC_A.id, role: 'external_staff' })
+  const { context, page } = await signInFreshByMobile(browser, user.mobileNumber, user.password)
+  await expect(page).toHaveURL(/\/external$/)
+
+  await page.goto('/auth/update-password')
+  // The root loading.tsx streams first, so the redirect lands in the browser: wait for it.
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/external/account')
+  await expect(page.getByRole('heading', { name: 'Your account', exact: true })).toBeVisible()
+  await expect(page.getByText('Reset your password', { exact: true })).toHaveCount(0)
+  await expectNoLeakedNulls(page)
+  await context.close()
+})
+
+test('C-4 SA-17: a signed-in platform admin opening /auth/update-password directly is sent to the console', async ({ browser }, testInfo) => {
+  testInfo.skip(!isMobileProject(testInfo), 'phone-only (S-M)')
+  const context = await browser.newContext({ storageState: PLATFORM.storageState })
+  const page = await context.newPage()
+
+  await page.goto('/auth/update-password')
+  // The root loading.tsx streams first, so the redirect lands in the browser: wait for it.
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/platform')
+  await expect(page.getByText('Superadmin console', { exact: true })).toBeVisible()
+  await expect(page.getByText('Reset your password', { exact: true })).toHaveCount(0)
   await context.close()
 })
 
@@ -194,6 +239,10 @@ test('SA-17: a reset-link session still reaches /auth/update-password and sets a
   await page.addInitScript(() => window.localStorage.setItem('care-book:guided-tour-seen', 'true'))
 
   await page.goto(recovery.actionLink)
+  await expect(page).toHaveURL('http://localhost:3000/auth/update-password')
+  await expect(page.getByText('Reset your password', { exact: true })).toBeVisible()
+  // The reset session keeps the page across a reload (the app resumed, the page re-rendered).
+  await page.reload()
   await expect(page).toHaveURL('http://localhost:3000/auth/update-password')
   await expect(page.getByText('Reset your password', { exact: true })).toBeVisible()
   const newPassword = `E2e-${factory.token}-R3set`
