@@ -348,11 +348,9 @@ test('a patient referred by a doctor with no specialty or address renders and sa
   await guards.assertClean()
 })
 
-// PA-4. G-13: the referral picker demands a referrer before the form may save, so a patient whose
-// referring patient or doctor was deleted (source kept, id set NULL) cannot be edited at all
-// until the source is changed.
-test('G-13: a patient whose referrer was deleted renders and can still be saved', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
-  test.fail(true, 'G-13: a dangling referral blocks every save of the patient')
+// PA-4 (G-13): a patient whose referring patient or doctor was deleted (source kept, id set NULL)
+// stays editable; the dangling referral is saved as it is unless the user picks another.
+test('a patient whose referrer was deleted renders and can still be saved', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
   const guards = guardsFor(page)
   const dangling = [
     await factory.createPatient({ phone: null, referral_source: 'patient', referred_by_patient_id: null }),
