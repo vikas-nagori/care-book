@@ -2,9 +2,9 @@ import type { Page, TestInfo } from '@playwright/test'
 
 import { test, expect } from '../support/factories'
 import { expandAllDateGroups } from '../support/date-groups'
-import { attachErrorGuards } from '../support/assertions'
+import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { ADMIN } from '../support/accounts'
-import { SEED } from '../support/ids'
+import { SEED, SPARSE_NAMES, SPARSE_PROFILES } from '../support/ids'
 
 function isMobileProject(testInfo: TestInfo) {
   return testInfo.project.name.endsWith('-mobile')
@@ -34,6 +34,24 @@ test('admin settings switch between persistent panels and focus-restoring mobile
       },
     },
     {
+      title: 'Connected Apps',
+      triggerName: /^Connected Apps\s*\d+ apps?$/,
+      assertContent: async () => {
+        await expect(page.getByRole('dialog', { name: 'Connected Apps' })
+          .getByText(/No connected MCP apps\.|Revoke/).first()).toBeVisible()
+      },
+    },
+    {
+      title: 'Session Fees',
+      triggerName: /^Session Fees\s*Clinic & home visits$/,
+      assertContent: async () => {
+        await expect(page.getByRole('dialog', { name: 'Session Fees' }).getByRole('button', {
+          name: 'Save Settings',
+          exact: true,
+        })).toBeVisible()
+      },
+    },
+    {
       title: 'Appointment Types',
       triggerName: /^Appointment Types\s*\d+ types?$/,
       assertContent: async () => {
@@ -54,6 +72,16 @@ test('admin settings switch between persistent panels and focus-restoring mobile
       },
     },
     {
+      title: 'Invite User',
+      triggerName: /^Invite User\s*Add a user to Care-Book$/,
+      assertContent: async () => {
+        await expect(page.getByRole('dialog', { name: 'Invite User' }).getByRole('button', {
+          name: 'Create Login',
+          exact: true,
+        })).toBeVisible()
+      },
+    },
+    {
       title: 'Temporary Staff',
       triggerName: /^Temporary Staff\s*\d+ (?:person|people)$/,
       assertContent: async () => {
@@ -67,8 +95,17 @@ test('admin settings switch between persistent panels and focus-restoring mobile
       title: 'Invites',
       triggerName: /^Invites\s*\d+ pending$/,
       assertContent: async () => {
+        // Matched by the invitee's name: mobile-only invites have no email to match on.
         const dialog = page.getByRole('dialog', { name: 'Invites' })
-        await expect(dialog.getByText(/No invites have been sent yet\.|@carebook\.test/).first()).toBeVisible()
+        await expect(dialog.getByText(SPARSE_NAMES.inviteMobileOnly.fullName, { exact: true }).first()).toBeVisible()
+      },
+    },
+    {
+      title: 'Active Users',
+      triggerName: /^Active Users\s*\d+ users?$/,
+      assertContent: async () => {
+        const dialog = page.getByRole('dialog', { name: 'Active Users' })
+        await expect(dialog.getByText(SPARSE_PROFILES.mobileOnly.fullName, { exact: true }).first()).toBeVisible()
       },
     },
   ] as const
@@ -126,6 +163,7 @@ test('admin settings switch between persistent panels and focus-restoring mobile
       return candidate?.textContent ?? ''
     })
     expect(invitesPanelText).toMatch(/No invites have been sent yet\.|Last Updated/)
+    await expectNoLeakedNulls(page)
     await guards.assertClean()
     return
   }
@@ -142,6 +180,7 @@ test('admin settings switch between persistent panels and focus-restoring mobile
     const dialog = page.getByRole('dialog', { name: section.title, exact: true })
     await expect(dialog).toBeVisible()
     await section.assertContent()
+    await expectNoLeakedNulls(page, { scope: dialog })
     await dialog.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(dialog).toBeHidden()
     await expect(trigger).toHaveAttribute('aria-expanded', 'false')
