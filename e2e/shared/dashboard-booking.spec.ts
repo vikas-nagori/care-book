@@ -52,7 +52,6 @@ test('books an appointment from the dashboard dialog and lists it in today\'s sc
 })
 
 test('G-17b: a patient created inline from the dashboard dialog can be picked when the dialog is reopened', async ({ page, factory }, testInfo) => {
-  testInfo.fail(true, 'G-17b: the dashboard dialog caches its patient list, so a patient created inline is missing on reopen')
   const guards = guardsFor(page)
   const name = factory.uniqueName('dashboard-inline')
   factory.watchUiPatient(name)
