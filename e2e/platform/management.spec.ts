@@ -557,12 +557,18 @@ test('approving a request whose owner already has a login says why and leaves th
   await guards.assertClean()
 })
 
-test('approving a request whose owner already has a login leaves no orphan clinic (G-5)', async ({ page, factory }, testInfo) => {
-  // G-5 (needs its own fix branch): the clinic and its settings row are inserted before the owner
-  // login is created, and nothing removes them when that fails, so every attempt adds a clinic.
-  testInfo.fail()
+test('approving a request whose owner already has a login leaves no orphan clinic (G-5)', async ({ page, factory }) => {
+  // G-5: the clinic is inserted before the owner login is created; when that fails the approval
+  // removes the clinic again, so no attempt (first or retried) leaves one behind.
   const guards = attachErrorGuards(page)
-  const { request } = await approveExistingOwnerRequest(page, factory)
+  const { request, approve } = await approveExistingOwnerRequest(page, factory)
+  expect(await clinicsNamed(request.clinic_name)).toEqual([])
+
+  const retry = page.waitForResponse((response) =>
+    response.request().method() === 'POST' && response.request().headers()['next-action'] !== undefined)
+  await approve.click()
+  await retry
+  await expect(approve).toBeEnabled()
   expect(await clinicsNamed(request.clinic_name)).toEqual([])
   await guards.assertClean()
 })
@@ -748,9 +754,8 @@ test('a dropped Issue temp password request keeps the old password and the butto
 })
 
 test('while Approve is in flight on one request, rejecting another keeps the first one locked (G-5)', async ({ page, factory }, testInfo) => {
-  // G-5 (needs its own fix branch): one shared `busyId` in clinic-requests-list.tsx, so the second
-  // click re-enables the first request's Approve and Reject while its approval is still running.
-  testInfo.fail()
+  // G-5: the list tracks each request's call on its own, so the second click cannot re-enable the
+  // first request's Approve and Reject while its approval is still running.
   testInfo.setTimeout(60_000)
   const guards = faultGuards(page)
   const first = await factory.createOnboardingRequest()
