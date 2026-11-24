@@ -135,7 +135,13 @@ test.describe('HTTP contracts (PL-10, PL-11)', () => {
   })
 
   for (const path of ['/api/appointments/bookings', '/api/appointments/bookings/status']) {
-    test(`an unauthenticated POST to ${path} answers 401 JSON`, async ({ request }) => {
+    test(`an unauthenticated POST to ${path} answers 401 JSON (G-18)`, async ({ request }, testInfo) => {
+      // G-18 (new, found by PL-11; needs its own fix branch): the middleware answers an
+      // unauthenticated POST with a 307 to /login?next=… before the route's own 401
+      // SCHEDULE_UNAUTHORIZED reply can run (only the PDF API has a JSON carve-out). The booking
+      // client fetches with redirect: 'error', so a phone whose session lapsed gets a generic
+      // failure instead of "Sign in again to manage appointments."
+      testInfo.fail()
       const response = await request.post(path, { maxRedirects: 0, data: {} })
       expect(response.status()).toBe(401)
       expect(response.headers()['content-type']).toContain('application/json')

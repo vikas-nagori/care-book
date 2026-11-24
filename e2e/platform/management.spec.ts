@@ -36,6 +36,17 @@ function faultGuards(page: Page) {
   })
 }
 
+/**
+ * Open a console page and let it finish loading before a fault route is installed. The Vercel
+ * analytics scripts are DOM-injected after load and, for a superadmin, the middleware bounces
+ * them to /platform; attachErrorGuards recognises that bounce from the redirect chain, which
+ * Playwright does not expose while a catch-all page.route() is intercepting the request.
+ */
+async function gotoSettled(page: Page, path: string) {
+  await page.goto(path)
+  await page.waitForLoadState('networkidle')
+}
+
 /** A console card (clinic or clinic request) found by its exact title. */
 function card(page: Page, title: string): Locator {
   return page.locator('div.rounded-xl').filter({ has: page.getByText(title, { exact: true }) })
@@ -60,6 +71,17 @@ async function passwordWorks(email: string, password: string): Promise<boolean> 
   const { error } = await client.auth.signInWithPassword({ email, password })
   if (!error) await client.auth.signOut({ scope: 'local' })
   return !error
+}
+
+/**
+ * Register the owner login an approval created. watchUiInvite alone finds it only after the
+ * profile delete, which the soft-delete guard refuses for a login not yet marked for cleanup.
+ */
+async function trackApprovedOwner(factory: E2EFactory, email: string) {
+  const ownerId = (await factory.findInviteByEmail(email))?.auth_user_id
+  if (!ownerId) throw new Error(`approved owner ${email} has no invite with an auth user`)
+  factory.trackAuthUser(ownerId, email)
+  factory.trackProfile(ownerId, email)
 }
 
 async function clinicsNamed(name: string): Promise<string[]> {
@@ -552,7 +574,7 @@ test('a dropped Approve request leaves the request pending and Approve usable', 
   factory.watchUiOnboardingRequest({ ownerEmail: request.owner_email, clinicName: request.clinic_name })
   factory.watchUiInvite(request.owner_email)
 
-  await page.goto('/platform/clinic-requests')
+  await gotoSettled(page, '/platform/clinic-requests')
   const requestCard = card(page, request.clinic_name)
   const approve = requestCard.getByRole('button', { name: `Approve ${request.clinic_name}`, exact: true })
   const fault = await failNextServerAction(page, 'abort')
@@ -570,6 +592,7 @@ test('a dropped Approve request leaves the request pending and Approve usable', 
   await page.getByRole('dialog', { name: 'Temporary password issued' }).getByRole('button', { name: 'Done', exact: true }).click()
   await expect.poll(async () => (await factory.findOnboardingRequestByEmail(request.owner_email))?.status).toBe('approved')
   expect(await clinicsNamed(request.clinic_name)).toHaveLength(1)
+  await trackApprovedOwner(factory, request.owner_email)
   await guards.assertClean()
 })
 
@@ -578,7 +601,7 @@ test('a dropped Reject request keeps the typed reason and Reject usable', async 
   const request = await factory.createOnboardingRequest()
   const reason = factory.uniqueName('rejection-reason')
 
-  await page.goto('/platform/clinic-requests')
+  await gotoSettled(page, '/platform/clinic-requests')
   const requestCard = card(page, request.clinic_name)
   const reasonInput = requestCard.getByLabel(`Rejection reason for ${request.clinic_name}`, { exact: true })
   await reasonInput.fill(reason)
@@ -602,7 +625,7 @@ test('a dropped Block clinic request leaves the clinic and its users active', as
   const clinic = await factory.createClinic()
   const user = await factory.createAuthUser({ clinicId: clinic.id })
 
-  await page.goto('/platform/clinics')
+  await gotoSettled(page, '/platform/clinics')
   const block = card(page, clinic.name).getByRole('button', { name: `Block clinic ${clinic.name}`, exact: true })
   const fault = await failNextServerAction(page, 'abort')
   await block.click()
@@ -622,7 +645,7 @@ test('a dropped Unblock clinic request leaves the clinic blocked and Unblock usa
   const guards = faultGuards(page)
   const clinic = await factory.createClinic({ status: 'inactive' })
 
-  await page.goto('/platform/clinics')
+  await gotoSettled(page, '/platform/clinics')
   const unblock = card(page, clinic.name).getByRole('button', { name: `Unblock clinic ${clinic.name}`, exact: true })
   const fault = await failNextServerAction(page, 'abort')
   await unblock.click()
@@ -642,7 +665,7 @@ test('a dropped Block user request leaves the user active and Block usable', asy
   const clinic = await factory.createClinic()
   const user = await factory.createAuthUser({ clinicId: clinic.id })
 
-  await page.goto('/platform/users')
+  await gotoSettled(page, '/platform/users')
   const block = page.getByTestId(`user-row-${user.id}`).getByRole('button', { name: `Block user ${user.email}`, exact: true })
   const fault = await failNextServerAction(page, 'abort')
   await block.click()
@@ -663,7 +686,7 @@ test('a dropped Unblock user request leaves the user blocked and Unblock usable'
   const clinic = await factory.createClinic()
   const user = await factory.createAuthUser({ clinicId: clinic.id, status: 'blocked' })
 
-  await page.goto('/platform/users')
+  await gotoSettled(page, '/platform/users')
   const unblock = page.getByTestId(`user-row-${user.id}`).getByRole('button', { name: `Unblock user ${user.email}`, exact: true })
   const fault = await failNextServerAction(page, 'abort')
   await unblock.click()
@@ -684,7 +707,7 @@ test('a dropped Send reset request sends nothing and Send reset stays usable', a
   const user = await factory.createAuthUser({ clinicId: clinic.id })
   const before = (await factory.getAuthUser(user.id)).recovery_sent_at
 
-  await page.goto('/platform/users')
+  await gotoSettled(page, '/platform/users')
   const sendReset = page.getByTestId(`user-row-${user.id}`).getByRole('button', { name: `Send reset for ${user.email}`, exact: true })
   const fault = await failNextServerAction(page, 'abort')
   await sendReset.click()
@@ -705,7 +728,7 @@ test('a dropped Issue temp password request keeps the old password and the butto
   const user = await factory.createAuthUser({ clinicId: clinic.id })
   page.on('dialog', (dialog) => { void dialog.accept() })
 
-  await page.goto('/platform/users')
+  await gotoSettled(page, '/platform/users')
   const issue = page.getByTestId(`user-row-${user.id}`).getByRole('button', { name: `Issue temp password for ${user.email}`, exact: true })
   const fault = await failNextServerAction(page, 'abort')
   await issue.click()
@@ -735,7 +758,7 @@ test('while Approve is in flight on one request, rejecting another keeps the fir
   factory.watchUiOnboardingRequest({ ownerEmail: first.owner_email, clinicName: first.clinic_name })
   factory.watchUiInvite(first.owner_email)
 
-  await page.goto('/platform/clinic-requests')
+  await gotoSettled(page, '/platform/clinic-requests')
   const firstCard = card(page, first.clinic_name)
   const approveFirst = firstCard.getByRole('button', { name: `Approve ${first.clinic_name}`, exact: true })
   const rejectFirst = firstCard.getByRole('button', { name: `Reject ${first.clinic_name}`, exact: true })
@@ -753,6 +776,7 @@ test('while Approve is in flight on one request, rejecting another keeps the fir
   await expect(toast(page, 'Clinic approved')).toBeVisible()
   await page.getByRole('dialog', { name: 'Temporary password issued' }).getByRole('button', { name: 'Done', exact: true }).click()
   await expect.poll(async () => (await factory.findOnboardingRequestByEmail(first.owner_email))?.status).toBe('approved')
+  await trackApprovedOwner(factory, first.owner_email)
   await expect.poll(async () => (await factory.findOnboardingRequestByEmail(second.owner_email))?.status).toBe('rejected')
   await guards.assertClean()
 })
