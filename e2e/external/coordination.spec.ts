@@ -1,15 +1,21 @@
-import { expect, test, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
-import { ADMIN, EXTERNAL, EXTERNAL_EMPTY, PASSWORD, STAFF } from '../support/accounts'
+import { ADMIN, CLINIC_A, EXTERNAL, EXTERNAL_EMPTY, PASSWORD, STAFF } from '../support/accounts'
 import { clinicDate, wholeYearsSince } from '../support/clinic-date'
 import { SEED } from '../support/ids'
 import { adminClient } from '../support/supabase-admin'
 import { attachErrorGuards, expectNoLeakedNulls, gotoNotFoundRoute } from '../support/assertions'
+import { test, expect } from '../support/factories'
+import { EXTERNAL_OBSERVABILITY_REDIRECT_NOISE, ExternalAppointmentDialog, ExternalBookingDialog, escapeRegExp, press, scheduleChip } from '../pages/external-dialogs'
 
 function guardsFor(page: Page, options: { allowCrashText?: readonly string[] } = {}) {
   // reportClientError's telemetry budget can answer 429 when the matrix runs back to back.
-  return attachErrorGuards(page, { expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }], ...options })
+  return attachErrorGuards(page, {
+    expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }],
+    expectedFailures: EXTERNAL_OBSERVABILITY_REDIRECT_NOISE,
+    ...options,
+  })
 }
 
 test('external calendar and patient profile expose only explicitly shared coordination details', async ({ page }) => {
@@ -268,4 +274,65 @@ test('admin multi-select shares patient basics with a second external account an
     await adminContext.close()
     await externalContext.close()
   }
+})
+
+test('booking from the patient dialog lands on that day, and a reschedule can change type and time or be backed out', async ({ page, factory }, testInfo) => {
+  const external = await factory.findProfileByEmail(EXTERNAL.email)
+  const patient = await factory.createPatient({ phone: null })
+  await factory.shareWithExternal(patient.id, [external.id])
+  const { data: types, error } = await adminClient().from('appointment_types')
+    .select('id, name').eq('clinic_id', CLINIC_A.id).order('sort_order').order('name').limit(2)
+  expect(error).toBeNull()
+  expect(types, 'Clinic A needs two appointment types to change between').toHaveLength(2)
+  const [first, second] = types!
+  const date = clinicDate(10)
+  const booked = () => adminClient().from('appointments')
+    .select('id, date, time, duration_minutes, status, appointment_type_id').eq('patient_id', patient.id)
+  const guards = guardsFor(page)
+
+  await page.goto('/external/patients')
+  await page.getByRole('textbox', { name: 'Search patients' }).fill(patient.name.split(' ').slice(-3).join(' '))
+  await press(page.getByRole('button', { name: new RegExp(escapeRegExp(patient.name)) }).filter({ visible: true }), testInfo)
+  const profile = page.getByRole('dialog', { name: patient.name, exact: true })
+  await expect(profile).toBeVisible()
+  await press(profile.getByRole('button', { name: 'Book appointment', exact: true }), testInfo)
+  const booking = new ExternalBookingDialog(page)
+  await expect(booking.dialog).toBeVisible()
+  await expect(booking.patient).toHaveValue(patient.id)
+  await expect(booking.date).toHaveValue(clinicDate())
+  await booking.fill({ typeId: first.id, date, time: '10:30' })
+  await press(booking.submit, testInfo)
+  await expect(booking.dialog).toBeHidden()
+  await expect(page).toHaveURL(new RegExp(`/external\\?date=${date}$`))
+  await expect(page.getByText('Appointment booked', { exact: true }).filter({ visible: true })).toBeVisible()
+  await expect(scheduleChip(page, patient.name).filter({ hasText: '10:30 AM' })).toBeVisible()
+  await expectNoLeakedNulls(page)
+  const { data: created } = await booked()
+  expect(created).toEqual([expect.objectContaining({ date, time: '10:30:00', status: 'scheduled', appointment_type_id: first.id })])
+
+  // Reschedule: another type and another time on the same day.
+  let dialog = await ExternalAppointmentDialog.open(page, testInfo, patient.name)
+  await expect(dialog.type).toHaveValue(first.id)
+  await dialog.type.selectOption(second.id)
+  await dialog.time.fill('11:45')
+  await press(dialog.save, testInfo)
+  await expect(dialog.dialog).toBeHidden()
+  await expect(page.getByText('Appointment updated', { exact: true }).filter({ visible: true })).toBeVisible()
+  await expect(scheduleChip(page, patient.name).filter({ hasText: '11:45 AM' })).toBeVisible()
+  await expect.poll(async () => (await booked()).data).toEqual([
+    expect.objectContaining({ id: created![0].id, date, time: '11:45:00', status: 'scheduled', appointment_type_id: second.id }),
+  ])
+
+  // Start a cancellation, then keep the appointment.
+  dialog = await ExternalAppointmentDialog.open(page, testInfo, patient.name)
+  await press(dialog.startCancel, testInfo)
+  await expect(dialog.dialog.getByText('Cancel this appointment? The clinic will see it as cancelled.', { exact: true })).toBeVisible()
+  await press(dialog.keep, testInfo)
+  await expect(dialog.save).toBeVisible()
+  await expect(dialog.type).toHaveValue(second.id)
+  await expectNoLeakedNulls(page, { scope: dialog.dialog })
+  await page.keyboard.press('Escape')
+  await expect(dialog.dialog).toBeHidden()
+  expect((await booked()).data).toEqual([expect.objectContaining({ status: 'scheduled', time: '11:45:00' })])
+  await guards.assertClean()
 })
