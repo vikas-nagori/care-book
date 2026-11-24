@@ -61,8 +61,9 @@ The `mobile-ios` project (iPhone 14, WebKit, signed in as the clinic admin) need
 machine: `npx playwright install webkit`. It runs only tests tagged `@ios` (route smoke, both
 minimal-input specs, the fault-injection smoke, and the phone lifecycle cases); tag a test with
 `test('…', { tag: IOS_TAG }, …)` from `support/mobile.ts`. `E2E_SKIP_IOS=1` leaves the project out
-of a run. CI installs WebKit on shard 1 only and runs `--project=mobile-ios` there after the
-sharded run, which sets `E2E_SKIP_IOS=1`.
+of a run. CI runs `--project=mobile-ios` in its own `e2e-ios` job, in parallel with the shards
+(which set `E2E_SKIP_IOS=1`); it is the only job that installs WebKit. That job also installs
+Chromium, because the `setup` project it depends on signs in on Playwright's default browser.
 
 Stop any existing app on port 3000 before running Playwright. The configured server is always built
 with `.env.e2e`; intentionally disabling server reuse prevents mutation specs from driving an
@@ -80,12 +81,13 @@ complete matrix is proven stable at higher concurrency.
 
 CI runs on every branch push and pull request. Its `test` check gates four parallel jobs: lint +
 app/E2E typechecks, unit + component suites, the integration suite, and a production
-E2E-environment build. Its `e2e` check gates the `e2e-shard` matrix, where each runner boots its
-own isolated local Supabase stack (in the background, while Chromium installs and `next build`
-runs) and then serves that build with `E2E_PREBUILT=1` for its slice of the complete project
-matrix. The HTML report plus failure traces/screenshots in `test-results/` are uploaded as the
-`playwright-report-shard-<n>` artifacts only when that shard fails, and kept for 7 days. Both checks must remain
-required for `main`; see `.github/BRANCH_PROTECTION.md`.
+E2E-environment build. Its `e2e` check gates the `e2e-shard` matrix and the `e2e-ios` job. Each
+of those runners boots its own isolated local Supabase stack (in the background, while the
+browsers install and `next build` runs) and then serves that build with `E2E_PREBUILT=1`: a shard
+for its slice of the project matrix without `mobile-ios`, and `e2e-ios` for `mobile-ios` alone.
+The HTML report plus failure traces/screenshots in `test-results/` are uploaded as the
+`playwright-report-shard-<n>` or `playwright-report-ios` artifact only when that job fails, and
+kept for 7 days. Both checks must remain required for `main`; see `.github/BRANCH_PROTECTION.md`.
 
 The normal test command never resets the database. It starts the local stack if necessary and
 idempotently restores fixed fixture rows. Use `npm run e2e:db:reset` only when you intentionally

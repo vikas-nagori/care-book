@@ -22,7 +22,8 @@ change from merging when either the fast/build suite or the browser suite is ski
 The fast suites run as four independent jobs (`lint-typecheck`, `unit-component`, `integration`,
 `build`) so they finish side by side instead of one after another. The Playwright suite runs as a
 `e2e-shard` matrix across several runners, so its own checks report as `e2e-shard (1)` …
-`e2e-shard (n)` — names that change whenever the shard count changes. Neither `test` nor `e2e`
+`e2e-shard (n)` — names that change whenever the shard count changes — plus a separate `e2e-ios`
+job for the iPhone (WebKit) project, running in parallel with the shards. Neither `test` nor `e2e`
 does any testing itself; each depends on its group and fails unless every member succeeded. Keep
 requiring only `test` and `e2e`, never the individual jobs or shards: an administrator then never
 has to revisit this setting when the suites are regrouped or the shard count is tuned, and a job

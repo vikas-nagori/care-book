@@ -88,8 +88,9 @@ export default defineConfig({
 
     // iPhone (WebKit). Every iPhone runs the app on WebKit, which the Pixel 5 projects never
     // exercise. Runs only tests tagged @ios (route smoke, minimal input, fault injection and the
-    // phone lifecycle cases), signed in as the clinic admin. CI installs WebKit on one shard and
-    // runs this project there on its own (E2E_SKIP_IOS keeps it out of the sharded run).
+    // phone lifecycle cases), signed in as the clinic admin. CI runs this project in its own
+    // `e2e-ios` job, the only one that installs WebKit, in parallel with the shards
+    // (E2E_SKIP_IOS keeps it out of the sharded run).
     ...(process.env.E2E_SKIP_IOS === '1' ? [] : [{
       name: 'mobile-ios',
       dependencies: ['setup'],
