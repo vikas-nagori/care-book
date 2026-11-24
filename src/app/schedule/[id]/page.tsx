@@ -50,6 +50,11 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
     .from('session_notes')
     .select('*')
     .eq('appointment_id', id)
+    // One note per appointment since migration 20261124131000; before it, a re-save could leave
+    // duplicates, so read the newest rather than letting .maybeSingle() fail and show none (G-4).
+    .order('created_at', { ascending: false, nullsFirst: false })
+    .order('id', { ascending: false })
+    .limit(1)
     .maybeSingle()
 
   if (sessionNoteError) {

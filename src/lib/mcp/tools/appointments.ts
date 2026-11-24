@@ -247,6 +247,9 @@ export const appointmentReadTools: McpToolDefinition[] = [
         .from('session_notes')
         .select('subjective, objective, assessment, plan, exercises_prescribed, created_at')
         .eq('appointment_id', rows[0].id)
+        // Newest note, so a legacy duplicate pair (G-4) cannot make .maybeSingle() fail.
+        .order('created_at', { ascending: false, nullsFirst: false })
+        .limit(1)
         .maybeSingle()
       if (noteError) throw noteError
       return {

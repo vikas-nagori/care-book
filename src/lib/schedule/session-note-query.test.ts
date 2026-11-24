@@ -17,3 +17,11 @@ test('session note lookup treats a missing note as an expected result', () => {
   assert.match(sessionNoteQuery, /\.maybeSingle\(\)/)
   assert.doesNotMatch(sessionNoteQuery, /\.single\(\)/)
 })
+
+test('session note lookup reads the newest note, so legacy duplicates cannot hide the notes (G-4)', () => {
+  const sessionNoteQuery = appointmentPageSource.match(/\.from\('session_notes'\)[\s\S]*?\n\s*\.maybeSingle\(\)/)?.[0]
+
+  assert.ok(sessionNoteQuery, 'expected the session_notes query chain')
+  assert.match(sessionNoteQuery, /\.order\('created_at', \{ ascending: false/)
+  assert.match(sessionNoteQuery, /\.limit\(1\)\s*\.maybeSingle\(\)/)
+})
