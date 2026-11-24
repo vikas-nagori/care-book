@@ -286,8 +286,28 @@ test('each e2e runner runs exactly its own matrix entry and uploads a uniquely n
       /if: failure\(\)\n\s+uses: actions\/upload-artifact@v4\n\s+with:\n\s+name: playwright-report-\$\{\{ matrix\.group \}\}-\$\{\{ matrix\.slice \}\}of\$\{\{ matrix\.slices \}\}\n/,
       job,
     )
-    // The ports are reserved before any step can open a connection, and the start is retried once.
+    // The ports are reserved by the first step, and the stack starts through the script that
+    // releases ports taken before that and retries once.
     assert.match(block, /steps:\n\s+- name: Reserve the local Supabase ports\n\s+run: \|\n[^\n]*\n\s+sudo sysctl -w net\.ipv4\.ip_local_reserved_ports=54320-54329\n/, job)
-    assert.match(block, /npx supabase stop --no-backup \|\| true\n\s+start_supabase\n/, job)
+    assert.match(block, /bash scripts\/ci-start-supabase\.sh > supabase-start\.log 2>&1 &\n/, job)
+    assert.match(block, /SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr\.io/, job)
+    assert.doesNotMatch(block, /supabase start -x/, `${job} starts Supabase only through the script`)
   }
+})
+
+test('the CI Supabase start releases ports held before the reservation and retries from a clean slate', () => {
+  // A job failed with 54322 held by the runner's own HTTPS connection, opened before the
+  // reservation step and kept for the whole job; a plain stop-and-retry hit the same socket.
+  const script = readFileSync(new URL('../../scripts/ci-start-supabase.sh', import.meta.url), 'utf8')
+  const body = script.replace(/^\s*#.*\n/gm, '')
+  const releaseThenStart = body.indexOf('release_ports\nstart && exit 0')
+  assert.ok(releaseThenStart > 0, 'ports are released before the first start')
+  assert.match(body, /sudo ss -K exclude time-wait "\$PORTS"/)
+  assert.match(body, /PORTS='\( sport >= :54320 and sport <= :54329 \)'/)
+  const retry = body.slice(releaseThenStart)
+  for (const step of ['diagnose', 'npx supabase stop --no-backup', 'xargs -r docker rm -f', 'xargs -r docker network rm', 'release_ports', 'start']) {
+    assert.ok(retry.includes(step), `the retry path runs ${step}`)
+  }
+  assert.match(body, /EXCLUDE='[^']*storage-api[^']*postgres-meta[^']*'/)
+  assert.doesNotMatch(body, /EXCLUDE='[^']*mailpit/, 'mailpit stays: GoTrue sends recovery and invite mail through it')
 })

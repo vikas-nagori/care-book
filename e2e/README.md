@@ -117,11 +117,16 @@ seeds that runner's stack.
   slice.
 - **Setup savings.** `node_modules` is restored from a cache keyed on OS, architecture, Node
   version and `package-lock.json` (it holds the Supabase CLI binary and the Playwright package), so
-  `npm ci` runs only on a miss. Supabase's ports 54320–54329 lie inside Linux's ephemeral range
-  (32768–60999); the image pulls right before `supabase start` binds them use random source ports
-  from that range and occasionally held 54322 or 54324 ("address already in use"). Each job
-  reserves that block (`net.ipv4.ip_local_reserved_ports`) as its first step and retries
-  `supabase start` once after a clean stop. There is no stop step: the runner is discarded.
+  `npm ci` runs only on a miss. There is no stop step: the runner is discarded.
+- **Port clash.** Supabase's ports 54320–54329 lie inside Linux's ephemeral range (32768–60999),
+  so any outbound connection can hold one as its source port, and `supabase start` then fails with
+  "failed to bind host port 0.0.0.0:54322/tcp: address already in use". A failing job showed the
+  holder: the runner's own HTTPS connection (`Runner.Worker`), opened during "Set up job" and kept
+  all job, so a stop-and-retry met the same socket. Each job therefore reserves the block
+  (`net.ipv4.ip_local_reserved_ports`) as its first step, so nothing opened later can take it, and
+  `scripts/ci-start-supabase.sh` destroys any socket that took one earlier (`ss -K`, logged as a
+  warning; its owner reconnects outside the block). A failed start dumps sockets, containers and
+  networks, force-removes the stack and retries once.
 - **Supabase images and services.** `SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io` makes the CLI pull
   from ghcr.io directly: its default, public.ecr.aws, often answers the shared runner IPs with
   "Data limit exceeded", and its backoff-then-fallback cost single runners over three minutes.
