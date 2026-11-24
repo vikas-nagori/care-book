@@ -89,9 +89,9 @@ test('a blocked External Staff account sees Account unavailable on every page an
   await guards.assertClean()
 })
 
-// G-15: Log out is a native <form action>, outside callServerAction, so a dropped request is not
-// turned into a message. The correct behaviour is pinned here; remove test.fail when G-15 is fixed.
-test.fail('G-15: a dropped Log out request on Account unavailable tells the user and keeps the button usable', async ({ page, factory }, testInfo) => {
+// G-15: Log out goes through callServerAction, so a dropped request becomes a message and the
+// notice stays usable; the retry logs out.
+test('G-15: a dropped Log out request on Account unavailable tells the user and keeps the button usable', async ({ page, factory }, testInfo) => {
   const guards = guardsFor(page)
   await blockedExternalUser(page, factory)
   const logout = page.getByRole('button', { name: 'Log out', exact: true })

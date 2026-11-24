@@ -1,5 +1,4 @@
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -11,14 +10,14 @@ import {
 import { getAccountSummaryItems } from '@/lib/settings/account-summary'
 import type { Profile } from '@/lib/supabase/types'
 import { ChangePasswordForm } from './change-password-form'
+import { LogoutButton } from './logout-button'
 
 type AccountSummaryProps = {
   profile: Profile
-  logoutAction: () => Promise<void>
   variant?: 'card' | 'sheet'
 }
 
-export function AccountSummary({ profile, logoutAction, variant = 'card' }: AccountSummaryProps) {
+export function AccountSummary({ profile, variant = 'card' }: AccountSummaryProps) {
   const summaryItems = getAccountSummaryItems(profile)
   const displayItems = variant === 'sheet'
     ? [summaryItems[0], summaryItems[3], summaryItems[1], summaryItems[2]]
@@ -65,11 +64,7 @@ export function AccountSummary({ profile, logoutAction, variant = 'card' }: Acco
       <div className="space-y-5">
         {summary}
         {changePasswordSection}
-        <form action={logoutAction}>
-          <Button type="submit" variant="outline" className="h-11 w-full">
-            Logout
-          </Button>
-        </form>
+        <LogoutButton className="h-11 w-full" />
       </div>
     )
   }
@@ -85,11 +80,7 @@ export function AccountSummary({ profile, logoutAction, variant = 'card' }: Acco
         {changePasswordSection}
       </CardContent>
       <CardFooter className="justify-end">
-        <form action={logoutAction}>
-          <Button type="submit" variant="outline">
-            Logout
-          </Button>
-        </form>
+        <LogoutButton />
       </CardFooter>
     </Card>
   )

@@ -649,15 +649,15 @@ test('SA-11: a slow New password shows Working... and disables Revoke until it f
 })
 
 // ---------------------------------------------------------------------------------------------
-// G-15: Logout is a native <form action>, outside callServerAction, with no pending state. When
-// its request fails the user should get the same plain message as every other control and stay
-// where they are; today the rejection is unhandled. Remove test.fail when G-15 is fixed.
+// G-15: Logout goes through callServerAction like every other control. When its request fails the
+// user gets the same plain message and stays signed in on Settings; the retry logs out.
 // ---------------------------------------------------------------------------------------------
 
-test.fail('G-15 SA-18: a Logout whose request fails says so and leaves Settings usable', async ({ browser, factory }) => {
+test('G-15 SA-18: a Logout whose request fails says so and leaves Settings usable', async ({ browser, factory }) => {
   const user = await factory.createAuthUser({ clinicId: CLINIC_A.id, role: 'staff' })
   const session = await signInFresh(browser, user.mobileNumber, user.password)
   const page = session.page
+  const guards = guardsFor(page)
   const settings = await openSettings(page)
   const logout = await settings.logoutButton()
 
@@ -665,6 +665,18 @@ test.fail('G-15 SA-18: a Logout whose request fails says so and leaves Settings 
   await logout.click()
   await expectButtonRecovers(logout, { idleName: 'Logout', message: ACTION_UNREACHABLE_MESSAGE, fault })
   await expect(page).toHaveURL(/\/settings$/)
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true }).filter({ visible: true })).toBeVisible()
   await expectNoLeakedNulls(page)
+
+  // Still signed in: a reload stays on Settings. Then the retry logs out for real.
+  await page.reload()
+  await expect(page).toHaveURL(/\/settings$/)
+  await fault.dispose()
+  const retry = await settings.logoutButton()
+  await retry.click()
+  await expect(page).toHaveURL(/\/login(?:\?|$)/)
+  await page.goto('/settings')
+  await expect(page).toHaveURL(/\/login\?next=%2Fsettings$/)
+  await guards.assertClean()
   await session.context.close()
 })

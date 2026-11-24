@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react'
 import { ShieldCheck } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { PlatformNav } from '@/components/platform/platform-nav'
 import { requirePlatformAdminUser } from '@/lib/platform/server'
-import { signOutFromPlatform } from './actions'
+import { PlatformSignOutButton } from './sign-out-button'
 
 export default async function PlatformLayout({ children }: { children: ReactNode }) {
   const admin = await requirePlatformAdminUser()
@@ -20,11 +19,7 @@ export default async function PlatformLayout({ children }: { children: ReactNode
                 <div className="text-xs text-muted-foreground">{admin.email}</div>
               </div>
             </div>
-            <form action={signOutFromPlatform}>
-              <Button type="submit" variant="outline" size="sm">
-                Sign out
-              </Button>
-            </form>
+            <PlatformSignOutButton />
           </div>
           <PlatformNav />
         </div>

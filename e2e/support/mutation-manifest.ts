@@ -391,11 +391,11 @@ const SETTINGS_AUTH: readonly ManifestEntry[] = [
     failure: ref(SA_FAILURES, 'SA-9: an aborted Change Password keeps the old password and the retry changes it'),
   },
   {
-    id: 'src/app/settings/actions.ts#logoutFromSettings@src/app/settings/account-summary.tsx',
-    kind: 'form-action',
+    // Rendered by AccountSummary: Settings (card and phone sheet) and the External Staff account page.
+    id: 'src/app/settings/actions.ts#logoutFromSettings@src/app/settings/logout-button.tsx',
+    kind: 'server-action',
     happy: ref(SA_SETTINGS, 'SA-18: an admin logs out from Settings and protected routes then go to sign-in'),
     minimal: ref(SA_MINIMAL, 'SA-2: an email-less Staff account reads "Not added yet", changes its password by mobile number and logs out'),
-    // Pinned with test.fail until G-15 (native form action outside callServerAction) is fixed.
     failure: ref(SA_FAILURES, 'G-15 SA-18: a Logout whose request fails says so and leaves Settings usable'),
   },
   {
@@ -486,10 +486,9 @@ const EXTERNAL: readonly ManifestEntry[] = [
   },
   {
     id: 'src/app/settings/actions.ts#logoutFromSettings@src/app/external/unavailable.tsx',
-    kind: 'form-action',
+    kind: 'server-action',
     happy: ref('e2e/external/access-routing.spec.ts', 'a blocked External Staff account sees Account unavailable on every page and can still log out'),
     minimal: { exempt: 'Log out submits no input; the blocked-account notice it sits on is leak-checked by the happy test' },
-    // Pinned with test.fail until G-15 (native form actions bypass callServerAction) is fixed.
     failure: ref('e2e/external/access-routing.spec.ts', 'G-15: a dropped Log out request on Account unavailable tells the user and keeps the button usable'),
   },
 ]
@@ -556,11 +555,10 @@ const PLATFORM_HTTP: readonly ManifestEntry[] = [
     failure: ref('e2e/platform/management.spec.ts', 'a dropped Issue temp password request keeps the old password and the button usable'),
   },
   {
-    id: 'src/app/platform/actions.ts#signOutFromPlatform@src/app/platform/layout.tsx',
-    kind: 'form-action',
+    id: 'src/app/platform/actions.ts#signOutFromPlatform@src/app/platform/sign-out-button.tsx',
+    kind: 'server-action',
     happy: ref('e2e/platform/zz-signout.spec.ts', 'signs out through the platform UI and revokes access to the console'),
     minimal: { exempt: 'A single Sign out button: there is no input to leave blank and no record to render.' },
-    // Pinned with testInfo.fail() until G-15 moves native form actions onto the failure path.
     failure: ref('e2e/platform/zz-signout.spec.ts', 'a dropped sign-out request keeps the console usable and the retry signs out (G-15)'),
   },
 ]
