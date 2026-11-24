@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 /** Every SOAP field is optional; an all-blank note is a legal save. */
 export type SessionNoteFormData = {
@@ -9,20 +9,43 @@ export type SessionNoteFormData = {
   exercises?: string
 }
 
+const LABELS: Record<keyof SessionNoteFormData, string> = {
+  subjective: 'Subjective',
+  objective: 'Objective',
+  assessment: 'Assessment',
+  plan: 'Plan',
+  exercises: 'Exercises Prescribed',
+}
+
 export class SessionNoteForm {
   constructor(private readonly page: Page) {}
 
-  private dialog() {
+  dialog(): Locator {
     return this.page.getByRole('dialog', { name: 'Session Notes (SOAP)' })
   }
 
+  field(name: keyof SessionNoteFormData): Locator {
+    return this.dialog().getByLabel(LABELS[name], { exact: true })
+  }
+
+  /** Keeps matching while the save is pending. */
+  saveButton(): Locator {
+    return this.dialog().getByRole('button', { name: /^(Save Notes|Saving…)$/ })
+  }
+
   async fill(data: SessionNoteFormData): Promise<void> {
-    const dialog = this.dialog()
-    if (data.subjective !== undefined) await dialog.getByLabel('Subjective', { exact: true }).fill(data.subjective)
-    if (data.objective !== undefined) await dialog.getByLabel('Objective', { exact: true }).fill(data.objective)
-    if (data.assessment !== undefined) await dialog.getByLabel('Assessment', { exact: true }).fill(data.assessment)
-    if (data.plan !== undefined) await dialog.getByLabel('Plan', { exact: true }).fill(data.plan)
-    if (data.exercises !== undefined) await dialog.getByLabel('Exercises Prescribed', { exact: true }).fill(data.exercises)
+    for (const key of Object.keys(LABELS) as (keyof SessionNoteFormData)[]) {
+      const value = data[key]
+      if (value !== undefined) await this.field(key).fill(value)
+    }
+  }
+
+  /** Empty every SOAP field. */
+  async clearAll(): Promise<void> {
+    for (const key of Object.keys(LABELS) as (keyof SessionNoteFormData)[]) {
+      await this.field(key).fill('')
+      await expect(this.field(key)).toHaveValue('')
+    }
   }
 
   async save(expectedToast: 'Notes saved' | 'Notes updated'): Promise<void> {
