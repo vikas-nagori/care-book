@@ -289,9 +289,12 @@ async function paymentFlow(page: Page, factory: E2EFactory): Promise<OpenFlow> {
   const dialog = page.getByRole('dialog', { name: 'New Billing Entry' })
   const trigger = page.getByRole('button', { name: 'New billing entry', exact: true })
   const openForm = async () => {
-    // `?new=1` opens the dialog on load; once closed, the URL is cleaned and the button opens it.
-    await expect(dialog.or(trigger).first()).toBeVisible()
-    if (!(await dialog.isVisible())) await trigger.tap()
+    // `?new=1` opens the dialog by itself once the page hydrates (Radix portals are not
+    // server-rendered). Deciding by what is on screen raced that: the server-rendered trigger was
+    // visible first, and a tap aimed at it then waited forever behind the dialog's overlay. So the
+    // URL decides: with the flag, the app opens the dialog; once closed, the URL is cleaned and the
+    // trigger opens it.
+    if (new URL(page.url()).searchParams.get('new') !== '1') await trigger.tap()
     await expect(dialog).toBeVisible()
   }
   await page.goto('/billing?new=1')

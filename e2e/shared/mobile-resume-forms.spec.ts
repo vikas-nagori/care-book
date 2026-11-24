@@ -261,6 +261,12 @@ test.describe('M-5 resume keeps what the device loaded', () => {
     await page.goto('/patients')
     const more = page.getByRole('button', { name: /^Load more \(\d+ remaining\)$/ })
     const rows = page.getByRole('link').filter({ hasText: token }).filter({ visible: true })
+    // The list streams in behind loading.tsx, and count() does not wait: read straight after the
+    // navigation it could be 0, so a page that was still loading already looked like progress and
+    // the next tap waited for a Load more button that had gone. Wait for the first page to be on
+    // screen, and for hydration (an earlier tap has no handler yet), before counting.
+    await expect(rows.first()).toBeVisible()
+    await page.waitForLoadState('networkidle')
     // Load pages until every one of this test's patients is on the device.
     for (let before = await rows.count(); before < 60; before = await rows.count()) {
       await more.tap()
