@@ -30,6 +30,7 @@ e2e/
   support/                # seed harness, route manifest/guard, nav + route assertions
   shared/                 # specs that run under BOTH admin and staff × desktop and mobile
   admin/  staff/          # role-specific specs
+  external/               # External Staff workspace (desktop + mobile)
   platform/  public/      # super-admin console / unauthenticated flows
 .env.e2e                  # committed local-stack URL + well-known local keys (NOT secret)
 ```
@@ -55,6 +56,13 @@ npm run e2e:db:down        # supabase stop
 ```
 
 `npm run test:e2e -- --project=admin-desktop` runs a single project.
+
+The `mobile-ios` project (iPhone 14, WebKit, signed in as the clinic admin) needs WebKit once per
+machine: `npx playwright install webkit`. It runs only tests tagged `@ios` (route smoke, both
+minimal-input specs, the fault-injection smoke, and the phone lifecycle cases); tag a test with
+`test('…', { tag: IOS_TAG }, …)` from `support/mobile.ts`. `E2E_SKIP_IOS=1` leaves the project out
+of a run. CI installs WebKit on shard 1 only and runs `--project=mobile-ios` there after the
+sharded run, which sets `E2E_SKIP_IOS=1`.
 
 Stop any existing app on port 3000 before running Playwright. The configured server is always built
 with `.env.e2e`; intentionally disabling server reuse prevents mutation specs from driving an
@@ -190,14 +198,64 @@ the current Next runtime. The denial helper therefore asserts the observed soft-
 exactly: HTTP 200 document response, no redirect, unchanged requested URL, and the visible
 `This page could not be found.` heading. This outcome is kept distinct from successful route smoke.
 
+## Phones first
+
+Almost every clinic user runs the installed app on a phone, so a case that runs on one project
+runs on a mobile one. `support/mobile.ts` provides `isMobileProject` / `projectRole` (which know
+that `mobile-ios` is an admin phone), `backgroundApp(page, { minutes })` (hide, fast-forward the
+page clock, show; `persisted: true` replays a back/forward-cache restore), `serveAppVersion`
+(answers `/api/version`; the e2e build reports `E2E_APP_VERSION` from `.env.e2e`, so any other
+value is a newer deployment and a resume reloads), `expectInViewport` (inside the visual viewport
+and not covered by the bottom navigation), `expectNoHorizontalOverflow`, `tapTwice` (two
+activations before React re-renders), `stubShare` (records `navigator.share`, optionally rejects
+with `AbortError`) and `SMALL_PHONE_VIEWPORT` (320 × 568).
+
+## Fault injection
+
+`support/fault-injection.ts` makes one request fail on purpose so a spec can prove the control
+recovers. `failNextServerAction(page, 'abort' | 'http-500' | 'lost-response' | 'stale-deployment')`
+matches the next `POST` carrying a `next-action` header; `failNextSupabaseCall(page, { resource:
+'rest/v1/<table>', method, mode: 'abort' | 'http-400' | 'http-500' })` matches the browser's direct
+Supabase call; `holdNext…` keeps one in flight until `release()`. `expectButtonRecovers` asserts
+the message, an enabled idle button, no pending label and `fault.hit()`. Message constants come
+from the app source. Specs using these set `test.use({ serviceWorkers: 'block' })`, pass
+`expectedFaultConsoleErrors(…)` to `attachErrorGuards({ expectedFailures })`, and assert
+`fault.hit()`. `admin/fault-injection-smoke.spec.ts` proves every mode on admin-mobile and
+mobile-ios.
+
+## Sparse fixtures
+
+The seed keeps fixed-ID rows whose optional columns are NULL (`SEED.patientSparse`,
+`appointmentSparse`, `sessionNoteSparse`, `treatmentPlanSparse`, `paymentSparse`, the legacy
+`packageSparse`, `reminderSparse` dated today, `externalStaffSparse`, `inviteMobileOnly` /
+`inviteLegacy` / `inviteRevoked`, `doctorSparse` + `patientReferredByDoctor`,
+`onboardingPendingSparse`, `patientExternalSparse` with `appointmentExternalSparse` /
+`externalApptYesterday` / `externalApptCompleted`, `packageClinicB`) plus two sparse staff profiles
+looked up by mobile (`SPARSE_PROFILES`). Route smoke renders the sparse patient, appointment and
+package, and `gotoSuccessfulRoute` runs `expectNoLeakedNulls`, so every route smoke run sees
+NULL-bearing rows. They are protected from teardown and from the destructive factory helpers;
+never edit them in a spec. A spec that counts rows on a shared screen must scope its count to its
+own rows (the reminders and invites specs do).
+
+## Mutation manifest
+
+`support/mutation-manifest.ts` lists every write surface in `src/` (server action call sites,
+form actions, client Supabase writes and auth calls, client POSTs to `/api`) with its happy,
+minimal-input and failure tests. `support/mutation-manifest.test.ts` (part of
+`test:e2e:support`) discovers the surfaces itself and fails on a missing or stale entry, a named
+test that does not exist, a failure test that injects no fault, a minimal test without
+`expectNoLeakedNulls`, or a client form with no declared surface. During Phase 1 an entry may say
+`todo('<package>')`, inside that package's delimited block only.
+
 ## Route coverage guard
 
 `support/route-manifest.test.ts` recursively inventories `src/app/**/page.tsx` by filename only and
 compares those route patterns with `PAGE_ROUTE_MANIFEST`. Each manifest entry
 declares its access group, owning spec, runtime path or expected redirect, and visible landmark.
 A new `page.tsx` therefore fails `npm run test:e2e:support` until its route contract and ownership
-are declared. The guard intentionally inventories routes; it does not scan page implementation
-details.
+are declared, and the owning spec must actually load the route (call `pageRoutesFor('<access>')`
+or quote the request path). The guard intentionally inventories routes; it does not scan page
+implementation details.
 
 ## Adding specs (keep this current with every feature)
 
@@ -228,5 +286,5 @@ Every spec used to fill every field, so nothing ever stored a NULL in an optiona
 
 - Page objects (`e2e/pages/*`) fill an optional field **only when the spec passes it**. Omitting a field leaves it blank, as a user would.
 - `e2e/shared/minimal-input.spec.ts` (admin + staff) and `e2e/admin/minimal-input.spec.ts` submit each form with required fields only. They then visit every screen that renders the record.
-- `expectNoLeakedNulls(page)` (`support/assertions.ts`) fails on visible `null`/`undefined`/`NaN` text and on `tel:null`-style links. `attachErrorGuards` catches the crashes.
+- `expectNoLeakedNulls(page, { scope? })` (`support/assertions.ts`) fails on `null`/`undefined`/`NaN` (also glued, as in `NaNyears`), `Invalid Date`, `[object Object]` and `Infinity` in visible text, in `aria-label`/`title`/`placeholder`/`alt` and form values, on `tel:null`-style and empty `tel:`/`mailto:`/`sms:`/`wa.me` links, and in the hidden desktop/mobile twin (reported as `hiddenWords`). `attachErrorGuards` catches the crashes, including the app's own "Unable to load this page" boundary.
 - A new optional field or newly nullable column needs a blank case here. The Supabase clients are untyped, so `tsc` will not flag a `.trim()` on the new NULL.
