@@ -23,6 +23,7 @@ import {
 import { ReferralFields, useReferralSelection, type ReferralPatientOption } from '@/components/referral/referral-fields'
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
+import { requestErrorMessage } from '@/lib/actions/request-error-message'
 import { ageFieldsForSave, parseAgeInput, patientAge, type PatientAgeFields } from '@/lib/patients/age'
 import type { Doctor, Patient } from '@/lib/supabase/types'
 
@@ -88,7 +89,8 @@ export function PatientForm({
 
       if (error) {
         logger.error('PatientForm/save', error, { patientId: patient?.id })
-        toast({ title: 'Error', description: error.message, variant: 'destructive' })
+        // A dropped connection comes back as `TypeError: Failed to fetch`; say it in plain words (G-12).
+        toast({ title: 'Error', description: requestErrorMessage(error, 'Unable to save patient. Please try again.'), variant: 'destructive' })
         return
       }
 
