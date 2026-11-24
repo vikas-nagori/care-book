@@ -7,6 +7,7 @@ import path from 'node:path'
 import test from 'node:test'
 
 import { inventorySource } from './mutation-inventory.ts'
+import { testBody } from './test-body.ts'
 import {
   MUTATION_MANIFEST,
   MUTATION_MANIFEST_ALLOW_TODO,
@@ -23,27 +24,6 @@ const inventory = inventorySource(ROOT)
 const isUnused = (entry: ManifestEntry): entry is UnusedEntry => 'unused' in entry
 const isRef = (coverage: Coverage): coverage is TestRef => 'spec' in coverage
 const covered = MUTATION_MANIFEST.filter((entry): entry is MutationEntry => !isUnused(entry))
-
-/** The source of one test, from its `test(` call to the next `test(` call or the end of the file. */
-function testBody(source: string, title: string): string | null {
-  const quoted = [
-    `'${title.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`,
-    `"${title.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
-    `\`${title}\``,
-  ]
-  for (const literal of quoted) {
-    let from = source.indexOf(literal)
-    while (from !== -1) {
-      if (/\btest(?:\.\w+)?\(\s*$/.test(source.slice(Math.max(0, from - 40), from))) {
-        const rest = source.slice(from + literal.length)
-        const next = rest.search(/\n\s*test(?:\.\w+)?\(/)
-        return next === -1 ? rest : rest.slice(0, next)
-      }
-      from = source.indexOf(literal, from + 1)
-    }
-  }
-  return null
-}
 
 test('the manifest lists exactly the mutation surfaces found in src/', () => {
   const discovered = new Map(inventory.surfaces.map((surface) => [surface.id, surface]))
@@ -158,4 +138,59 @@ test('the discoverer is not vacuous', () => {
   }
   assert.ok(testBody("test('a', () => { one })\ntest('b', () => { two })", 'a')?.includes('one'))
   assert.equal(testBody("test('a', () => { one })\ntest('b', () => { two })", 'a')?.includes('two'), false)
+})
+
+test('testBody reads the whole callback, past test.* calls inside it', () => {
+  const spec = [
+    "test('times out late', async ({ page }) => {",
+    '  test.setTimeout(90_000)',
+    "  test.skip(isMobile, 'desktop only')",
+    "  test.fail(true, 'G-1: known bug')",
+    "  await test.step('arrange', async () => { await arrange() })",
+    '  const fault = await failNextServerAction(page, \'abort\')',
+    '  await expectNoLeakedNulls(page)',
+    '})',
+    '',
+    "test('next', async () => { failNextSupabaseCall(other) })",
+  ].join('\n')
+  const body = testBody(spec, 'times out late')
+  assert.ok(body?.startsWith('async ({ page }) => {'), body ?? 'null')
+  assert.ok(body?.includes('failNextServerAction('))
+  assert.ok(body?.includes('expectNoLeakedNulls('))
+  assert.equal(body?.includes('failNextSupabaseCall('), false, 'the next test leaked into the body')
+})
+
+test('testBody ignores braces in strings, templates, regexes and comments', () => {
+  const spec = [
+    "test('tricky', async ({ page }) => {",
+    "  const a = '}' + \"}\" + `}${'{'}`",
+    '  const b = /\\}+/',
+    '  // }',
+    '  /* } */',
+    '  await failNextServerAction(page, \'abort\')',
+    '})',
+    "test('after', () => { expectNoLeakedNulls(page) })",
+  ].join('\n')
+  const body = testBody(spec, 'tricky')
+  assert.ok(body?.includes('failNextServerAction('))
+  assert.equal(body?.includes('expectNoLeakedNulls('), false)
+})
+
+test('testBody finds tests declared with a modifier, nested in describe, and escaped titles', () => {
+  const spec = [
+    "test.describe('group', () => {",
+    "  test.fail('pinned bug', async () => { pinned() })",
+    "  test.skip(\"it's skipped\", async () => { skipped() })",
+    '  test.only(`templated`, async () => { templated() })',
+    "  test('it\\'s escaped', function () { escaped() })",
+    '})',
+  ].join('\n')
+  assert.ok(testBody(spec, 'pinned bug')?.includes('pinned()'))
+  assert.ok(testBody(spec, "it's skipped")?.includes('skipped()'))
+  assert.ok(testBody(spec, 'templated')?.includes('templated()'))
+  assert.ok(testBody(spec, "it's escaped")?.includes('escaped()'))
+  assert.equal(testBody(spec, 'group'), null, 'a describe title is not a test')
+  assert.equal(testBody(spec, 'missing'), null)
+  // A title that only appears in a string or comment is not a declaration.
+  assert.equal(testBody("const t = 'ghost'\n// test('ghost', () => {})", 'ghost'), null)
 })
