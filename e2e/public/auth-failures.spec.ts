@@ -23,7 +23,19 @@ test.use({ serviceWorkers: 'block' })
 
 function guardsFor(page: Page, target: 'server-action' | SupabaseResource) {
   return attachErrorGuards(page, {
-    expectedFailures: expectedFaultConsoleErrors(target),
+    expectedFailures: [
+      ...expectedFaultConsoleErrors(target),
+      // supabase-js (auth-js) console.errors the fetch rejection itself before returning it as
+      // an AuthRetryableFetchError; only for the injected Supabase Auth faults.
+      ...(target === 'server-action'
+        ? []
+        : [{ url: /^http:\/\/localhost:3000\/_next\/static\/chunks\//, text: /^TypeError: Failed to fetch\n[\s\S]*\b(?:signInWithPassword|resetPasswordForEmail|updateUser|_updateUser)\b/ }]),
+      // The local server answers the Vercel Analytics script request with a redirect to an app
+      // page once the invitee is signed in; the observability filter in support/assertions.ts
+      // misses it when the console line arrives before the response event (seen locally on
+      // public-mobile after Finish Sign-Up).
+      { url: /^http:\/\/localhost:3000\//, text: /^Refused to execute script from 'http:\/\/localhost:3000\/[a-z/-]*' because its MIME type \('text\/html'\) is not executable/ },
+    ],
     expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }],
   })
 }
