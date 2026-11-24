@@ -157,11 +157,12 @@ jobs:
           - { group: admin-mobile, projects: 'admin-mobile', slice: 4, slices: 6 }
           - { group: admin-mobile, projects: 'admin-mobile', slice: 5, slices: 6 }
           - { group: admin-mobile, projects: 'admin-mobile', slice: 6, slices: 6 }
+          - { group: admin-desktop, projects: 'admin-desktop', slice: 1, slices: 3 }
+          - { group: admin-desktop, projects: 'admin-desktop', slice: 2, slices: 3 }
+          - { group: admin-desktop, projects: 'admin-desktop', slice: 3, slices: 3 }
           - { group: staff-mobile, projects: 'staff-mobile', slice: 1, slices: 2 }
           - { group: staff-mobile, projects: 'staff-mobile', slice: 2, slices: 2 }
-          - { group: desktop-public, projects: 'admin-desktop staff-desktop public-desktop public-mobile', slice: 1, slices: 3 }
-          - { group: desktop-public, projects: 'admin-desktop staff-desktop public-desktop public-mobile', slice: 2, slices: 3 }
-          - { group: desktop-public, projects: 'admin-desktop staff-desktop public-desktop public-mobile', slice: 3, slices: 3 }
+          - { group: staff-desktop-public, projects: 'staff-desktop public-desktop public-mobile', slice: 1, slices: 1 }
           - { group: external-platform, projects: 'external-desktop external-mobile platform-desktop platform-signout', slice: 1, slices: 1 }
     steps:
       # Supabase publishes its services on 54320-54329, inside Linux's ephemeral port range
@@ -207,14 +208,24 @@ jobs:
       - name: Start local Supabase, install the browser, and build the app
         # `supabase start` is dominated by image pulls and container health checks, so it runs in
         # the background while the CPU-bound browser install and `next build` happen in the
-        # foreground. Only the services the suite needs (db + auth + kong gateway + rest). Docker
-        # is preinstalled on ubuntu runners; the CLI is pinned as a devDependency. One retry after
-        # a clean stop backs up the port reservation, and logs whatever held the ports.
+        # foreground. Docker is preinstalled on ubuntu runners; the CLI is pinned as a devDependency.
+        # One retry after a clean stop backs up the port reservation, and logs what held the ports.
+        #
+        # Only the services the suite needs run: db, auth, kong, rest, and mailpit (GoTrue's SMTP
+        # target for the recovery/invite flows). `-x` takes this CLI's container names; it warns
+        # about and ignores any other name, which is how storage-api and postgres-meta used to
+        # start unasked.
+        #
+        # Images come from ghcr.io. The CLI's default registry, public.ecr.aws, often answers
+        # these shared runner IPs with "Data limit exceeded"; the CLI then retries with backoff
+        # before falling back to ghcr.io, which cost some runners over three minutes. Setting
+        # the registry skips straight to it.
         env:
           PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+          SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
         run: |
           start_supabase() {
-            npx supabase start -x studio,imgproxy,inbucket,edge-runtime,realtime,storage,meta,vector,analytics,functions
+            npx supabase start -x studio,imgproxy,edge-runtime,realtime,storage-api,postgres-meta,logflare,vector,supavisor
           }
           (
             start_supabase && exit 0
@@ -338,12 +349,13 @@ jobs:
           key: playwright-ios-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Start local Supabase, install the browsers, and build the app
-        # Same overlap and single retry as e2e-shard.
+        # Same overlap, services, registry and single retry as e2e-shard.
         env:
           PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+          SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
         run: |
           start_supabase() {
-            npx supabase start -x studio,imgproxy,inbucket,edge-runtime,realtime,storage,meta,vector,analytics,functions
+            npx supabase start -x studio,imgproxy,edge-runtime,realtime,storage-api,postgres-meta,logflare,vector,supavisor
           }
           (
             start_supabase && exit 0
