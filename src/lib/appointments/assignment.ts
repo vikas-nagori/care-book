@@ -2,6 +2,10 @@ export type ExternalProfileOption = {
   id: string
   full_name: string | null
   email: string | null
+  /** The login. Present where the loader selects it (the patient access picker). */
+  mobile_number?: string | null
+  /** Invited but not signed in yet: eligible for patient access, shown as "Invite pending". */
+  invite_pending?: boolean
 }
 
 export type AppointmentAssignmentInput = {

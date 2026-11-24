@@ -67,4 +67,22 @@ describe('PatientExternalAccess', () => {
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'mobile' } })
     expect(screen.getByRole('checkbox', { name: /Mobile Only/ })).toBeTruthy()
   })
+  // Patients can be shared with External Staff before they first sign in, so they see their
+  // patients straight away. Their profile has no email (mobile sign-in) and its name comes from
+  // the invite: the picker must list them on an empty search and say the invite is pending.
+  it('lists an External Staff whose invite is still pending and lets them be granted', async () => {
+    const pending = { id: 'pending', full_name: 'Dr Test Invitee', email: null, mobile_number: '9988776655', invite_pending: true }
+    render(<PatientExternalAccess patientId="patient-1" profiles={[...profiles, pending]} grantedProfileIds={[]} />)
+
+    const checkbox = screen.getByRole('checkbox', { name: /Dr Test Invitee/ })
+    expect(screen.getByText('Invite pending')).toBeTruthy()
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: '99887' } })
+    expect(screen.getByRole('checkbox', { name: /Dr Test Invitee/ })).toBeTruthy()
+    expect(screen.queryByRole('checkbox', { name: /Alex Rao/ })).toBeNull()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Dr Test Invitee/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save access' }))
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledWith('patient-1', ['pending']))
+    expect(checkbox).toBeTruthy()
+  })
 })

@@ -321,3 +321,39 @@ test('re-invites a revoked mobile-only External Staff with the same number', asy
   await reinvited.context.close()
   await guards.assertClean()
 })
+
+// Patients can be shared with External Staff before they first sign in, so their patients are
+// waiting for them. The pending invitee has no email and no profile name yet (it is copied from
+// the invite on acceptance); the patient's access picker must still list them, by name.
+test('shares a patient with a pending External Staff invitee, who sees it after first sign-in', async ({ page, browser, factory }) => {
+  const guards = attachErrorGuards(page)
+  const name = factory.uniqueName('pending-share')
+  const phone = stablePhone(name)
+  factory.watchUiMobileInvite(phone)
+  const patient = await factory.createPatient()
+
+  await page.goto('/settings')
+  const settings = new SettingsView(page)
+  const tempPassword = await settings.inviteUser({ name, phone, role: 'External Staff' })
+  expect(await factory.findInviteByMobile(phone)).toMatchObject({ status: 'pending' })
+
+  await page.goto(`/patients/${patient.id}`)
+  const invitee = page.getByRole('checkbox', { name: new RegExp(name) })
+  await expect(invitee).toBeVisible()
+  await expect(page.getByText('Invite pending', { exact: true }).filter({ visible: true })).toBeVisible()
+  await invitee.check()
+  await page.getByRole('button', { name: 'Save access', exact: true }).click()
+  await expect(page.getByText('Access saved.', { exact: true })).toBeVisible()
+
+  const external = await signInAs(browser, phone, tempPassword)
+  await external.page.waitForURL('**/auth/change-password', { timeout: 15_000 })
+  const newPassword = `E2e-${factory.token}-Sh4re`
+  await external.page.getByLabel('New password', { exact: true }).fill(newPassword)
+  await external.page.getByLabel('Confirm new password', { exact: true }).fill(newPassword)
+  await external.page.getByLabel('Confirm new password', { exact: true }).press('Enter')
+  await external.page.waitForURL((url) => !url.pathname.startsWith('/auth/'), { timeout: 15_000 })
+  await external.page.goto('/external/patients')
+  await expect(external.page.getByRole('button', { name: new RegExp(patient.name as string) }).filter({ visible: true })).toBeVisible()
+  await external.context.close()
+  await guards.assertClean()
+})

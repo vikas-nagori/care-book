@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import type { ExternalProfileOption } from '@/lib/appointments/assignment'
+import { accountContactLabel, accountDisplayName } from '@/lib/auth/mobile-number'
 import { savePatientExternalAccess } from '../actions'
 
 export type PatientExternalAccessData = {
@@ -29,8 +30,13 @@ export function PatientExternalAccess({
   const inFlight = useRef(false)
   const [status, setStatus] = useState<{ message: string; error?: boolean } | null>(null)
   const searchText = search.trim().toLowerCase()
+  const searchDigits = searchText.replace(/\D/g, '')
+  // Everyone shows on an empty search: a pending invitee may have no email and (until the loader
+  // fills it from the invite) no name, so matching '' against those fields would hide them.
   const results = profiles.filter((profile) =>
-    profile.full_name?.toLowerCase().includes(searchText) || profile.email?.toLowerCase().includes(searchText))
+    !searchText
+    || [profile.full_name, profile.email].some((value) => value?.toLowerCase().includes(searchText))
+    || (searchDigits.length > 0 && Boolean(profile.mobile_number?.includes(searchDigits))))
   const saved = new Set(savedProfileIds)
   const hasChanges = saved.size !== selected.size || [...selected].some((id) => !saved.has(id))
   const hasUnavailableGrants = savedProfileIds.some((id) => !profiles.some((profile) => profile.id === id))
@@ -101,8 +107,13 @@ export function PatientExternalAccess({
                           onChange={() => toggle(profile.id)}
                         />
                         <span className="min-w-0 break-words">
-                          {profile.full_name || profile.email}
-                          {profile.full_name && <span className="block text-xs text-muted-foreground">{profile.email}</span>}
+                          {accountDisplayName(profile)}
+                          {profile.invite_pending && (
+                            <span className="ph-badge warn ml-2 align-middle text-[11px]">Invite pending</span>
+                          )}
+                          {profile.full_name && (profile.email || profile.mobile_number) && (
+                            <span className="block text-xs text-muted-foreground">{accountContactLabel(profile)}</span>
+                          )}
                         </span>
                       </label>
                     ))}

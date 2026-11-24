@@ -187,6 +187,10 @@ begin
   delete from public.packages where patient_id = target_patient_id;
   delete from public.appointments where patient_id = target_patient_id;
   delete from public.treatment_plans where patient_id = target_patient_id;
+  -- Sharing a disposable patient with a disposable invitee writes audit rows that count as that
+  -- invitee's retained history (033), which would make the invitee undeletable. The grants
+  -- themselves cascade with the patient.
+  delete from private.patient_external_access_events where patient_id = target_patient_id;
   delete from public.patients where id = target_patient_id;
 
   perform set_config('carebook.e2e_cleanup', 'off', true);
