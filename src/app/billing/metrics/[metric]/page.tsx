@@ -172,6 +172,8 @@ export default async function BillingMetricPage({
           .select('id, date, amount, payment_method, status, patient:patients(name)')
           .gte('date', from)
           .lte('date', to)
+          // A total order: ranged pages of an unordered read can repeat or skip rows (G-10).
+          .order('id')
           .range(rangeStart, rangeEnd),
       ),
       fetchAllRows<{
@@ -186,10 +188,11 @@ export default async function BillingMetricPage({
           .select('id, refund_date, amount, refund_method, patient:patients(name)')
           .gte('refund_date', from)
           .lte('refund_date', to)
+          .order('id')
           .range(rangeStart, rangeEnd),
       ),
       fetchAllRows<{ refund_id: string }>((rangeStart, rangeEnd) =>
-        supabase.from('refund_reversals').select('refund_id').range(rangeStart, rangeEnd),
+        supabase.from('refund_reversals').select('refund_id').order('id').range(rangeStart, rangeEnd),
       ),
     ])
     if (periodPayments.error) logger.error('BillingMetric/received/payments', periodPayments.error, { metric })

@@ -80,17 +80,27 @@ function chunks<T>(values: readonly T[], size = IN_CHUNK): T[][] {
   return out
 }
 
-async function readAll<Row>(
-  ids: readonly string[],
-  read: (chunk: string[], from: number, to: number) => PromiseLike<{ data: Row[] | null; error: unknown }>,
-): Promise<Row[]> {
+type ChunkRead<Row> = (ids: string[], from: number, to: number) => PromiseLike<{ data: Row[] | null; error: unknown }>
+
+/**
+ * Every row matching `.in(column, ids)`, for any number of ids: the ids go in URL-sized chunks and
+ * each chunk is read completely with fetchAllRows. Stops at the first error, returning it with no
+ * rows, so a caller never mistakes a partial set for the whole.
+ */
+export async function readAllByIds<Row>(ids: readonly string[], read: ChunkRead<Row>): Promise<{ data: Row[]; error: unknown }> {
   const rows: Row[] = []
   for (const chunk of chunks(ids)) {
     const { data, error } = await fetchAllRows<Row>((from, to) => read(chunk, from, to))
-    if (error) throw error
+    if (error) return { data: [], error }
     rows.push(...data)
   }
-  return rows
+  return { data: rows, error: null }
+}
+
+async function readAll<Row>(ids: readonly string[], read: ChunkRead<Row>): Promise<Row[]> {
+  const { data, error } = await readAllByIds(ids, read)
+  if (error) throw error
+  return data
 }
 
 /** Linked-session counts and refunds (with their reversal state) for these payments. */

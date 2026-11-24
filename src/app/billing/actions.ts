@@ -6,6 +6,7 @@ import type { OutstandingCharge } from '@/lib/billing/allocation-preview'
 import { callBillingRpc, explainPatientRefusal, validateBillingEntry, validateReasonedMutation, validateRecordPayment, type ReasonedInput, type ReasonedKind, type RpcResult } from '@/lib/billing/mutations'
 import { logger } from '@/lib/logger'
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
 import type { BillingMutationResult, CreateBillingEntryInput, CreateBillingEntryResult, RecordPaymentInput, RecordPaymentResult, RefundInput } from '@/lib/supabase/types'
 
 function revalidateBillingViews(patientId?: string) {
@@ -91,15 +92,22 @@ export async function getOutstandingCharges(patientId: string): Promise<{ succes
   if (!patientId) return { success: true, charges: [] }
 
   const supabase = await createClient()
+  // Ranged reads (G-10): a long-standing patient can have more than PostgREST's 1000-row cap of
+  // charges and applications, and an un-ranged select would drop the rest without an error.
+  type ChargeRow = { id: string; amount: number | string | null; appointment_id: string | null; appointment: { date: string; time: string | null; type: string | null } | { date: string; time: string | null; type: string | null }[] | null }
   const [{ data: chargeRows, error: chargesError }, { data: applicationRows, error: applicationsError }, { data: packageRows, error: packagesError }] = await Promise.all([
-    supabase
+    fetchAllRows<ChargeRow>((from, to) => supabase
       .from('appointment_charges')
       .select('id, amount, appointment_id, appointment:appointments(date, time, type)')
       .eq('patient_id', patientId)
       .in('status', ['pending', 'posted'])
-      .gt('amount', 0),
-    supabase.from('payment_applications').select('charge_id, amount').eq('patient_id', patientId).eq('status', 'active'),
-    supabase.from('package_session_allocations').select('appointment_id').eq('patient_id', patientId).neq('lifecycle', 'released'),
+      .gt('amount', 0)
+      .order('id')
+      .range(from, to)),
+    fetchAllRows<{ charge_id: string; amount: number | string | null }>((from, to) =>
+      supabase.from('payment_applications').select('charge_id, amount').eq('patient_id', patientId).eq('status', 'active').order('id').range(from, to)),
+    fetchAllRows<{ appointment_id: string }>((from, to) =>
+      supabase.from('package_session_allocations').select('appointment_id').eq('patient_id', patientId).neq('lifecycle', 'released').order('id').range(from, to)),
   ])
 
   if (chargesError || applicationsError || packagesError) {

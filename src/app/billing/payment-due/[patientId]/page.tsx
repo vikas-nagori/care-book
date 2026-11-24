@@ -2,6 +2,8 @@ import { notFound } from 'next/navigation'
 import { requireAdmin } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
+import type { PackageBillingBalanceV2 } from '@/lib/supabase/types'
 import { isBalanceDetailPackage } from '@/lib/billing/package-progress'
 import { CLINIC_TIME_ZONE } from '@/lib/timezone'
 import { getPreviousMonthPeriod } from '@/lib/billing/payment-due-statement'
@@ -27,19 +29,26 @@ export default async function PaymentDueDetailPage({ params }: { params: Promise
   ] =
     await Promise.all([
       supabase.from('patients').select('id, name').eq('id', patientId).maybeSingle(),
-      supabase
-        .from('appointments')
-        .select('id, date, time, type, fee, status')
-        .eq('patient_id', patientId)
-        .in('status', ['scheduled', 'completed'])
-        .in('payment_status', ['unpaid', 'partially_paid', 'partially_prepaid'])
-        .order('date', { ascending: true })
-        .order('time', { ascending: true }),
+      // Ranged reads (G-10): an un-ranged select stops at PostgREST's 1000-row cap without an error,
+      // and these lists are what the balance tiles tally from.
+      fetchAllRows<{ id: string; date: string; time: string; type: string; fee: number | null; status: string }>((from, to) =>
+        supabase
+          .from('appointments')
+          .select('id, date, time, type, fee, status')
+          .eq('patient_id', patientId)
+          .in('status', ['scheduled', 'completed'])
+          .in('payment_status', ['unpaid', 'partially_paid', 'partially_prepaid'])
+          .order('date', { ascending: true })
+          .order('time', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to)),
       supabase.from('patient_billing_balances_v2').select('*').eq('patient_id', patientId).maybeSingle(),
-      supabase.from('package_billing_balances_v2').select('*').eq('patient_id', patientId),
+      fetchAllRows<PackageBillingBalanceV2>((from, to) =>
+        supabase.from('package_billing_balances_v2').select('*').eq('patient_id', patientId).order('package_id').range(from, to)),
       // `package_billing_balances_v2` carries every figure the card needs except the quoted session
       // count, which only lives on the packages row.
-      supabase.from('packages').select('id, total_sessions, created_at').eq('patient_id', patientId),
+      fetchAllRows<{ id: string; total_sessions: number; created_at: string }>((from, to) =>
+        supabase.from('packages').select('id, total_sessions, created_at').eq('patient_id', patientId).order('id').range(from, to)),
     ])
 
   if (sessionsError) logger.error('PaymentDueDetail/sessions', sessionsError, { patientId })
