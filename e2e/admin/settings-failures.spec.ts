@@ -665,12 +665,13 @@ test('G-15 SA-18: a Logout whose request fails says so and leaves Settings usabl
   await logout.click()
   await expectButtonRecovers(logout, { idleName: 'Logout', message: ACTION_UNREACHABLE_MESSAGE, fault })
   await expect(page).toHaveURL(/\/settings$/)
-  await expect(page.getByRole('heading', { name: 'Settings', exact: true }).filter({ visible: true })).toBeVisible()
   await expectNoLeakedNulls(page)
 
-  // Still signed in: a reload stays on Settings. Then the retry logs out for real.
+  // Still signed in: a reload stays on Settings (on the phone the account sheet is still open
+  // above, so the page heading is checked after it). Then the retry logs out for real.
   await page.reload()
   await expect(page).toHaveURL(/\/settings$/)
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true }).filter({ visible: true })).toBeVisible()
   await fault.dispose()
   const retry = await settings.logoutButton()
   await retry.click()
