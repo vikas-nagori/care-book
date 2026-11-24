@@ -4,9 +4,10 @@ import { BillingEntryForm } from '../pages/billing-entry-form'
 import { SettingsView } from '../pages/settings-view'
 import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { test, expect } from '../support/factories'
+import { IOS_TAG } from '../support/mobile'
 import { adminClient } from '../support/supabase-admin'
 
-test('a payment recorded without notes renders in billing and on the patient', async ({ page, factory }) => {
+test('a payment recorded without notes renders in billing and on the patient', { tag: IOS_TAG }, async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient({ phone: null })
 
@@ -29,7 +30,7 @@ test('a payment recorded without notes renders in billing and on the patient', a
   await guards.assertClean()
 })
 
-test('temporary staff added without an email renders in settings', async ({ page, factory }) => {
+test('temporary staff added without an email renders in settings', { tag: IOS_TAG }, async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const name = factory.uniqueName('no-email-temp-staff')
   const phone = factory.uniqueMobile()
@@ -50,7 +51,7 @@ test('temporary staff added without an email renders in settings', async ({ page
 
 // "Appointment Type *" is a Radix Select. Left untouched, its hidden native <select> must not
 // quietly submit the first type: the package would then only cover that type's sessions.
-test('a package cannot be saved until an appointment type is chosen', async ({ page, factory }) => {
+test('a package cannot be saved until an appointment type is chosen', { tag: IOS_TAG }, async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient({ phone: null })
   const name = factory.uniqueName('typeless-package')
@@ -64,10 +65,20 @@ test('a package cannot be saved until an appointment type is chosen', async ({ p
   await page.getByLabel('Package Name *', { exact: true }).fill(name)
   await page.getByLabel('Sessions *', { exact: true }).fill('4')
   await page.getByLabel('Per Session *', { exact: true }).fill('500')
+  const actionRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.headers()['next-action'] !== undefined) actionRequests.push(request.url())
+  })
   await page.getByRole('button', { name: 'Save Package', exact: true }).click()
 
-  await expect(page.getByRole('dialog', { name: 'New Billing Entry' })).toBeVisible()
-  await page.waitForTimeout(1_500)
+  // The browser's required-field check stops the submit: the type's native select is the field
+  // left invalid, the dialog stays open, and no save request leaves the page.
+  const dialog = page.getByRole('dialog', { name: 'New Billing Entry' })
+  await expect(dialog).toBeVisible()
+  const typeSelect = dialog.locator('select[name="appointment_type_id"]')
+  await expect.poll(() => typeSelect.evaluate((select: HTMLSelectElement) => select.validity.valueMissing)).toBe(true)
+  expect(await dialog.locator('form').evaluate((form: HTMLFormElement) => form.checkValidity())).toBe(false)
+  expect(actionRequests).toEqual([])
   const { data, error } = await adminClient().from('packages').select('id, appointment_type_id').eq('patient_id', patient.id)
   expect(error).toBeNull()
   expect(data).toEqual([])

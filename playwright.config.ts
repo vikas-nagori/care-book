@@ -86,6 +86,18 @@ export default defineConfig({
       use: { ...devices['Pixel 5'], storageState: ADMIN.storageState },
     },
 
+    // iPhone (WebKit). Every iPhone runs the app on WebKit, which the Pixel 5 projects never
+    // exercise. Runs only tests tagged @ios (route smoke, minimal input, fault injection and the
+    // phone lifecycle cases), signed in as the clinic admin. CI installs WebKit on one shard and
+    // runs this project there on its own (E2E_SKIP_IOS keeps it out of the sharded run).
+    ...(process.env.E2E_SKIP_IOS === '1' ? [] : [{
+      name: 'mobile-ios',
+      dependencies: ['setup'],
+      testMatch: ['shared/**/*.spec.ts', 'admin/**/*.spec.ts'],
+      grep: /@ios/,
+      use: { ...devices['iPhone 14'], storageState: ADMIN.storageState },
+    }]),
+
     // Clinic staff — no Billing, narrowed appointment visibility. Runs shared + staff specs.
     {
       name: 'staff-desktop',

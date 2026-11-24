@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { test as base, expect, type TestInfo } from '@playwright/test'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { ADMIN, ALL_ACCOUNTS, CLINIC_A, CLINIC_B, PASSWORD } from './accounts.ts'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { ADMIN, ALL_ACCOUNTS, CLINIC_A, CLINIC_B, EXTERNAL, PASSWORD } from './accounts.ts'
 import { generateLocalInviteLink, generateLocalRecoveryLink } from './auth-links.ts'
 import { clinicDate } from './clinic-date.ts'
 import { SEED } from './ids.ts'
@@ -11,7 +11,7 @@ type Row = Record<string, unknown> & { id: string }
 export type E2EPatientRow = Row & {
   clinic_id: string
   name: string
-  phone: string
+  phone: string | null
   email: string | null
   dob: string | null
   age_years: number | null
@@ -20,7 +20,16 @@ export type E2EPatientRow = Row & {
   address: string | null
   medical_history: string | null
   notes: string | null
+  referral_source: string | null
+  referred_by_doctor_id: string | null
+  referred_by_patient_id: string | null
+  referral_other: string | null
 }
+/**
+ * Columns createPatient accepts. Pass `null` to leave an optional column blank on purpose
+ * (`phone: null` for a patient with no phone); omit a key to keep the default.
+ */
+export type E2EPatientInput = Partial<Omit<E2EPatientRow, 'id'>> & { id?: string; [key: string]: unknown }
 export type E2EAppointmentRow = Row & {
   clinic_id: string
   patient_id: string
@@ -50,6 +59,7 @@ export type E2EAppointmentTypeRow = Row & {
 }
 export type E2EProfileRow = Row & {
   clinic_id: string | null
+  /** NULL for a mobile-only account (see E2EMobileOnlyAuthResource); found-by-email rows have one. */
   email: string
   full_name: string | null
   role: string
@@ -77,6 +87,20 @@ export type E2EAuthResource = {
   mobileNumber: string
   password: string
   profile: E2EProfileRow
+}
+/** createAuthUser({ email: null }): signs in with `mobileNumber`; profile.email is NULL. */
+export type E2EMobileOnlyAuthResource = Omit<E2EAuthResource, 'email' | 'profile'> & {
+  email: null
+  profile: Omit<E2EProfileRow, 'email'> & { email: null }
+}
+type CreateAuthUserInput = {
+  clinicId: string
+  email?: string | null
+  password?: string
+  role?: 'admin' | 'staff' | 'external_staff'
+  fullName?: string | null
+  mobileNumber?: string
+  status?: 'active' | 'blocked'
 }
 export type E2EPaymentRow = Row & {
   clinic_id: string
@@ -123,6 +147,51 @@ export type E2EUserInviteRow = Row & {
   mobile_number: string | null
   updated_at: string
 }
+export type E2EReminderRow = Row & {
+  clinic_id: string
+  title: string
+  date: string
+  time: string | null
+  patient_id: string | null
+  contact_name: string | null
+  phone: string | null
+  notes: string | null
+  status: string
+}
+export type E2ETreatmentPlanRow = Row & {
+  clinic_id: string
+  patient_id: string
+  diagnosis: string
+  goals: string | null
+  start_date: string
+  expected_end_date: string | null
+  status: string
+}
+export type E2EDoctorRow = Row & {
+  clinic_id: string
+  name: string
+  specialty: string | null
+  address: string | null
+}
+export type E2ERefundRow = Row & {
+  clinic_id: string
+  patient_id: string
+  payment_id: string
+  amount: number
+  reason: string
+  refund_method: string
+  refund_date: string
+  created_by: string
+}
+export type E2EChargeAdjustmentRow = Row & {
+  clinic_id: string
+  patient_id: string
+  appointment_id: string | null
+  previous_amount: number
+  adjusted_amount: number
+  reason: string
+  created_by: string
+}
 export type E2EGlobalSettingsRow = {
   id: number
   clinic_id: string
@@ -130,6 +199,7 @@ export type E2EGlobalSettingsRow = {
   home_visit_fee: number
 }
 type CleanupTable =
+  | 'reminders'
   | 'appointment_payments'
   | 'package_session_allocations'
   | 'session_notes'
@@ -148,7 +218,11 @@ type CleanupTable =
   | 'profiles'
   | 'clinics'
 
+// Refunds and fee adjustments are immutable ledger rows: they are removed, before their payments,
+// only by the cleanup_e2e_patient RPC for disposable `E2E …` patients (see cleanup()). Disposable
+// auth users are deleted last, after every row that counts as their retained history.
 const cleanupOrder: CleanupTable[] = [
+  'reminders',
   'appointment_payments',
   'package_session_allocations',
   'session_notes',
@@ -169,6 +243,7 @@ const cleanupOrder: CleanupTable[] = [
 ]
 
 const clinicScopedCleanupTables: CleanupTable[] = [
+  'reminders',
   'user_invites',
   'payments',
   'packages',
@@ -190,18 +265,33 @@ const protectedIdsByTable: Partial<Record<CleanupTable, ReadonlySet<string>>> = 
     SEED.appointmentStaff2Private,
     SEED.appointmentClinicB,
     SEED.appointmentPaymentDue,
+    SEED.appointmentExternal,
+    SEED.appointmentSparse,
+    SEED.appointmentExternalSparse,
+    SEED.externalApptYesterday,
+    SEED.externalApptCompleted,
   ]),
   clinics: new Set([CLINIC_A.id, CLINIC_B.id]),
-  clinic_onboarding_requests: new Set([SEED.onboardingPending]),
+  clinic_onboarding_requests: new Set([SEED.onboardingPending, SEED.onboardingPendingSparse]),
+  doctors: new Set([SEED.doctorSparse]),
+  external_staff: new Set([SEED.externalStaffSparse]),
   package_templates: new Set([SEED.packageTemplate]),
-  packages: new Set([SEED.packageAsha]),
+  packages: new Set([SEED.packageAsha, SEED.packageSparse, SEED.packageClinicB]),
   patients: new Set([
     SEED.patientAsha,
     SEED.patientRavi,
     SEED.patientClinicB,
     SEED.patientPaymentDue,
+    SEED.patientExternal,
+    SEED.patientSparse,
+    SEED.patientReferredByDoctor,
+    SEED.patientExternalSparse,
   ]),
-  payments: new Set([SEED.paymentAsha]),
+  payments: new Set([SEED.paymentAsha, SEED.paymentSparse]),
+  reminders: new Set([SEED.reminderSparse]),
+  session_notes: new Set([SEED.sessionNoteSparse]),
+  treatment_plans: new Set([SEED.treatmentPlanSparse]),
+  user_invites: new Set([SEED.inviteMobileOnly, SEED.inviteLegacy, SEED.inviteRevoked]),
 }
 
 const protectedAuthEmails = new Set(ALL_ACCOUNTS.map(({ email }) => email.trim().toLowerCase()))
@@ -241,6 +331,9 @@ export class E2EFactory {
   private readonly watchedReminderTitles = new Set<string>()
   private readonly watchedOnboardingRequests = new Map<string, { ownerEmail: string; clinicName: string }>()
   private readonly authUsers = new Map<string, string>()
+  /** createAuthUser({ email: null }) users, by mobile; cleanup tags them before deleting. */
+  private readonly emailLessAuthUsers = new Map<string, string>()
+  private adminSession: SupabaseClient | null = null
 
   constructor(testInfo: TestInfo, db: SupabaseClient = adminClient()) {
     this.token = uniqueRunToken(testInfo)
@@ -269,6 +362,34 @@ export class E2EFactory {
     const row = data as Row
     this.track(table, row.id)
     return row
+  }
+
+  private async insertMany(table: CleanupTable, values: Row[]): Promise<Row[]> {
+    if (values.length === 0) return []
+    // Track first: a partial failure must still be cleaned up.
+    for (const row of values) this.track(table, row.id)
+    const { data, error } = await this.db.from(table).insert(values).select('*')
+    if (error || !data) {
+      throw new Error(`factory insert ${values.length} ${table}: ${error?.message ?? 'rows were not returned'}`)
+    }
+    const byId = new Map((data as Row[]).map((row) => [row.id, row]))
+    return values.map((row) => byId.get(row.id)!)
+  }
+
+  private isProtected(table: CleanupTable, id: string): boolean {
+    return protectedIdsByTable[table]?.has(id) ?? false
+  }
+
+  /** An authenticated session as the Clinic A admin, for RPCs that require a real clinic admin. */
+  private async asAdmin(): Promise<SupabaseClient> {
+    if (this.adminSession) return this.adminSession
+    const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+    const { error } = await client.auth.signInWithPassword({ email: ADMIN.email, password: PASSWORD })
+    if (error) throw new Error(`factory admin sign-in: ${error.message}`)
+    this.adminSession = client
+    return client
   }
 
   private track(table: CleanupTable, id: string): void {
@@ -514,6 +635,87 @@ export class E2EFactory {
     return data as E2EUserInviteRow | null
   }
 
+  async findRefunds(input: { paymentId?: string; patientId?: string }): Promise<E2ERefundRow[]> {
+    if (!input.paymentId && !input.patientId) throw new Error('findRefunds needs paymentId or patientId')
+    let query = this.db.from('refunds').select('*').eq('clinic_id', CLINIC_A.id)
+    if (input.paymentId) query = query.eq('payment_id', input.paymentId)
+    if (input.patientId) query = query.eq('patient_id', input.patientId)
+    const { data, error } = await query.order('created_at')
+    if (error) throw new Error(`factory find refunds: ${error.message}`)
+    return (data ?? []) as E2ERefundRow[]
+  }
+
+  async findChargeAdjustments(input: { appointmentId?: string; patientId?: string }): Promise<E2EChargeAdjustmentRow[]> {
+    if (!input.appointmentId && !input.patientId) throw new Error('findChargeAdjustments needs appointmentId or patientId')
+    let query = this.db.from('appointment_charge_adjustments').select('*').eq('clinic_id', CLINIC_A.id)
+    if (input.appointmentId) query = query.eq('appointment_id', input.appointmentId)
+    if (input.patientId) query = query.eq('patient_id', input.patientId)
+    const { data, error } = await query.order('created_at')
+    if (error) throw new Error(`factory find charge adjustments: ${error.message}`)
+    return (data ?? []) as E2EChargeAdjustmentRow[]
+  }
+
+  /** Every note on an appointment, oldest first: there is no uniqueness on appointment_id (G-4). */
+  async findSessionNotes(appointmentId: string): Promise<E2ESessionNoteRow[]> {
+    const { data, error } = await this.db
+      .from('session_notes').select('*').eq('appointment_id', appointmentId).order('created_at')
+    if (error) throw new Error(`factory find session notes: ${error.message}`)
+    for (const row of data ?? []) this.trackSessionNote(row.id)
+    return (data ?? []) as E2ESessionNoteRow[]
+  }
+
+  async findReminders(input: { title?: string; patientId?: string; date?: string }): Promise<E2EReminderRow[]> {
+    let query = this.db.from('reminders').select('*').eq('clinic_id', CLINIC_A.id)
+    if (input.title !== undefined) query = query.eq('title', input.title)
+    if (input.patientId !== undefined) query = query.eq('patient_id', input.patientId)
+    if (input.date !== undefined) query = query.eq('date', input.date)
+    const { data, error } = await query.order('created_at')
+    if (error) throw new Error(`factory find reminders: ${error.message}`)
+    for (const row of data ?? []) this.track('reminders', row.id)
+    return (data ?? []) as E2EReminderRow[]
+  }
+
+  async findTreatmentPlans(patientId: string): Promise<E2ETreatmentPlanRow[]> {
+    const { data, error } = await this.db
+      .from('treatment_plans').select('*').eq('patient_id', patientId).order('created_at')
+    if (error) throw new Error(`factory find treatment plans: ${error.message}`)
+    for (const row of data ?? []) this.track('treatment_plans', row.id)
+    return (data ?? []) as E2ETreatmentPlanRow[]
+  }
+
+  /** Clinic A doctors whose name matches case-insensitively (the table is unique on lower(name)). */
+  async findDoctors(input: { name: string }): Promise<E2EDoctorRow[]> {
+    const { data, error } = await this.db
+      .from('doctors').select('*').eq('clinic_id', CLINIC_A.id).ilike('name', input.name.trim())
+    if (error) throw new Error(`factory find doctors: ${error.message}`)
+    for (const row of data ?? []) this.track('doctors', row.id)
+    return (data ?? []) as E2EDoctorRow[]
+  }
+
+  /**
+   * Remove a factory patient and everything hanging off it right now, e.g. while its edit form is
+   * open in the browser (G-3). Uses the same cleanup RPC as teardown; fixed SEED patients and
+   * non-`E2E …` names are refused.
+   */
+  async deletePatientHard(patientId: string): Promise<void> {
+    if (this.isProtected('patients', patientId)) throw new Error(`factory deletePatientHard: ${patientId} is a fixed SEED patient`)
+    const { error } = await this.db.rpc('cleanup_e2e_patient', { target_patient_id: patientId })
+    if (error) throw new Error(`factory delete patient: ${error.message}`)
+  }
+
+  /** Delete one factory appointment row (and its notes and payment links) behind the UI's back. */
+  async deleteAppointmentHard(appointmentId: string): Promise<void> {
+    if (this.isProtected('appointments', appointmentId)) {
+      throw new Error(`factory deleteAppointmentHard: ${appointmentId} is a fixed SEED appointment`)
+    }
+    for (const [table, column] of [['session_notes', 'appointment_id'], ['appointment_payments', 'appointment_id']] as const) {
+      const { error } = await this.db.from(table).delete().eq(column, appointmentId)
+      if (error) throw new Error(`factory delete appointment ${table}: ${error.message}`)
+    }
+    const { error } = await this.db.from('appointments').delete().eq('id', appointmentId)
+    if (error) throw new Error(`factory delete appointment: ${error.message}`)
+  }
+
   async getGlobalSettings(): Promise<E2EGlobalSettingsRow> {
     const { data, error } = await this.db
       .from('global_settings')
@@ -591,16 +793,41 @@ export class E2EFactory {
     return data as E2EProfileRow
   }
 
-  async createPatient(overrides: Record<string, unknown> = {}): Promise<Row> {
+  /**
+   * A Clinic A patient with a unique `E2E …` name and a phone. Override any column; pass `null` to
+   * leave it blank (`{ phone: null }`). Legacy shapes are allowed: `{ dob: '1990-03-10' }`, a
+   * referral (`{ referral_source: 'doctor', referred_by_doctor_id: doctor.id }`) or a dangling one
+   * (`{ referral_source: 'patient', referred_by_patient_id: null }`).
+   */
+  async createPatient(overrides: E2EPatientInput = {}): Promise<E2EPatientRow> {
     return this.insert('patients', {
       id: randomUUID(),
       clinic_id: CLINIC_A.id,
       name: this.uniqueName('patient'),
       phone: `9${Math.floor(100_000_000 + Math.random() * 899_999_999)}`,
       ...overrides,
-    })
+    }) as Promise<E2EPatientRow>
   }
 
+  /** `count` patients in one insert; `overrides(i)` customises each (names stay unique). */
+  async createPatients(
+    count: number,
+    overrides: E2EPatientInput | ((index: number) => E2EPatientInput) = {},
+  ): Promise<E2EPatientRow[]> {
+    const rows = Array.from({ length: count }, (_, index) => ({
+      id: randomUUID(),
+      clinic_id: CLINIC_A.id,
+      name: this.uniqueName('patient'),
+      phone: this.uniqueMobile(),
+      ...(typeof overrides === 'function' ? overrides(index) : overrides),
+    }))
+    return this.insertMany('patients', rows) as Promise<E2EPatientRow[]>
+  }
+
+  /**
+   * A scheduled shared-type appointment today at 15:00 with fee 800 and unique notes. Pass
+   * `fee: null` (legacy row with no fee), `notes: null`, `status`, `date`, `time`, `assigned_to`…
+   */
   async createAppointment({
     patientId,
     appointmentTypeId,
@@ -608,8 +835,10 @@ export class E2EFactory {
   }: {
     patientId: string
     appointmentTypeId?: string
+    fee?: number | null
+    notes?: string | null
     [key: string]: unknown
-  }): Promise<Row> {
+  }): Promise<E2EAppointmentRow> {
     let typeId = appointmentTypeId
     if (!typeId) {
       const { data, error } = await this.db
@@ -637,7 +866,7 @@ export class E2EFactory {
       payment_status: 'unpaid',
       notes: this.uniqueName('appointment'),
       ...overrides,
-    })
+    }) as Promise<E2EAppointmentRow>
   }
 
   /**
@@ -708,6 +937,219 @@ export class E2EFactory {
     })
   }
 
+  /**
+   * `count` payments for one patient in one insert, on distinct dates (today, yesterday, …
+   * counting back from `startDayOffset`) with unique notes, e.g. for "Load more" paging.
+   */
+  async createPayments(
+    count: number,
+    { patientId, startDayOffset = 0, ...overrides }: { patientId: string; startDayOffset?: number; [key: string]: unknown },
+  ): Promise<E2EPaymentRow[]> {
+    const rows = Array.from({ length: count }, (_, index) => ({
+      id: randomUUID(),
+      clinic_id: CLINIC_A.id,
+      patient_id: patientId,
+      amount: 750,
+      payment_method: 'UPI',
+      date: clinicDate(startDayOffset - index),
+      notes: this.uniqueName('payment'),
+      package_id: null,
+      funding_scope: 'ordinary',
+      status: 'posted',
+      billing_version: 2,
+      ...overrides,
+    }))
+    return this.insertMany('payments', rows) as Promise<E2EPaymentRow[]>
+  }
+
+  /** `count` active prepaid packages for one patient in one insert, each with a unique name. */
+  async createPackages(
+    count: number,
+    { patientId, appointmentTypeId, ...overrides }: { patientId: string; appointmentTypeId?: string; [key: string]: unknown },
+  ): Promise<E2EPackageRow[]> {
+    const typeId = appointmentTypeId ?? (await this.findAppointmentType(true)).id
+    const rows = Array.from({ length: count }, () => ({
+      id: randomUUID(),
+      clinic_id: CLINIC_A.id,
+      patient_id: patientId,
+      name: this.uniqueName('package'),
+      total_sessions: 4,
+      used_sessions: 0,
+      total_amount: 3000,
+      per_session_amount: 750,
+      paid_amount: 0,
+      payment_timing: 'prepaid',
+      status: 'active',
+      appointment_type_id: typeId,
+      starts_on: clinicDate(-365),
+      billing_version: 2,
+      ...overrides,
+    }))
+    return this.insertMany('packages', rows) as Promise<E2EPackageRow[]>
+  }
+
+  /**
+   * Refund part of a payment through the real `record_refund` RPC as the Clinic A admin, so the
+   * ledger checks (amount within what is left, a reason) apply. Refunds are immutable; teardown
+   * removes them with their disposable `E2E …` patient (cleanup_e2e_patient), so only refund a
+   * factory patient's payment.
+   */
+  async createRefund(input: {
+    paymentId: string
+    amount: number
+    reason?: string
+    method?: 'cash' | 'upi' | 'card' | 'bank_transfer'
+    date?: string
+  }): Promise<E2ERefundRow> {
+    const { data: payment, error: paymentError } = await this.db
+      .from('payments').select('patient_id').eq('id', input.paymentId).single()
+    if (paymentError || !payment) throw new Error(`factory refund payment: ${paymentError?.message ?? 'missing'}`)
+    if (!this.created.get('patients')?.has(payment.patient_id)) {
+      throw new Error('factory createRefund: refund only payments of factory-owned patients (refunds are immutable)')
+    }
+    const admin = await this.asAdmin()
+    const { error } = await admin.rpc('record_refund', {
+      p_payment_id: input.paymentId,
+      p_amount: input.amount,
+      p_refund_method: input.method ?? 'upi',
+      p_refund_date: input.date ?? clinicDate(),
+      p_reason: input.reason ?? this.uniqueName('refund-reason'),
+    })
+    if (error) throw new Error(`factory record_refund: ${error.message}`)
+    const refunds = await this.findRefunds({ paymentId: input.paymentId })
+    const refund = refunds.at(-1)
+    if (!refund) throw new Error('factory record_refund: no refund row was written')
+    return refund
+  }
+
+  /** A Temporary Staff row (no login). `email` and `notes` stay NULL unless passed. */
+  async createExternalStaff(overrides: Record<string, unknown> = {}): Promise<E2EExternalStaffRow> {
+    return this.insert('external_staff', {
+      id: randomUUID(),
+      clinic_id: CLINIC_A.id,
+      name: this.uniqueName('temp-staff'),
+      phone: this.uniqueMobile(),
+      email: null,
+      notes: null,
+      status: 'active',
+      ...overrides,
+    }) as Promise<E2EExternalStaffRow>
+  }
+
+  /** A pending Clinic A reminder dated today with only a title; pass time/phone/notes/patient_id… */
+  async createReminder(overrides: Record<string, unknown> = {}): Promise<E2EReminderRow> {
+    return this.insert('reminders', {
+      id: randomUUID(),
+      clinic_id: CLINIC_A.id,
+      title: this.uniqueName('reminder'),
+      date: clinicDate(),
+      status: 'pending',
+      ...overrides,
+    }) as Promise<E2EReminderRow>
+  }
+
+  /** A SOAP note with every field NULL unless passed. No uniqueness on appointment_id (G-4). */
+  async createSessionNote({ appointmentId, ...overrides }: { appointmentId: string; [key: string]: unknown }): Promise<E2ESessionNoteRow> {
+    return this.insert('session_notes', {
+      id: randomUUID(),
+      appointment_id: appointmentId,
+      subjective: null,
+      objective: null,
+      assessment: null,
+      plan: null,
+      exercises_prescribed: null,
+      ...overrides,
+    }) as Promise<E2ESessionNoteRow>
+  }
+
+  /** An active plan with a unique diagnosis starting today; goals and expected end stay NULL. */
+  async createTreatmentPlan({ patientId, ...overrides }: { patientId: string; [key: string]: unknown }): Promise<E2ETreatmentPlanRow> {
+    return this.insert('treatment_plans', {
+      id: randomUUID(),
+      clinic_id: CLINIC_A.id,
+      patient_id: patientId,
+      diagnosis: this.uniqueName('diagnosis'),
+      start_date: clinicDate(),
+      goals: null,
+      expected_end_date: null,
+      status: 'active',
+      ...overrides,
+    }) as Promise<E2ETreatmentPlanRow>
+  }
+
+  /** A referring doctor with a unique name; specialty and address stay NULL unless passed. */
+  async createDoctor(overrides: Record<string, unknown> = {}): Promise<E2EDoctorRow> {
+    return this.insert('doctors', {
+      id: randomUUID(),
+      clinic_id: CLINIC_A.id,
+      name: this.uniqueName('doctor'),
+      specialty: null,
+      address: null,
+      ...overrides,
+    }) as Promise<E2EDoctorRow>
+  }
+
+  /**
+   * Replace a factory patient's External Staff grants (the same RPC the admin's "Save access"
+   * uses). Teardown drops the grants and their audit rows with the patient. Fixed SEED patients
+   * are refused: replacing their grants would change the baseline for every other spec.
+   */
+  async shareWithExternal(patientId: string, profileIds: readonly string[]): Promise<void> {
+    if (this.isProtected('patients', patientId)) {
+      throw new Error(`factory shareWithExternal: ${patientId} is a fixed SEED patient`)
+    }
+    const admin = await this.asAdmin()
+    const { error } = await admin.rpc('replace_patient_external_access', {
+      p_patient_id: patientId, p_profile_ids: [...profileIds],
+    })
+    if (error) throw new Error(`factory share with external: ${error.message}`)
+  }
+
+  /**
+   * Book the way External Staff do: signed in as them, through `external_create_appointment`.
+   * Defaults to the seeded EXTERNAL account; pass `as` for a factory-made external user. The
+   * patient must already be shared with that account (shareWithExternal).
+   */
+  async createExternalBooking(input: {
+    patientId: string
+    date: string
+    time: string
+    durationMinutes?: number
+    appointmentTypeId?: string
+    as?: { email?: string | null; mobileNumber?: string; password?: string }
+  }): Promise<E2EAppointmentRow> {
+    const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+    const password = input.as?.password ?? PASSWORD
+    const login = input.as?.email
+      ? await client.auth.signInWithPassword({ email: input.as.email, password })
+      : input.as?.mobileNumber
+        ? await client.auth.signInWithPassword({ phone: input.as.mobileNumber, password })
+        : await client.auth.signInWithPassword({ email: EXTERNAL.email, password: PASSWORD })
+    if (login.error) throw new Error(`factory external sign-in: ${login.error.message}`)
+    try {
+      const { data, error } = await client.rpc('external_create_appointment', {
+        p_request: {
+          id: randomUUID(),
+          patient_id: input.patientId,
+          appointment_type_id: input.appointmentTypeId ?? (await this.findAppointmentType(true)).id,
+          date: input.date,
+          time: input.time,
+          duration_minutes: input.durationMinutes ?? 45,
+        },
+      })
+      if (error || !data) throw new Error(`factory external booking: ${error?.message ?? 'no result'}`)
+      const id = (data as { id: string }).id
+      this.trackAppointment(id)
+      const { data: row, error: rowError } = await this.db.from('appointments').select('*').eq('id', id).single()
+      if (rowError || !row) throw new Error(`factory external booking row: ${rowError?.message ?? 'missing'}`)
+      return row as E2EAppointmentRow
+    } finally {
+      await client.auth.signOut({ scope: 'local' })
+    }
+  }
+
   async createPackageTemplate(overrides: Record<string, unknown> = {}): Promise<Row> {
     return this.insert('package_templates', {
       id: randomUUID(),
@@ -732,17 +1174,24 @@ export class E2EFactory {
     })
   }
 
-  async createOnboardingRequest(overrides: Record<string, unknown> = {}): Promise<Row> {
+  /**
+   * A pending clinic request with a unique owner email and mobile. Pass `ownerEmail` to collide
+   * with an existing account or request on purpose; any column can be overridden
+   * (`clinic_phone: null`).
+   */
+  async createOnboardingRequest(
+    { ownerEmail, ...overrides }: { ownerEmail?: string; [key: string]: unknown } = {},
+  ): Promise<E2EOnboardingRequestRow> {
     const suffix = randomUUID().slice(0, 8)
     return this.insert('clinic_onboarding_requests', {
       id: randomUUID(),
       clinic_name: this.uniqueName('clinic-request'),
       owner_full_name: this.uniqueName('request-owner'),
-      owner_email: `${this.token}-${suffix}@carebook.test`,
-      owner_mobile_number: '9876500010',
+      owner_email: (ownerEmail ?? `${this.token}-${suffix}@carebook.test`).trim().toLowerCase(),
+      owner_mobile_number: this.uniqueMobile(),
       status: 'pending',
       ...overrides,
-    })
+    }) as Promise<E2EOnboardingRequestRow>
   }
 
   async createClinic(overrides: Record<string, unknown> = {}): Promise<E2EClinicRow> {
@@ -754,30 +1203,34 @@ export class E2EFactory {
     }) as Promise<E2EClinicRow>
   }
 
-  async createAuthUser(input: {
-    clinicId: string
-    email?: string
-    password?: string
-    role?: 'admin' | 'staff'
-    fullName?: string
-    mobileNumber?: string
-    status?: 'active' | 'blocked'
-  }): Promise<E2EAuthResource> {
-    const email = (input.email ?? this.uniqueEmail('user')).trim().toLowerCase()
+  /**
+   * A signed-up user with a profile in `clinicId`. `email: null` makes a mobile-only account
+   * (it signs in with `mobileNumber`); `fullName: null` leaves the profile nameless;
+   * `role: 'external_staff'` makes an External Staff login; `status: 'blocked'` blocks the profile.
+   */
+  async createAuthUser(input: CreateAuthUserInput & { email: null }): Promise<E2EMobileOnlyAuthResource>
+  async createAuthUser(input: CreateAuthUserInput & { email?: string }): Promise<E2EAuthResource>
+  async createAuthUser(input: CreateAuthUserInput): Promise<E2EAuthResource | E2EMobileOnlyAuthResource> {
+    const email = input.email === null ? null : (input.email ?? this.uniqueEmail('user')).trim().toLowerCase()
     const password = input.password ?? PASSWORD
     const mobileNumber = input.mobileNumber ?? this.uniqueMobile()
     const { data, error } = await this.db.auth.admin.createUser({
-      email,
+      ...(email ? { email, email_confirm: true } : {}),
       phone: mobileNumber,
       phone_confirm: true,
       password,
-      email_confirm: true,
     })
     if (error || !data.user) {
       throw new Error(`factory create auth user: ${error?.message ?? 'user was not returned'}`)
     }
-    this.trackAuthUser(data.user.id, email)
-    this.trackProfile(data.user.id, email)
+    if (email) {
+      this.trackAuthUser(data.user.id, email)
+      this.trackProfile(data.user.id, email)
+    } else {
+      // Tagged with a disposable address at teardown; until then track the profile by id only.
+      this.emailLessAuthUsers.set(data.user.id, mobileNumber)
+      this.track('profiles', data.user.id)
+    }
 
     const { data: profile, error: profileError } = await this.db
       .from('profiles')
@@ -785,7 +1238,7 @@ export class E2EFactory {
         clinic_id: input.clinicId,
         email,
         role: input.role ?? 'staff',
-        full_name: input.fullName ?? this.uniqueName('user'),
+        full_name: input.fullName === null ? null : (input.fullName ?? this.uniqueName('user')),
         mobile_number: mobileNumber,
         status: input.status ?? 'active',
         updated_at: new Date().toISOString(),
@@ -797,9 +1250,16 @@ export class E2EFactory {
       throw new Error(`factory update auth profile: ${profileError?.message ?? 'profile was not returned'}`)
     }
 
-    return { id: data.user.id, email, mobileNumber, password, profile: profile as E2EProfileRow }
+    return email
+      ? { id: data.user.id, email, mobileNumber, password, profile: profile as E2EProfileRow }
+      : { id: data.user.id, email: null, mobileNumber, password, profile: profile as E2EMobileOnlyAuthResource['profile'] }
   }
 
+  /**
+   * A pending invite row. `email: null` is a mobile-only invite; `fullName: null` and
+   * `mobileNumber: null` give the legacy (pre-mobile) shape. The table requires an email or a
+   * mobile number.
+   */
   async createUserInvite(input: {
     clinicId: string
     /** Null for a mobile-only invite, which mobile-number sign-in allows. */
@@ -807,20 +1267,24 @@ export class E2EFactory {
     authUserId?: string | null
     invitedBy?: string
     role?: 'admin' | 'staff' | 'external_staff'
-    fullName?: string
-    mobileNumber?: string
+    fullName?: string | null
+    mobileNumber?: string | null
+    status?: 'pending' | 'accepted' | 'revoked'
   }): Promise<E2EUserInviteRow> {
     const invitedBy = input.invitedBy ?? await this.findAuthUserIdByEmail(ADMIN.email)
+    const status = input.status ?? 'pending'
     return this.insert('user_invites', {
       id: randomUUID(),
       clinic_id: input.clinicId,
       email: input.email?.trim().toLowerCase() ?? null,
       role: input.role ?? 'staff',
-      status: 'pending',
+      status,
       auth_user_id: input.authUserId ?? null,
       invited_by: invitedBy,
-      full_name: input.fullName ?? this.uniqueName('invitee'),
-      mobile_number: input.mobileNumber ?? this.uniqueMobile(),
+      full_name: input.fullName === null ? null : (input.fullName ?? this.uniqueName('invitee')),
+      mobile_number: input.mobileNumber === null ? null : (input.mobileNumber ?? this.uniqueMobile()),
+      revoked_at: status === 'revoked' ? new Date().toISOString() : null,
+      accepted_at: status === 'accepted' ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     }) as Promise<E2EUserInviteRow>
   }
@@ -1038,6 +1502,18 @@ export class E2EFactory {
       }
     }
 
+    // The soft-delete guard (033) only lets teardown hard-delete identities it can recognise by
+    // an `@carebook.test` address, so mobile-only factory users get a disposable one first.
+    for (const [id, mobileNumber] of this.emailLessAuthUsers) {
+      const disposableEmail = `${this.token}-mobile-${mobileNumber}@carebook.test`
+      const { error } = await this.db.auth.admin.updateUserById(id, { email: disposableEmail, email_confirm: true })
+      if (error) {
+        failures.push(`tag mobile-only user ${id}: ${error.message}`)
+        continue
+      }
+      this.trackAuthUser(id, disposableEmail)
+    }
+
     for (const [id, email] of this.authUsers) {
       await markAuthUserForCleanup(id, email)
     }
@@ -1118,6 +1594,11 @@ export class E2EFactory {
     this.watchedReminderTitles.clear()
     this.watchedOnboardingRequests.clear()
     this.authUsers.clear()
+    this.emailLessAuthUsers.clear()
+    if (this.adminSession) {
+      await this.adminSession.auth.signOut({ scope: 'local' }).catch(() => {})
+      this.adminSession = null
+    }
     if (failures.length > 0) throw new Error(`factory cleanup failed: ${failures.join('; ')}`)
   }
 }

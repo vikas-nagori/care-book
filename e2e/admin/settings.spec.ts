@@ -154,7 +154,9 @@ test('invites a user with a temp password, re-issues it, revokes it, and re-invi
   expect(invite).toMatchObject({ status: 'pending', auth_user_id: authUserId })
 
   await settings.revokeInvite(email)
-  await expect(page.getByText('revoked', { exact: true }).filter({ visible: true })).toBeVisible()
+  // Scoped to this invite's card / row: the seed also keeps a revoked invite (SEED.inviteRevoked).
+  await expect(page.locator('section, tr').filter({ hasText: email })
+    .getByText('revoked', { exact: true }).filter({ visible: true })).toBeVisible()
   await expect.poll(async () => (await factory.findInviteByEmail(email))?.status).toBe('revoked')
 
   // Revoking closes the account: no clinic, and sign-in is refused even with the live password.

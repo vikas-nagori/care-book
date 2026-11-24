@@ -22,7 +22,12 @@ export class AppointmentForm {
 
   async fill(data: AppointmentFormData): Promise<void> {
     const patientSearch = this.page.getByLabel('Patient *', { exact: true })
-    await patientSearch.fill(data.patientName)
+    // WebKit can hydrate the form after the first keystrokes land, which resets the search box.
+    // Refill until the typed name sticks.
+    await expect(async () => {
+      await patientSearch.fill(data.patientName)
+      await expect(patientSearch).toHaveValue(data.patientName, { timeout: 1_000 })
+    }).toPass()
     if (data.newPatient) {
       await this.page.getByRole('button', { name: `Create new patient: "${data.patientName}"`, exact: true }).click()
       await this.page.getByLabel('Phone *', { exact: true }).fill(data.newPatient.phone)

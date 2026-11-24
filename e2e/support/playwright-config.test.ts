@@ -89,3 +89,25 @@ test('the web server builds by default and only skips the build when CI has alre
   assert.match(config, /process\.env\.E2E_PREBUILT === '1'/)
   assert.match(command, /PREBUILT \? 'npm run start:e2e' : 'npm run build:e2e && npm run start:e2e'/)
 })
+
+test('an iPhone WebKit project runs the @ios subset as the clinic admin, on one CI shard only', () => {
+  // Every iPhone runs the installed app on WebKit, which the Pixel 5 projects never exercise
+  // (decision D5). WebKit is installed on one CI shard, which runs this project on its own.
+  const config = readFileSync(new URL('../../playwright.config.ts', import.meta.url), 'utf8')
+  const workflow = readFileSync(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8')
+  const iosProject = config.match(/name: 'mobile-ios',[\s\S]*?\n\s*}/)?.[0] ?? ''
+
+  assert.match(iosProject, /devices\['iPhone 14'\]/)
+  assert.match(iosProject, /grep:\s*\/@ios\//)
+  assert.match(iosProject, /storageState:\s*ADMIN\.storageState/)
+  assert.match(iosProject, /dependencies:\s*\['setup'\]/)
+  assert.match(config, /process\.env\.E2E_SKIP_IOS === '1'/)
+
+  const shardedRun = workflow.match(/- name: E2E tests\n[\s\S]*?run: npm run test:e2e -- --shard=[^\n]+/)?.[0] ?? ''
+  assert.match(shardedRun, /E2E_SKIP_IOS: '1'/)
+  const webkitInstalls = workflow.match(/playwright install[^\n]*webkit/g) ?? []
+  assert.equal(webkitInstalls.length, 1)
+  const iosStep = workflow.match(/- name: iPhone[\s\S]*?--project=mobile-ios/)?.[0] ?? ''
+  assert.match(iosStep, /if: matrix\.shard == 1/)
+  assert.match(iosStep, /playwright install --with-deps webkit/)
+})

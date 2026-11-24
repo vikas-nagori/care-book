@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { TestInfo } from '@playwright/test'
 import { ADMIN, CLINIC_A, CLINIC_B } from './accounts.ts'
 import { E2EFactory } from './factories.ts'
+import { SEED } from './ids.ts'
 
 type MockRow = Record<string, unknown> & { id: string }
 type DeleteCall = { table: string; ids: string[] }
@@ -19,6 +20,8 @@ function testInfo(): TestInfo {
   } as unknown as TestInfo
 }
 
+type InsertCall = { table: string; values: MockRow[] }
+
 function queryableDb(
   rows: Record<string, MockRow[]>,
   deletes: DeleteCall[],
@@ -26,6 +29,8 @@ function queryableDb(
   authDeletes: AuthDeleteCall[] = [],
   authUpdates: AuthUpdateCall[] = [],
   rpcCalls: RpcCall[] = [],
+  inserts: InsertCall[] = [],
+  createdAuthUsers: Record<string, unknown>[] = [],
 ): SupabaseClient {
   return {
     async rpc(functionName: string, args: Record<string, unknown>) {
@@ -45,6 +50,10 @@ function queryableDb(
           authUpdates.push({ id, attributes })
           return { data: { user: { id } }, error: null }
         },
+        async createUser(attributes: Record<string, unknown>) {
+          createdAuthUsers.push(attributes)
+          return { data: { user: { id: `auth-${createdAuthUsers.length}` } }, error: null }
+        },
       },
     },
     from(table: string) {
@@ -55,6 +64,28 @@ function queryableDb(
         error: null,
       })
       const builder = {
+        insert(values: MockRow | MockRow[]) {
+          const list = Array.isArray(values) ? values : [values]
+          inserts.push({ table, values: list })
+          const inserted = {
+            select() { return inserted },
+            async single() { return { data: list[0], error: null } },
+            then<TResult1 = { data: MockRow[]; error: null }>(
+              onfulfilled?: ((value: { data: MockRow[]; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
+            ) {
+              return Promise.resolve({ data: list, error: null }).then(onfulfilled)
+            },
+          }
+          return inserted
+        },
+        update(values: Record<string, unknown>) {
+          const updated = {
+            eq() { return updated },
+            select() { return updated },
+            async single() { return { data: { id: 'profile', ...values }, error: null } },
+          }
+          return updated
+        },
         select() {
           return builder
         },
@@ -288,4 +319,98 @@ test('billing watchers retain immutable audit rows while settings watchers clean
     deletes.flatMap(({ ids }) => ids).filter((id) => baselineIds.includes(id)),
     [],
   )
+})
+
+test('blank optional invite fields stay NULL instead of being filled with defaults', async () => {
+  const inserts: InsertCall[] = []
+  const factory = new E2EFactory(testInfo(), queryableDb({}, [], [], [], [], [], inserts))
+
+  await factory.createUserInvite({
+    clinicId: CLINIC_A.id, email: 'legacy@carebook.test', invitedBy: 'admin-id', fullName: null, mobileNumber: null,
+  })
+  await factory.createUserInvite({ clinicId: CLINIC_A.id, email: null, invitedBy: 'admin-id', status: 'revoked' })
+
+  const [legacy, mobileOnly] = inserts.map(({ values }) => values[0])
+  assert.equal(legacy.full_name, null)
+  assert.equal(legacy.mobile_number, null)
+  assert.equal(legacy.email, 'legacy@carebook.test')
+  assert.equal(mobileOnly.email, null)
+  assert.match(String(mobileOnly.mobile_number), /^9\d{9}$/)
+  assert.equal(mobileOnly.status, 'revoked')
+  assert.ok(mobileOnly.revoked_at)
+})
+
+test('onboarding requests get a unique owner mobile and can collide on an owner email on purpose', async () => {
+  const inserts: InsertCall[] = []
+  const factory = new E2EFactory(testInfo(), queryableDb({}, [], [], [], [], [], inserts))
+
+  await factory.createOnboardingRequest()
+  await factory.createOnboardingRequest()
+  await factory.createOnboardingRequest({ ownerEmail: ' Admin@CareBook.test ', clinic_phone: null })
+
+  const [first, second, colliding] = inserts.map(({ values }) => values[0])
+  assert.notEqual(first.owner_mobile_number, second.owner_mobile_number)
+  assert.notEqual(first.owner_email, second.owner_email)
+  assert.equal(colliding.owner_email, 'admin@carebook.test')
+  assert.equal(colliding.clinic_phone, null)
+})
+
+test('bulk builders track every row before inserting and give each a distinct date or name', async () => {
+  const inserts: InsertCall[] = []
+  const rpcCalls: RpcCall[] = []
+  const factory = new E2EFactory(testInfo(), queryableDb({}, [], [], [], [], rpcCalls, inserts))
+
+  const patients = await factory.createPatients(3, (index) => ({ phone: index === 0 ? null : undefined }))
+  const payments = await factory.createPayments(4, { patientId: patients[0].id, startDayOffset: -10 })
+
+  assert.equal(new Set(patients.map((patient) => patient.name)).size, 3)
+  assert.equal(patients[0].phone, null)
+  assert.equal(new Set(payments.map((payment) => payment.date)).size, 4)
+  await factory.cleanup()
+  assert.deepEqual(rpcCalls.map(({ args }) => args.target_patient_id).sort(), patients.map(({ id }) => id).sort())
+})
+
+test('factory-made reminders, notes, plans, doctors and temporary staff are cleaned; sparse seed rows never are', async () => {
+  const deletes: DeleteCall[] = []
+  const factory = new E2EFactory(testInfo(), queryableDb({}, deletes))
+
+  const reminder = await factory.createReminder()
+  const doctor = await factory.createDoctor()
+  const staff = await factory.createExternalStaff()
+  factory.trackSessionNote(SEED.sessionNoteSparse)
+  factory.trackPatient(SEED.patientSparse)
+  factory.trackAppointment(SEED.appointmentExternalSparse)
+  await factory.cleanup()
+
+  assert.deepEqual(deletes, [
+    { table: 'reminders', ids: [reminder.id] },
+    { table: 'external_staff', ids: [staff.id] },
+    { table: 'doctors', ids: [doctor.id] },
+  ])
+})
+
+test('destructive helpers refuse fixed SEED rows', async () => {
+  const factory = new E2EFactory(testInfo(), queryableDb({}, []))
+
+  await assert.rejects(factory.deletePatientHard(SEED.patientSparse), /fixed SEED patient/)
+  await assert.rejects(factory.deleteAppointmentHard(SEED.appointmentSparse), /fixed SEED appointment/)
+  await assert.rejects(factory.shareWithExternal(SEED.patientExternal, []), /fixed SEED patient/)
+})
+
+test('a mobile-only factory user gets a disposable address before teardown deletes it', async () => {
+  const authUpdates: AuthUpdateCall[] = []
+  const authDeletes: AuthDeleteCall[] = []
+  const created: Record<string, unknown>[] = []
+  const factory = new E2EFactory(testInfo(), queryableDb({}, [], [], authDeletes, authUpdates, [], [], created))
+
+  const user = await factory.createAuthUser({ clinicId: CLINIC_A.id, email: null, fullName: null, role: 'external_staff' })
+  assert.equal(user.email, null)
+  assert.equal(created[0].email, undefined)
+  assert.equal(created[0].phone, user.mobileNumber)
+  await factory.cleanup()
+
+  assert.equal(authUpdates[0].id, user.id)
+  assert.equal(authUpdates[0].attributes.email, `${factory.token}-mobile-${user.mobileNumber}@carebook.test`)
+  assert.ok(authUpdates.some(({ attributes }) => 'app_metadata' in attributes))
+  assert.deepEqual(authDeletes, [{ id: user.id }])
 })

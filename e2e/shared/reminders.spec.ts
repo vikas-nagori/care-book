@@ -112,7 +112,8 @@ test('keeps pending reminders on today\'s schedule until they are completed or d
     await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
     await expect(dialog).toBeHidden()
     await expect(overdueCard).toHaveCount(0)
-    await expect(section.getByRole('button')).toHaveCount(0)
+    // Only this test's reminders: the seed keeps a pending reminder dated today (SEED.reminderSparse).
+    await expect(section.getByRole('button').filter({ hasText: factory.token })).toHaveCount(0)
     await expect(section.getByRole('status')).toContainText('Reminder deleted.')
     await guards.assertClean()
   } finally {

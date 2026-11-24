@@ -186,9 +186,21 @@ jobs:
       - name: E2E tests
         # Playwright's webServer serves the build from the previous step (E2E_PREBUILT) with .env.e2e.
         # Setup projects re-run in every shard, which is required — each shard seeds its own stack.
+        # The iPhone project needs WebKit, so it is left out here and runs on shard 1 below.
         env:
           E2E_PREBUILT: '1'
+          E2E_SKIP_IOS: '1'
         run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ env.SHARD_TOTAL }}
+
+      - name: iPhone (WebKit) E2E tests
+        # Only the @ios subset runs on WebKit (playwright.config.ts `mobile-ios`). Installing WebKit
+        # on one runner keeps the other shards' boot time unchanged.
+        if: matrix.shard == 1
+        env:
+          E2E_PREBUILT: '1'
+        run: |
+          npx playwright install --with-deps webkit
+          npm run test:e2e -- --project=mobile-ios
 
       - name: Stop local Supabase
         if: always()

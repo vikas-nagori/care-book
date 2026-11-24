@@ -6,32 +6,44 @@
 // must not leak the NULLs as "null"/"undefined" text or `tel:null` links (expectNoLeakedNulls).
 // When a form gains an optional field, leave it blank here.
 
-import type { Page } from '@playwright/test'
+import type { Page, TestInfo } from '@playwright/test'
 import { AppointmentForm } from '../pages/appointment-form'
 import { PatientForm } from '../pages/patient-form'
 import { SessionNoteForm } from '../pages/session-note-form'
 import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { clinicDate } from '../support/clinic-date'
 import { test, expect } from '../support/factories'
+import { IOS_TAG, projectRole } from '../support/mobile'
 
 function guardsFor(page: Page) {
   // Rapid matrix runs share a user across devices and can reach the intentional telemetry budget.
   return attachErrorGuards(page, { expectedHttpErrors: [{ pathname: '/api/telemetry', status: 429 }] })
 }
 
-async function visitEveryPatientTab(page: Page, patientId: string) {
+async function visitEveryPatientTab(page: Page, patientId: string, testInfo: TestInfo) {
   await page.goto(`/patients/${patientId}`)
-  for (const tab of ['Profile', 'Appts', 'Plans', 'Billing']) {
+  // Billing is admin-only: it must be there for admins and absent for staff, never just skipped.
+  const billing = page.getByRole('tab', { name: 'Billing', exact: true })
+  if (projectRole(testInfo) === 'admin') await expect(billing).toBeVisible()
+  else await expect(billing).toHaveCount(0)
+  for (const tab of projectRole(testInfo) === 'admin' ? ['Profile', 'Appts', 'Plans', 'Billing'] : ['Profile', 'Appts', 'Plans']) {
     const trigger = page.getByRole('tab', { name: tab, exact: true })
-    // Billing is admin-only; the other tabs are always there.
-    if (tab === 'Billing' && (await trigger.count()) === 0) continue
     await trigger.click()
     await expect(trigger).toHaveAttribute('aria-selected', 'true')
     await expectNoLeakedNulls(page)
   }
 }
 
-test('a patient saved with only a name renders on every patient screen', async ({ page, factory }) => {
+/** Back on the Profile tab, where the age would render, with its content mounted. */
+async function openProfileTab(page: Page, patientName: string) {
+  const profile = page.getByRole('tab', { name: 'Profile', exact: true })
+  await profile.click()
+  await expect(profile).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tabpanel').filter({ visible: true })).toBeVisible()
+  await expect(page.getByText(patientName, { exact: true }).filter({ visible: true }).first()).toBeVisible()
+}
+
+test('a patient saved with only a name renders on every patient screen', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
   const guards = guardsFor(page)
   const name = factory.uniqueName('name-only-patient')
   factory.watchUiPatient(name)
@@ -59,7 +71,7 @@ test('a patient saved with only a name renders on every patient screen', async (
   await expect(page.getByRole('link', { name: new RegExp(name) }).filter({ visible: true })).toBeVisible()
   await expectNoLeakedNulls(page)
 
-  await visitEveryPatientTab(page, patient!.id)
+  await visitEveryPatientTab(page, patient!.id, testInfo)
   await page.goto(`/patients/${patient!.id}/edit`)
   await expect(page.getByLabel('Name *', { exact: true })).toHaveValue(name)
   await expect(page.getByLabel('Phone', { exact: true })).toHaveValue('')
@@ -68,7 +80,7 @@ test('a patient saved with only a name renders on every patient screen', async (
   await guards.assertClean()
 })
 
-test('a patient created inline while booking, with the age left blank, renders on every patient screen', async ({ page, factory }) => {
+test('a patient created inline while booking, with the age left blank, renders on every patient screen', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
   const guards = guardsFor(page)
   const name = factory.uniqueName('inline-no-age')
   factory.watchUiPatient(name)
@@ -88,12 +100,13 @@ test('a patient created inline while booking, with the age left blank, renders o
   await page.getByPlaceholder('Search by name or phone…').fill(name)
   await expect(page.getByRole('link', { name: new RegExp(name) }).filter({ visible: true })).toBeVisible()
   await expectNoLeakedNulls(page)
-  await visitEveryPatientTab(page, patient!.id)
+  await visitEveryPatientTab(page, patient!.id, testInfo)
+  await openProfileTab(page, name)
   await expect(page.getByTestId('patient-age')).toHaveCount(0)
   await guards.assertClean()
 })
 
-test('an appointment booked with only required fields renders on schedule, detail and dashboard', async ({ page, factory }) => {
+test('an appointment booked with only required fields renders on schedule, detail and dashboard', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
   const guards = guardsFor(page)
   const patient = await factory.createPatient({ phone: null })
   const sharedType = await factory.findAppointmentType(true)
@@ -118,11 +131,11 @@ test('an appointment booked with only required fields renders on schedule, detai
   await page.goto('/')
   await expectNoLeakedNulls(page)
 
-  await visitEveryPatientTab(page, patient.id)
+  await visitEveryPatientTab(page, patient.id, testInfo)
   await guards.assertClean()
 })
 
-test('an all-blank session note saves and renders', async ({ page, factory }) => {
+test('an all-blank session note saves and renders', { tag: IOS_TAG }, async ({ page, factory }) => {
   const guards = guardsFor(page)
   const patient = await factory.createPatient({ phone: null })
   const appointment = await factory.createAppointment({
@@ -146,7 +159,7 @@ test('an all-blank session note saves and renders', async ({ page, factory }) =>
   await guards.assertClean()
 })
 
-test('a treatment plan with only its required fields renders on the Plans tab', async ({ page, factory }) => {
+test('a treatment plan with only its required fields renders on the Plans tab', { tag: IOS_TAG }, async ({ page, factory }) => {
   const guards = guardsFor(page)
   const patient = await factory.createPatient({ phone: null })
   const diagnosis = factory.uniqueName('diagnosis-only')
@@ -168,7 +181,7 @@ test('a treatment plan with only its required fields renders on the Plans tab', 
   await guards.assertClean()
 })
 
-test('a reminder with only a title and date renders on the schedule and dashboard', async ({ page, factory }) => {
+test('a reminder with only a title and date renders on the schedule and dashboard', { tag: IOS_TAG }, async ({ page, factory }) => {
   const guards = guardsFor(page)
   const title = factory.uniqueName('title-only-reminder')
   const date = clinicDate(0)
