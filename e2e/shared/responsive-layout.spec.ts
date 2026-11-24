@@ -226,6 +226,41 @@ test('patients use table rows on desktop and compact cards on mobile', async ({ 
   await guards.assertClean()
 })
 
+// PA-19
+test('patient detail offers a Call link on phones only, never without a number, and one Edit and Delete per viewport', async ({ page }, testInfo) => {
+  const guards = attachErrorGuards(page)
+  const mobile = isMobileProject(testInfo)
+  const admin = testInfo.project.name.startsWith('admin-')
+
+  const expectOneEditAndDelete = async () => {
+    await expect(page.getByRole('link', { name: 'Edit', exact: true }).filter({ visible: true })).toHaveCount(1)
+    // Delete is admin-only.
+    await expect(page.getByRole('button', { name: 'Delete', exact: true }).filter({ visible: true })).toHaveCount(admin ? 1 : 0)
+  }
+
+  // A patient with a phone: a tap-to-call button on phones; desktop shows the number only.
+  await page.goto(`/patients/${SEED.patientAsha}`)
+  await assertMdBreakpoint(page, testInfo)
+  const call = page.getByRole('link', { name: 'Call Asha Rao', exact: true, includeHidden: true })
+  if (mobile) {
+    await expect(call).toBeVisible()
+    await expect(call).toHaveAttribute('href', 'tel:9876500001')
+  } else {
+    await expect(call).toBeHidden()
+  }
+  await expect(page.getByText('No phone number', { exact: true })).toHaveCount(0)
+  await expectOneEditAndDelete()
+
+  // A patient with no phone: says so, and offers nothing to call on either layout.
+  await page.goto(`/patients/${SEED.patientSparse}`)
+  await expect(page.getByText('No phone number', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^Call /, includeHidden: true })).toHaveCount(0)
+  await expect(page.locator('a[href^="tel:"]')).toHaveCount(0)
+  await expectOneEditAndDelete()
+
+  await guards.assertClean()
+})
+
 test('new and detail pages expose the breakpoint-appropriate header and Back affordance', async ({ page }, testInfo) => {
   const guards = attachErrorGuards(page)
 

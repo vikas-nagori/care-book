@@ -82,9 +82,7 @@ const PATIENTS: readonly ManifestEntry[] = [
     id: 'supabase:patients.update@src/app/patients/patient-form.tsx',
     kind: 'supabase',
     happy: ref('e2e/shared/patients.spec.ts', 'edits a factory-owned patient and shows the persisted fields on detail and list'),
-    // PA-1 lives in the Schedule-owned minimal-input.spec.ts; once the handed-over diff lands this
-    // becomes ref('e2e/shared/minimal-input.spec.ts', 'a fully filled patient edited back to a name clears every optional column and renders everywhere').
-    minimal: todo('patients'),
+    minimal: ref('e2e/shared/minimal-input.spec.ts', 'a fully filled patient edited back to a name clears every optional column and renders everywhere'),
     failure: ref('e2e/shared/patient-failures.spec.ts', 'PA-12 a patient update lost to a dropped connection keeps the edit and saves once on retry'),
   },
   {
