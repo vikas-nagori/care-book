@@ -447,22 +447,24 @@ const EXTERNAL: readonly ManifestEntry[] = [
     id: 'src/app/external/actions.ts#createExternalAppointment@src/app/external/booking-dialog.tsx',
     kind: 'server-action',
     happy: ref('e2e/external/coordination.spec.ts', 'external booking permits hidden overlaps and appears in the admin calendar'),
-    minimal: todo('external'),
-    failure: todo('external'),
+    minimal: ref('e2e/external/minimal-input.spec.ts', 'an External Staff booking renders for the admin with its External Staff label and stays hidden from clinic staff'),
+    failure: ref('e2e/external/failures.spec.ts', 'a dropped booking request shows the booking copy and the retry books once with the same key'),
   },
   {
     id: 'src/app/external/actions.ts#updateExternalAppointment@src/app/external/appointment-dialog.tsx',
     kind: 'server-action',
     happy: ref('e2e/external/coordination.spec.ts', 'external staff reschedule and then cancel their own upcoming appointment'),
-    minimal: todo('external'),
-    failure: todo('external'),
+    // Every reschedule field is required and prefilled; the case reschedules a name-only patient.
+    minimal: ref('e2e/external/coordination.spec.ts', 'booking from the patient dialog lands on that day, and a reschedule can change type and time or be backed out'),
+    failure: ref('e2e/external/failures.spec.ts', 'a failed Save changes or Cancel appointment shows the change copy and leaves the dialog usable'),
   },
   {
     id: 'src/app/settings/actions.ts#logoutFromSettings@src/app/external/unavailable.tsx',
     kind: 'form-action',
-    happy: todo('external'),
-    minimal: todo('external'),
-    failure: todo('external'),
+    happy: ref('e2e/external/access-routing.spec.ts', 'a blocked External Staff account sees Account unavailable on every page and can still log out'),
+    minimal: { exempt: 'Log out submits no input; the blocked-account notice it sits on is leak-checked by the happy test' },
+    // Pinned with test.fail until G-15 (native form actions bypass callServerAction) is fixed.
+    failure: ref('e2e/external/access-routing.spec.ts', 'G-15: a dropped Log out request on Account unavailable tells the user and keeps the button usable'),
   },
 ]
 // END external ================================================================================
