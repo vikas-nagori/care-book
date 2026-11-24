@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   INVITE_PASSWORD_MIN_LENGTH,
   INVITE_PASSWORD_POLICY_MESSAGE,
+  excludePendingInviteeProfiles,
   getInviteCollisionResult,
   getInviteCompletionFieldErrorTarget,
   normalizeEmail,
@@ -297,4 +298,38 @@ test('invite input rejects roles outside the allowed clinic roles', () => {
     mobileNumber: '9876543210',
   })
   assert.equal(result.success, false)
+})
+
+// Production incident 2026-11-24: a mobile-only invite (email NULL) made /settings throw
+// "Cannot read properties of null (reading 'trim')" on every render.
+test('excludePendingInviteeProfiles tolerates invites and profiles without an email', () => {
+  const profiles = [
+    { id: 'admin', email: 'Admin@Example.com' },
+    { id: 'mobile-only-invitee', email: null },
+    { id: 'mobile-only-member', email: null },
+  ]
+  const invites = [
+    { status: 'pending', email: null, auth_user_id: 'mobile-only-invitee' },
+  ]
+
+  assert.deepEqual(
+    excludePendingInviteeProfiles(profiles, invites).map((profile) => profile.id),
+    ['admin', 'mobile-only-member'],
+  )
+})
+
+test('excludePendingInviteeProfiles still matches legacy pending invites by email', () => {
+  const profiles = [
+    { id: 'legacy-invitee', email: ' Legacy@Example.com ' },
+    { id: 'accepted', email: 'accepted@example.com' },
+  ]
+  const invites = [
+    { status: 'pending', email: 'legacy@example.com', auth_user_id: null },
+    { status: 'accepted', email: 'accepted@example.com', auth_user_id: 'accepted' },
+  ]
+
+  assert.deepEqual(
+    excludePendingInviteeProfiles(profiles, invites).map((profile) => profile.id),
+    ['accepted'],
+  )
 })

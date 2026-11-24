@@ -90,19 +90,30 @@ export class SettingsView {
   }
 
   /** Creates the login and returns the one-time temporary password from the dialog. */
-  async inviteUser(input: { name: string; phone: string; email: string }): Promise<string> {
+  /** Email and role are optional in the form; omitting them leaves the field blank / default. */
+  async inviteUser(input: {
+    name: string
+    phone: string
+    email?: string
+    role?: 'Staff' | 'External Staff' | 'Admin'
+  }): Promise<string> {
     await this.openSection('Invite User')
     await this.page.getByLabel('Invitee name', { exact: true }).fill(input.name)
     await this.page.getByLabel(/^Mobile number/).fill(input.phone)
-    await this.page.getByLabel('Invite email', { exact: true }).fill(input.email)
+    if (input.email !== undefined) await this.page.getByLabel('Invite email', { exact: true }).fill(input.email)
+    if (input.role) {
+      await this.page.getByLabel('Role', { exact: true }).click()
+      await this.page.getByRole('option', { name: input.role, exact: true }).click()
+    }
     await this.page.getByRole('button', { name: 'Create Login', exact: true }).click()
     return this.takeTempPassword()
   }
 
   /** Issues a fresh temp password for a pending invite and returns it. */
-  async issueNewTempPassword(email: string): Promise<string> {
+  /** `account` is the invite's email, or its formatted mobile number when it has none. */
+  async issueNewTempPassword(account: string): Promise<string> {
     await this.openSection('Invites')
-    await this.page.getByRole('button', { name: `New temporary password for ${email}`, exact: true }).click()
+    await this.page.getByRole('button', { name: `New temporary password for ${account}`, exact: true }).click()
     return this.takeTempPassword()
   }
 

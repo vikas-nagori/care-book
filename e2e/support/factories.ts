@@ -113,7 +113,7 @@ export type E2EExternalStaffRow = Row & {
 }
 export type E2EUserInviteRow = Row & {
   clinic_id: string
-  email: string
+  email: string | null
   role: string
   status: string
   auth_user_id: string | null
@@ -235,6 +235,7 @@ export class E2EFactory {
   private readonly watchedPackageTemplateNames = new Set<string>()
   private readonly watchedExternalStaff = new Map<string, { name: string; phone: string }>()
   private readonly watchedInviteEmails = new Set<string>()
+  private readonly watchedInviteMobiles = new Set<string>()
   private readonly watchedOnboardingRequests = new Map<string, { ownerEmail: string; clinicName: string }>()
   private readonly authUsers = new Map<string, string>()
 
@@ -342,6 +343,15 @@ export class E2EFactory {
   /** Tracks both the exact invite row and the exact local auth user created for that email. */
   watchUiInvite(email: string): void {
     this.watchedInviteEmails.add(email.trim().toLowerCase())
+  }
+
+  /**
+   * Same as watchUiInvite for an invite made with no email (mobile-number sign-in). Teardown
+   * gives that exact auth user a disposable `@carebook.test` address first, because the
+   * soft-delete guard (033) only lets cleanup hard-delete E2E identities it can recognise.
+   */
+  watchUiMobileInvite(mobileNumber: string): void {
+    this.watchedInviteMobiles.add(mobileNumber)
   }
 
   watchUiOnboardingRequest(input: { ownerEmail: string; clinicName: string }): void {
@@ -456,6 +466,20 @@ export class E2EFactory {
     if (error) throw new Error(`factory find external staff: ${error.message}`)
     if (data) this.track('external_staff', data.id)
     return data as E2EExternalStaffRow | null
+  }
+
+  async findInviteByMobile(mobileNumber: string): Promise<E2EUserInviteRow | null> {
+    const { data, error } = await this.db
+      .from('user_invites')
+      .select('*')
+      .eq('clinic_id', CLINIC_A.id)
+      .eq('mobile_number', mobileNumber)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (error) throw new Error(`factory find invite by mobile: ${error.message}`)
+    if (data) this.track('user_invites', data.id)
+    return data as E2EUserInviteRow | null
   }
 
   async findInviteByEmail(email: string): Promise<E2EUserInviteRow | null> {
@@ -758,10 +782,11 @@ export class E2EFactory {
 
   async createUserInvite(input: {
     clinicId: string
-    email: string
+    /** Null for a mobile-only invite, which mobile-number sign-in allows. */
+    email: string | null
     authUserId?: string | null
     invitedBy?: string
-    role?: 'admin' | 'staff'
+    role?: 'admin' | 'staff' | 'external_staff'
     fullName?: string
     mobileNumber?: string
   }): Promise<E2EUserInviteRow> {
@@ -769,7 +794,7 @@ export class E2EFactory {
     return this.insert('user_invites', {
       id: randomUUID(),
       clinic_id: input.clinicId,
-      email: input.email.trim().toLowerCase(),
+      email: input.email?.trim().toLowerCase() ?? null,
       role: input.role ?? 'staff',
       status: 'pending',
       auth_user_id: input.authUserId ?? null,
@@ -953,6 +978,29 @@ export class E2EFactory {
       if (error) failures.push(`discover invite ${email}: ${error.message}`)
       for (const row of data ?? []) this.track('user_invites', row.id)
     }
+    for (const mobileNumber of this.watchedInviteMobiles) {
+      const { data, error } = await this.db
+        .from('user_invites')
+        .select('id, auth_user_id')
+        .eq('clinic_id', CLINIC_A.id)
+        .eq('mobile_number', mobileNumber)
+      if (error) failures.push(`discover mobile invite ${mobileNumber}: ${error.message}`)
+      for (const row of data ?? []) {
+        this.track('user_invites', row.id)
+        if (!row.auth_user_id) continue
+        const disposableEmail = `${this.token}-mobile-${mobileNumber}@carebook.test`
+        const { error: emailError } = await this.db.auth.admin.updateUserById(row.auth_user_id, {
+          email: disposableEmail,
+          email_confirm: true,
+        })
+        if (emailError) {
+          failures.push(`tag mobile invitee ${row.auth_user_id}: ${emailError.message}`)
+          continue
+        }
+        this.trackAuthUser(row.auth_user_id, disposableEmail)
+        this.trackProfile(row.auth_user_id, disposableEmail)
+      }
+    }
 
     for (const clinicId of this.created.get('clinics') ?? []) {
       for (const table of clinicScopedCleanupTables) {
@@ -1038,6 +1086,7 @@ export class E2EFactory {
     this.watchedPackageTemplateNames.clear()
     this.watchedExternalStaff.clear()
     this.watchedInviteEmails.clear()
+    this.watchedInviteMobiles.clear()
     this.watchedOnboardingRequests.clear()
     this.authUsers.clear()
     if (failures.length > 0) throw new Error(`factory cleanup failed: ${failures.join('; ')}`)

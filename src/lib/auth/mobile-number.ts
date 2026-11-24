@@ -42,6 +42,15 @@ export function formatMobileNumber(raw: string | null | undefined): string {
 
 export const MOBILE_NUMBER_INVALID_MESSAGE = 'Enter your 10-digit mobile number, without +91 or 0.'
 
+/** How to name a person: their name, else their email or mobile number. Never null. */
+export function accountDisplayName(account: {
+  full_name?: string | null
+  email?: string | null
+  mobile_number?: string | null
+}): string {
+  return account.full_name?.trim() || accountContactLabel(account)
+}
+
 /** How to name an account on screen: its email if it has one, else its mobile number. */
 export function accountContactLabel(account: { email?: string | null; mobile_number?: string | null }): string {
   return account.email?.trim() || formatMobileNumber(account.mobile_number) || 'No contact details'

@@ -1,5 +1,6 @@
 import type { McpToolDefinition } from '../registry.ts'
 import { objectSchema, stringProp } from '../schema.ts'
+import { accountDisplayName } from '../../auth/mobile-number.ts'
 
 export const referenceTools: McpToolDefinition[] = [
   {
@@ -21,12 +22,12 @@ export const referenceTools: McpToolDefinition[] = [
     handler: async (args, ctx) => {
       const filter = typeof args.name === 'string' ? args.name.trim().toLocaleLowerCase() : ''
       const [{ data: profiles, error: profilesError }, { data: external, error: externalError }] = await Promise.all([
-        ctx.supabase.from('profiles').select('full_name, email, role').in('role', ['admin', 'staff']).eq('status', 'active').order('full_name'),
+        ctx.supabase.from('profiles').select('full_name, email, mobile_number, role').in('role', ['admin', 'staff']).eq('status', 'active').order('full_name'),
         ctx.supabase.from('external_staff').select('name, email, status').eq('status', 'active').order('name'),
       ])
       if (profilesError || externalError) throw profilesError ?? externalError
       const staff = [
-        ...(profiles ?? []).map((profile) => ({ name: profile.full_name || profile.email, role: profile.role, kind: 'internal' as const })),
+        ...(profiles ?? []).map((profile) => ({ name: accountDisplayName(profile), role: profile.role, kind: 'internal' as const })),
         ...(external ?? []).map((person) => ({ name: person.name, role: 'external', kind: 'external' as const })),
       ].filter((person) => !filter || person.name.toLocaleLowerCase().includes(filter))
       return { staff }

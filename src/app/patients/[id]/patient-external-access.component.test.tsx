@@ -50,4 +50,17 @@ describe('PatientExternalAccess', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save access' }))
     await waitFor(() => expect(mocks.save).toHaveBeenLastCalledWith('patient-1', []))
   })
+  // Since mobile-number sign-in an External Staff login may have no email (incident 2026-11-24).
+  it('lists and searches an account that has no email', () => {
+    const withMobileOnly = [...profiles, { id: 'mobile', full_name: 'Mobile Only', email: null }]
+    render(<PatientExternalAccess patientId="patient-1" profiles={withMobileOnly} grantedProfileIds={[]} />)
+    expect(screen.getByRole('checkbox', { name: /Mobile Only/ })).toBeTruthy()
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'sam@example' } })
+    expect(screen.queryByRole('checkbox', { name: /Mobile Only/ })).toBeNull()
+    expect(screen.getByRole('checkbox', { name: /Sam Shah/ })).toBeTruthy()
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'mobile' } })
+    expect(screen.getByRole('checkbox', { name: /Mobile Only/ })).toBeTruthy()
+  })
 })

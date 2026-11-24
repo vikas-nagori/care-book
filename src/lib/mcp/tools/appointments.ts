@@ -6,6 +6,7 @@ import { boolProp, enumProp, numberProp, objectSchema, stringProp } from '../sch
 import { ToolError } from '../errors.ts'
 import { describeFeeSource, resolveAppointmentFee } from '../appointment-fee.ts'
 import { resolveAppointmentAssignee } from '../appointment-assignee.ts'
+import { accountDisplayName } from '../../auth/mobile-number.ts'
 import { consumeResolutionToken, patientChoiceResult, resolvePatient, issueResolutionToken } from '../resolution.ts'
 import { appointmentPublicView, normalizeAppointmentSelector, type AppointmentPublicSource } from '../appointment-output.ts'
 import { resolveResolutionToken } from '../resolution.ts'
@@ -84,17 +85,17 @@ async function resolveAssignee(ctx: ToolContext, name: string | undefined) {
   if (!name?.trim()) return null
   const { data, error } = await ctx.supabase
     .from('profiles')
-    .select('id, full_name, email')
+    .select('id, full_name, email, mobile_number')
     .eq('status', 'active')
     .in('role', ['admin', 'staff'])
     .order('full_name')
   if (error) throw error
-  const profiles = (data ?? []) as Array<{ id: string; full_name: string | null; email: string }>
-  const exact = profiles.filter((profile) => normalized(profile.full_name || profile.email) === normalized(name))
+  const profiles = (data ?? []) as Array<{ id: string; full_name: string | null; email: string | null; mobile_number: string | null }>
+  const exact = profiles.filter((profile) => normalized(accountDisplayName(profile)) === normalized(name))
   if (exact.length === 1) return exact[0]
-  const candidates = (exact.length ? exact : profiles.filter((profile) => normalized(profile.full_name || profile.email).includes(normalized(name)))).slice(0, 10)
+  const candidates = (exact.length ? exact : profiles.filter((profile) => normalized(accountDisplayName(profile)).includes(normalized(name)))).slice(0, 10)
   if (!candidates.length) throw new ToolError('No active staff member matched that name.')
-  return { ambiguous: true as const, candidates: candidates.map((profile) => ({ staff_name: profile.full_name || profile.email })) }
+  return { ambiguous: true as const, candidates: candidates.map((profile) => ({ staff_name: accountDisplayName(profile) })) }
 }
 
 async function resolveExternalAssignee(ctx: ToolContext, name: string | undefined) {

@@ -35,7 +35,7 @@ export async function completeForcedPasswordChange(
       logger.error('auth/changePassword/getUser', authError)
     }
 
-    if (!user?.id || !user.email) {
+    if (!user?.id) {
       return {
         success: false,
         errorCode: 'PASSWORD_CHANGE_AUTH_REQUIRED',

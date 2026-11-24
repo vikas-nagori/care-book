@@ -2,6 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   accountContactLabel,
+  accountDisplayName,
   formatMobileNumber,
   fromAuthPhone,
   normalizeMobileNumber,
@@ -54,5 +55,15 @@ describe('display', () => {
     assert.equal(accountContactLabel({ email: 'a@example.com', mobile_number: '9511219264' }), 'a@example.com')
     assert.equal(accountContactLabel({ email: null, mobile_number: '9511219264' }), '95112 19264')
     assert.equal(accountContactLabel({ email: null, mobile_number: null }), 'No contact details')
+  })
+})
+
+describe('accountDisplayName', () => {
+  it('prefers the name, then the email, then the formatted mobile number', () => {
+    assert.equal(accountDisplayName({ full_name: ' Asha ', email: 'a@x.test', mobile_number: '9511219264' }), 'Asha')
+    assert.equal(accountDisplayName({ full_name: null, email: 'a@x.test', mobile_number: '9511219264' }), 'a@x.test')
+    // A pending mobile-only invitee's profile: no name, no email (incident 2026-11-24).
+    assert.equal(accountDisplayName({ full_name: null, email: null, mobile_number: '9511219264' }), '95112 19264')
+    assert.equal(accountDisplayName({ full_name: null, email: null, mobile_number: null }), 'No contact details')
   })
 })
