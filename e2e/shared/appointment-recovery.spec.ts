@@ -226,11 +226,9 @@ test('an outage that outlasts automatic resends unlocks Retry same booking with 
 // the form must say to sign in again instead of hanging or claiming the booking is unconfirmed.
 test('a booking sent after the session ended asks to sign in again and leaves the form usable', async ({ page, factory }, testInfo) => {
   testInfo.skip(testInfo.project.name !== 'admin-mobile', 'one signed-out booking proof is enough: admin-mobile')
-  // G-18 (new, found by this test; needs its own fix): middleware answers the signed-out POST with
-  // a redirect to /login, the booking client (redirect: 'error') treats it as a dropped connection,
-  // resends it three times and ends on "Booking not confirmed", which tells the user to check a
-  // booking that was never sent. The handler's own 401 "Sign in again…" answer is unreachable.
-  testInfo.fail(true, 'G-18: a signed-out booking shows "Booking not confirmed" instead of asking to sign in again')
+  // G-18: the middleware used to answer this signed-out POST with a redirect to /login, which the
+  // booking client (redirect: 'error') treated as a dropped connection: three resends, then
+  // "Booking not confirmed" for a booking that was never sent. It now answers the 401 JSON.
   const guards = attachErrorGuards(page, { expectedHttpErrors: [
     { pathname: BOOKINGS, status: 401 },
     { pathname: '/api/telemetry', status: 401 },
@@ -245,11 +243,17 @@ test('a booking sent after the session ended asks to sign in again and leaves th
   await fillBooking(page, type.name, patient.name as string, date, '17:25', notes)
 
   await page.context().clearCookies()
+  let bookingPosts = 0
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === BOOKINGS) bookingPosts += 1
+  })
   const book = page.getByRole('button', { name: 'Book Appointment', exact: true })
   await book.tap()
   const notifications = page.getByRole('region', { name: 'Notifications (F8)' })
   await expect(notifications.getByText('Appointment not booked', { exact: true })).toBeVisible()
   await expect(notifications).toContainText('Sign in again to manage appointments.')
+  // A final answer, not a dropped connection: sent once, never resent.
+  expect(bookingPosts).toBe(1)
   await expect(book).toBeEnabled()
   await expect(page.getByLabel('Notes', { exact: true })).toBeEnabled()
   await expect(page.getByLabel('Notes', { exact: true })).toHaveValue(notes)

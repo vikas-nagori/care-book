@@ -8,6 +8,7 @@ import { shouldLogAuthError } from '@/lib/auth-error-classification'
 import { isPlatformAdminEmail } from '@/lib/platform/access'
 import { resolveSuperadminRedirect } from '@/lib/platform/routing'
 import { buildContentSecurityPolicy, createCspNonce } from '@/lib/security/csp'
+import { signedOutBookingApiReply } from '@/lib/security/signed-out-api'
 import {
   FORCED_PASSWORD_CHANGE_PATH,
   needsForcedPasswordChange,
@@ -111,6 +112,13 @@ export async function middleware(request: NextRequest) {
         { errorCode: 'UNAUTHORIZED', message: 'You need to sign in again.' },
         { status: 401, headers: { 'Cache-Control': 'private, no-store' } },
       )
+    }
+    const bookingReply = signedOutBookingApiReply(path, authError)
+    if (bookingReply) {
+      return NextResponse.json(bookingReply.body, {
+        status: bookingReply.status,
+        headers: { 'Cache-Control': 'private, no-store' },
+      })
     }
     const url = request.nextUrl.clone()
     url.pathname = '/login'
