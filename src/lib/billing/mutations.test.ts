@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { callBillingRpc, validateBillingEntry, validateReasonedMutation, validateRecordPayment } from './mutations.ts'
+import { PATIENT_DELETED_ERROR_CODE, PATIENT_DELETED_MESSAGE, callBillingRpc, explainPatientRefusal, validateBillingEntry, validateReasonedMutation, validateRecordPayment } from './mutations.ts'
 
 test('a standalone payment is always ordinary-scoped with no package', () => {
   const result = validateRecordPayment({ patientId: 'p1', amount: 500, paymentMethod: 'cash', date: '2026-08-15', notes: 'session fee' })
@@ -93,4 +93,27 @@ test('callBillingRpc does not retry other errors', async () => {
   const result = await callBillingRpc(supabase, 'record_payment_v2', { p_request_id: 'k' }, {})
   assert.equal(result?.success, false)
   assert.equal(calls, 1)
+})
+
+test('a patient refusal for a deleted patient says the patient was deleted (G-27)', async () => {
+  const refused = { success: false, errorCode: '42501', message: 'Selected patient does not belong to your clinic.' }
+  const deleted = await explainPatientRefusal(refused, 'p1', async () => false)
+  assert.equal(deleted?.errorCode, PATIENT_DELETED_ERROR_CODE)
+  assert.equal(deleted?.message, PATIENT_DELETED_MESSAGE)
+  assert.doesNotMatch(String(deleted?.message), /clinic/)
+
+  // Still visible (another clinic's id, or a role refusal) or the lookup failed: unchanged.
+  assert.equal(await explainPatientRefusal(refused, 'p1', async () => true), refused)
+  assert.equal(await explainPatientRefusal(refused, 'p1', async () => null), refused)
+})
+
+test('only a 42501 refusal triggers the patient lookup', async () => {
+  let lookups = 0
+  const lookup = async () => { lookups++; return false }
+  const ok = { success: true, paymentId: 'pay-1' }
+  const invalid = { success: false, errorCode: '22023', message: 'Choose a payment date.' }
+  assert.equal(await explainPatientRefusal(ok, 'p1', lookup), ok)
+  assert.equal(await explainPatientRefusal(invalid, 'p1', lookup), invalid)
+  assert.equal(await explainPatientRefusal(null, 'p1', lookup), null)
+  assert.equal(lookups, 0)
 })

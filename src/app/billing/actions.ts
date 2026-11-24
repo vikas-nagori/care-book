@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getCurrentProfile } from '@/lib/auth'
 import type { OutstandingCharge } from '@/lib/billing/allocation-preview'
-import { callBillingRpc, validateBillingEntry, validateReasonedMutation, validateRecordPayment, type ReasonedInput, type ReasonedKind, type RpcResult } from '@/lib/billing/mutations'
+import { callBillingRpc, explainPatientRefusal, validateBillingEntry, validateReasonedMutation, validateRecordPayment, type ReasonedInput, type ReasonedKind, type RpcResult } from '@/lib/billing/mutations'
 import { logger } from '@/lib/logger'
 import { createClient } from '@/lib/supabase/server'
 import type { BillingMutationResult, CreateBillingEntryInput, CreateBillingEntryResult, RecordPaymentInput, RecordPaymentResult, RefundInput } from '@/lib/supabase/types'
@@ -26,11 +26,17 @@ async function callRpc(name: string, params: Record<string, unknown>, context: R
   return callBillingRpc(await createClient(), name, params, context)
 }
 
+/** Whether the caller can still see this patient; null when the lookup itself failed. */
+async function patientStillExists(patientId: string): Promise<boolean | null> {
+  const { data, error } = await (await createClient()).from('patients').select('id').eq('id', patientId).maybeSingle()
+  return error ? null : Boolean(data)
+}
+
 export async function recordPayment(input: RecordPaymentInput): Promise<RecordPaymentResult> {
   if (!(await requireBillingAdmin())) return { success: false, errorCode: 'PAYMENT_UNAUTHORIZED', message: 'You are not allowed to record payments.' }
   const validated = validateRecordPayment(input)
   if (!validated.ok) return { success: false, errorCode: validated.errorCode, message: validated.message }
-  const result = await callRpc(validated.rpc, validated.params, { patientId: input.patientId, fundingScope: 'ordinary' })
+  const result = await explainPatientRefusal(await callRpc(validated.rpc, validated.params, { patientId: input.patientId, fundingScope: 'ordinary' }), input.patientId, patientStillExists)
   if (!result?.success || !result.paymentId) return rpcError(result, 'Unable to record this payment right now.')
   revalidateBillingViews(input.patientId)
   return { success: true, paymentId: result.paymentId, linkedAppointmentIds: result.linkedAppointmentIds ?? [], updatedPackageId: result.updatedPackageId ?? null }
@@ -40,7 +46,7 @@ export async function createBillingEntry(input: CreateBillingEntryInput): Promis
   if (!(await requireBillingAdmin())) return { success: false, errorCode: 'BILLING_UNAUTHORIZED', message: 'You are not allowed to manage billing.' }
   const validated = validateBillingEntry(input)
   if (!validated.ok) return { success: false, errorCode: validated.errorCode, message: validated.message, packageId: null }
-  const result = await callRpc(validated.rpc, validated.params, { patientId: input.patientId, mode: input.mode })
+  const result = await explainPatientRefusal(await callRpc(validated.rpc, validated.params, { patientId: input.patientId, mode: input.mode }), input.patientId, patientStillExists)
   if (!result?.success) return { ...rpcError(result, 'Unable to save this billing entry right now.'), packageId: result?.packageId ?? null }
   revalidateBillingViews(input.patientId)
   return { success: true, packageId: result.packageId ?? null, paymentId: result.paymentId ?? null, linkedAppointmentIds: result.linkedAppointmentIds ?? [], remainingCredit: Number(result.remainingCredit ?? 0) }

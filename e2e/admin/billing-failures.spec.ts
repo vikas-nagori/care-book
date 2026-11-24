@@ -149,8 +149,10 @@ test('a payment for a patient deleted while the form is open is refused and keep
   const { patient, notes, form, save } = await openPaymentEntry(page, factory, '515')
   await factory.deletePatientHard(patient.id)
 
-  // The RPC no longer finds the patient in the clinic.
-  await form.submitExpectingError('payment', 'Selected patient does not belong to your clinic.')
+  // The RPC no longer finds the patient; the message says they were deleted (G-27), not that
+  // they belong to another clinic.
+  await form.submitExpectingError('payment', 'This patient has been deleted, so nothing was recorded. Close the form and choose the patient again.')
+  await expect(page.getByText('Selected patient does not belong to your clinic.')).toHaveCount(0)
   await expect(form.amountInput).toHaveValue('515')
   await expect(form.notesInput).toHaveValue(notes)
   await expect(save).toHaveAccessibleName('Save Payment')

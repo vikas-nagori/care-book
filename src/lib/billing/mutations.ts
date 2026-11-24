@@ -21,6 +21,10 @@ export type RpcResult = {
   [key: string]: unknown
 } | null
 
+/** Shown when a billing save names a patient who was deleted while the form was open (G-27). */
+export const PATIENT_DELETED_ERROR_CODE = 'PATIENT_NOT_FOUND'
+export const PATIENT_DELETED_MESSAGE = 'This patient has been deleted, so nothing was recorded. Close the form and choose the patient again.'
+
 export type ValidationFailure = { ok: false; errorCode: string; message: string }
 export type ValidationSuccess<T> = { ok: true; rpc: string; params: Record<string, unknown>; summary: T }
 export type Validated<T> = ValidationSuccess<T> | ValidationFailure
@@ -140,6 +144,22 @@ export function validateReasonedMutation(kind: ReasonedKind, input: ReasonedInpu
   else if (kind === 'void_refund') params = { p_refund_id: input.entityId, p_reason: reason }
   else params = { p_appointment_id: input.entityId, p_adjusted_amount: input.adjustedAmount, p_reason: reason }
   return { ok: true, rpc, params, summary: { kind, entityId: input.entityId, reason, amount: kind === 'record_refund' ? Number(input.amount) : kind === 'adjust_appointment_fee' ? Number(input.adjustedAmount) : null } }
+}
+
+/**
+ * The billing RPCs refuse a patient they cannot find in the caller's clinic with one 42501
+ * message, "Selected patient does not belong to your clinic.", which is wrong and alarming when
+ * the patient was simply deleted while the form was open (G-27). On that refusal, ask whether the
+ * caller can still see the patient: if not, say it was deleted. Anything else passes through.
+ */
+export async function explainPatientRefusal(
+  result: RpcResult,
+  patientId: string,
+  patientStillExists: (patientId: string) => Promise<boolean | null>,
+): Promise<RpcResult> {
+  if (result?.success || result?.errorCode !== '42501' || !patientId) return result
+  if ((await patientStillExists(patientId)) !== false) return result
+  return { ...result, errorCode: PATIENT_DELETED_ERROR_CODE, message: PATIENT_DELETED_MESSAGE }
 }
 
 export async function callBillingRpc(
