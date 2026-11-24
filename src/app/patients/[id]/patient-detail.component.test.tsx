@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 
 import type { Patient } from '@/lib/supabase/types'
 
@@ -116,6 +116,17 @@ describe('PatientDetail delete button gating', () => {
   it('hides the Delete button for non-admins', () => {
     render(<PatientDetail {...baseProps({ isAdmin: false })} />)
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
+  })
+
+  it('keeps the confirm disabled with an empty box, even for a legacy blank-named patient (G-11)', () => {
+    const blank = { ...patient, name: '   ' } as Patient
+    render(<PatientDetail {...baseProps({ isAdmin: true, patient: blank })} />)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0])
+    const dialog = screen.getByRole('alertdialog')
+    const confirm = within(dialog).getByRole('button', { name: 'Delete' }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    fireEvent.change(screen.getByTestId('confirm-delete-patient-input'), { target: { value: ' ' } })
+    expect(confirm.disabled).toBe(false)
   })
 })
 
