@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, type Request } from '@playwright/test'
 
 import { expectNoLeakedNulls } from '../support/assertions'
 import { expandDateGroup } from '../support/date-groups'
+import { expectFailureMessage } from '../support/fault-injection'
 
 export type BillingPaymentMethod = 'Cash' | 'UPI' | 'Card' | 'Bank Transfer'
 
@@ -170,10 +171,8 @@ export class BillingEntryForm {
   /** Submit a save the server refuses: the toast names the failure and the dialog stays open. */
   async submitExpectingError(kind: 'payment' | 'package', message?: string | RegExp): Promise<void> {
     await this.saveButton(kind).click()
-    const toast = this.page.getByRole('region', { name: /^Notifications/ }).locator('li')
-      .filter({ hasText: 'Billing entry not saved' })
-    await expect(toast.first()).toBeVisible()
-    if (message !== undefined) await expect(toast.first()).toContainText(message)
+    await expectFailureMessage(this.page, 'Billing entry not saved')
+    if (message !== undefined) await expectFailureMessage(this.page, message)
     await expect(this.dialog).toBeVisible()
   }
 
