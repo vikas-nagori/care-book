@@ -45,6 +45,7 @@ vi.mock('@/components/referral/referral-fields', () => ({
 }))
 
 import { PatientForm } from './patient-form'
+import { NETWORK_ERROR_MESSAGE } from '@/lib/actions/request-error-message'
 import type { Patient } from '@/lib/supabase/types'
 
 const noReferral = { referred_by_doctor_id: null, referred_by_patient_id: null, referral_other: null }
@@ -110,6 +111,37 @@ describe('PatientForm submission', () => {
       title: 'Error',
       variant: 'destructive',
     }))
+  })
+
+  it('refuses a name of only spaces and saves the trimmed name otherwise (G-11)', async () => {
+    render(<PatientForm />)
+    const nameInput = screen.getByLabelText('Name *')
+    fireEvent.change(nameInput, { target: { value: '   ' } })
+    fireEvent.submit(nameInput.closest('form')!)
+
+    expect((await screen.findByRole('alert')).textContent).toBe('Enter the patient’s name.')
+    expect(nameInput.getAttribute('aria-invalid')).toBe('true')
+    expect(mocks.insert).not.toHaveBeenCalled()
+
+    fireEvent.change(nameInput, { target: { value: '  Test Patient  ' } })
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.submit(nameInput.closest('form')!)
+    await waitFor(() => expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({ name: 'Test Patient' })))
+  })
+
+  it('says a dropped connection in plain words, not as a TypeError (G-12)', async () => {
+    mocks.insert.mockResolvedValueOnce({ error: { message: 'TypeError: Failed to fetch', status: 0 } })
+    render(<PatientForm />)
+    const nameInput = screen.getByLabelText('Name *')
+    fireEvent.change(nameInput, { target: { value: 'Test Patient' } })
+    fireEvent.submit(nameInput.closest('form')!)
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Error',
+      description: NETWORK_ERROR_MESSAGE,
+      variant: 'destructive',
+    })))
+    expect((screen.getByRole('button', { name: 'Add Patient' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('saves the resolved referring doctor', async () => {

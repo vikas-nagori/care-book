@@ -95,7 +95,8 @@ export function PatientDetail({
   const [deleting, setDeleting] = useState(false)
   const [confirmText, setConfirmText] = useState('')
 
-  const canConfirmDelete = confirmText.trim() === patient.name.trim()
+  // An empty box never confirms, even for a legacy patient whose name is only spaces (G-11).
+  const canConfirmDelete = confirmText !== '' && confirmText.trim() === patient.name.trim()
 
   const confirmDeletePatient = async () => {
     if (!canConfirmDelete) return

@@ -23,6 +23,7 @@ import {
 import { ReferralFields, useReferralSelection, type ReferralPatientOption } from '@/components/referral/referral-fields'
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
+import { requestErrorMessage } from '@/lib/actions/request-error-message'
 import { ageFieldsForSave, parseAgeInput, patientAge, type PatientAgeFields } from '@/lib/patients/age'
 import type { Doctor, Patient } from '@/lib/supabase/types'
 
@@ -56,6 +57,7 @@ export function PatientForm({
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
   const [ageError, setAgeError] = useState<string | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
   const initialAge = patient ? patientAge(patient) : null
   // Synchronous re-entrancy guard: blocks a second save (main submit or the
   // "Add anyway" confirm) while one insert/update is already in flight.
@@ -88,7 +90,8 @@ export function PatientForm({
 
       if (error) {
         logger.error('PatientForm/save', error, { patientId: patient?.id })
-        toast({ title: 'Error', description: error.message, variant: 'destructive' })
+        // A dropped connection comes back as `TypeError: Failed to fetch`; say it in plain words (G-12).
+        toast({ title: 'Error', description: requestErrorMessage(error, 'Unable to save patient. Please try again.'), variant: 'destructive' })
         return
       }
 
@@ -111,12 +114,12 @@ export function PatientForm({
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const formData = new FormData(e.currentTarget)
+    // `required` lets a name of only spaces through; it would save as a blank patient (G-11).
+    const name = ((formData.get('name') as string | null) ?? '').trim()
     const ageInput = parseAgeInput(formData.get('age') as string | null)
-    if (!ageInput.ok) {
-      setAgeError(ageInput.message)
-      return
-    }
-    setAgeError(null)
+    setNameError(name ? null : 'Enter the patient’s name.')
+    setAgeError(ageInput.ok ? null : ageInput.message)
+    if (!name || !ageInput.ok) return
     setLoading(true)
 
     try {
@@ -127,7 +130,7 @@ export function PatientForm({
       }
 
       const data: PatientFormValues = {
-        name: formData.get('name') as string,
+        name,
         phone: (formData.get('phone') as string) || null,
         email: (formData.get('email') as string) || null,
         gender: (formData.get('gender') as string) || null,
@@ -188,7 +191,16 @@ export function PatientForm({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Name *</Label>
-            <Input id="name" name="name" defaultValue={patient?.name} required />
+            <Input
+              id="name"
+              name="name"
+              defaultValue={patient?.name}
+              required
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? 'name-error' : undefined}
+              onChange={() => { if (nameError) setNameError(null) }}
+            />
+            {nameError && <p id="name-error" role="alert" className="text-sm text-destructive">{nameError}</p>}
           </div>
 
           <div className="space-y-2">
