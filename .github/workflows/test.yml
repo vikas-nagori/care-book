@@ -136,6 +136,15 @@ jobs:
   # re-weight from those numbers when a group drifts. Every runner pays the same fixed boot cost,
   # so add a slice only while the slowest runner's test time still dominates it.
   #
+  # Current weights (November 2026, summed test seconds per project over two CI runs): admin-mobile
+  # ~970, admin-desktop ~445, staff-mobile ~437, mobile-ios ~343, staff-desktop ~182, external ~184
+  # (desktop + mobile), platform ~65, public ~95 (desktop + mobile). A runner's fixed cost (boot,
+  # Supabase, build, setup project) is ~135 s, so a 7-minute job leaves ~280 s for tests; the layout
+  # below keeps every slice at or under ~250 s. Its floor is admin-mobile: slices cut a group by
+  # test count, the admin `settings*` specs are a slow stretch, and admin-mobile's slowest slice
+  # stays ~240-260 s from 6 up to 8 slices. One runner fewer (13) puts ~280-320 s of tests on
+  # one runner; more runners do not lower the floor.
+  #
   # Rules, enforced by e2e/support/playwright-config.test.ts (it fails until a new project is
   # assigned): every Playwright project except `setup` belongs to exactly one group; a group's
   # slices are exactly 1..slices; a project with a non-setup dependency (platform-signout ->
@@ -162,8 +171,9 @@ jobs:
           - { group: admin-desktop, projects: 'admin-desktop', slice: 3, slices: 3 }
           - { group: staff-mobile, projects: 'staff-mobile', slice: 1, slices: 2 }
           - { group: staff-mobile, projects: 'staff-mobile', slice: 2, slices: 2 }
-          - { group: staff-desktop-public, projects: 'staff-desktop public-desktop public-mobile', slice: 1, slices: 1 }
-          - { group: external-platform, projects: 'external-desktop external-mobile platform-desktop platform-signout', slice: 1, slices: 1 }
+          - { group: staff-desktop, projects: 'staff-desktop', slice: 1, slices: 1 }
+          - { group: external, projects: 'external-desktop external-mobile', slice: 1, slices: 1 }
+          - { group: platform-public, projects: 'platform-desktop platform-signout public-desktop public-mobile', slice: 1, slices: 1 }
     steps:
       # Supabase publishes its services on 54320-54329, inside Linux's ephemeral port range
       # (32768-60999). `supabase start` pulls its images right before it binds those ports, and the

@@ -22,7 +22,7 @@ change from merging when either the fast/build suite or the browser suite is ski
 The fast suites run as four independent jobs (`lint-typecheck`, `unit-component`, `integration`,
 `build`) so they finish side by side instead of one after another. The Playwright suite runs as an
 `e2e-shard` matrix across many runners, one per slice of a group of projects, so its checks
-report as `e2e-shard (<group> <slice>/<slices>)` (e.g. `e2e-shard (admin-mobile 2/4)`), plus an
+report as `e2e-shard (<group> <slice>/<slices>)` (e.g. `e2e-shard (admin-mobile 2/6)`), plus an
 `e2e-ios` matrix for the iPhone (WebKit) project (`e2e-ios (1/2)`, …) running in parallel. Those
 names change whenever the groups are re-weighted or a slice is added. Neither `test` nor `e2e`
 does any testing itself; each depends on its group and fails unless every member succeeded. Keep

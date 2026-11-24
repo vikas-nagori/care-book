@@ -94,11 +94,11 @@ in seconds per test (the desktop projects skip most mobile-only cases), so a fla
 entry in `.github/workflows/test.yml` names a **group** of projects and one **slice** of it:
 
 ```yaml
-- { group: admin-mobile, projects: 'admin-mobile', slice: 2, slices: 4 }
+- { group: admin-mobile, projects: 'admin-mobile', slice: 2, slices: 6 }
 ```
 
-runs `playwright test --project=admin-mobile --shard=2/4` as the check
-`e2e-shard (admin-mobile 2/4)`. `mobile-ios` is the `ios` group of the separate `e2e-ios` matrix
+runs `playwright test --project=admin-mobile --shard=2/6` as the check
+`e2e-shard (admin-mobile 2/6)`. `mobile-ios` is the `ios` group of the separate `e2e-ios` matrix
 (`e2e-ios (1/2)`, …). `setup` is a dependency of every project, so it runs on every runner and
 seeds that runner's stack.
 
@@ -106,7 +106,10 @@ seeds that runner's stack.
   slowest-file test time from the JSON reporter, `scripts/e2e-timing-summary.mjs`); the job log
   has one `E2E-TIMING` line per test in execution order, enough to simulate a different split.
   Give a group more slices when its runners are the slowest; each runner pays the same fixed boot
-  cost (~1.5 min), so stop when the slowest runner's test time no longer dominates it.
+  cost (~2 min), so stop when the slowest runner's test time no longer dominates it. Slices split
+  a group by test *count*, so a run of slow files (admin `settings*` specs) lands in one slice:
+  `admin-mobile` gains nothing from a 7th slice and needs about 9 to beat its 6-slice maximum.
+  Simulate before adding runners.
 - **Adding a project.** `support/playwright-config.test.ts` (in `test:e2e:support`) fails until
   every project except `setup` is in exactly one group, every group's slices are exactly
   `1..slices`, and a project with a non-setup dependency (`platform-signout` → `platform-desktop`)
@@ -119,9 +122,14 @@ seeds that runner's stack.
   from that range and occasionally held 54322 or 54324 ("address already in use"). Each job
   reserves that block (`net.ipv4.ip_local_reserved_ports`) as its first step and retries
   `supabase start` once after a clean stop. There is no stop step: the runner is discarded.
+- **Supabase images and services.** `SUPABASE_INTERNAL_IMAGE_REGISTRY=ghcr.io` makes the CLI pull
+  from ghcr.io directly: its default, public.ecr.aws, often answers the shared runner IPs with
+  "Data limit exceeded", and its backoff-then-fallback cost single runners over three minutes.
+  `-x` uses this CLI's container names (`storage-api`, `postgres-meta`, `logflare`, …); unknown
+  names are only warned about. Only db, auth, kong, rest and mailpit (GoTrue's SMTP target) run.
 
 The HTML report plus failure traces/screenshots in `test-results/` are uploaded as the
-`playwright-report-<group>-<slice>of<slices>` artifact (e.g. `playwright-report-admin-mobile-2of4`,
+`playwright-report-<group>-<slice>of<slices>` artifact (e.g. `playwright-report-admin-mobile-2of6`,
 `playwright-report-ios-1of2`) only when that job fails, and kept for 7 days. Both checks must
 remain required for `main`; see `.github/BRANCH_PROTECTION.md`.
 
