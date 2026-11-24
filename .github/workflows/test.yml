@@ -123,32 +123,93 @@ jobs:
   #
   # Split across runners rather than across workers. playwright.config.ts pins `workers: 1` on
   # purpose: parallel workers on one machine exhaust the Docker network's source sockets and turn
-  # healthy GoTrue auth requests into 500s. Each shard is a separate runner with its own Docker
+  # healthy GoTrue auth requests into 500s. Each job is a separate runner with its own Docker
   # network and its own Supabase stack, so it stays serial locally while the suite runs in
-  # parallel overall. Every shard pays the same fixed boot cost, so more shards only help while
-  # the per-shard test time still dominates. Keep SHARD_TOTAL and the matrix list in step.
+  # parallel overall.
+  #
+  # The split is weighted by measured test TIME, not test count. Each matrix entry names a group
+  # of Playwright projects and one slice of that group (`--project=… --shard=<slice>/<slices>`),
+  # and the groups are sized so every runner gets about the same test time. A flat `--shard=i/n`
+  # over the whole suite splits by count, but the projects differ several-fold in seconds per test
+  # (the desktop projects skip most mobile-only cases), so one runner got twice the work of
+  # another. The "Summarise test time" step writes per-project test time to every job summary;
+  # re-weight from those numbers when a group drifts. Every runner pays the same fixed boot cost,
+  # so add a slice only while the slowest runner's test time still dominates it.
+  #
+  # Current weights (November 2026, summed test seconds per project over two CI runs): admin-mobile
+  # ~970, admin-desktop ~445, staff-mobile ~437, mobile-ios ~343, staff-desktop ~182, external ~184
+  # (desktop + mobile), platform ~65, public ~95 (desktop + mobile). A runner's fixed cost (boot,
+  # Supabase, build, setup project) is ~135 s. The agreed budget is the slowest job under ~8-9
+  # minutes at the lowest runner count, with headroom for runner variance (identical slices have
+  # run 1.3-1.5x slower on some runners). This layout's slowest slices hold ~250-320 s of tests
+  # (staff-desktop-public, admin-mobile 3/6), i.e. ~6.5-7.5 minute jobs. admin-mobile stays at 6
+  # slices: at 5 its second slice holds ~300-310 s (slices cut a group by test count and the admin
+  # `settings*` specs are one slow stretch), too little headroom; at 7-8 its slowest slice barely
+  # moves. Splitting staff-desktop-public and external-platform into three runners shaves about a
+  # minute off the slowest job for one more runner.
+  #
+  # Rules, enforced by e2e/support/playwright-config.test.ts (it fails until a new project is
+  # assigned): every Playwright project except `setup` belongs to exactly one group; a group's
+  # slices are exactly 1..slices; a project with a non-setup dependency (platform-signout ->
+  # platform-desktop) shares an unsliced group with that dependency, or the dependency would run
+  # again in every slice. `setup` is a dependency of every group, so Playwright runs it on every
+  # runner, which is required: each runner seeds its own stack.
   e2e-shard:
+    name: e2e-shard (${{ matrix.group }} ${{ matrix.slice }}/${{ matrix.slices }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
-      # One shard's failure should not hide the others' results.
+      # One runner's failure should not hide the others' results.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
-    env:
-      SHARD_TOTAL: '6'
+        include:
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 1, slices: 6 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 2, slices: 6 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 3, slices: 6 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 4, slices: 6 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 5, slices: 6 }
+          - { group: admin-mobile, projects: 'admin-mobile', slice: 6, slices: 6 }
+          - { group: admin-desktop, projects: 'admin-desktop', slice: 1, slices: 3 }
+          - { group: admin-desktop, projects: 'admin-desktop', slice: 2, slices: 3 }
+          - { group: admin-desktop, projects: 'admin-desktop', slice: 3, slices: 3 }
+          - { group: staff-mobile, projects: 'staff-mobile', slice: 1, slices: 2 }
+          - { group: staff-mobile, projects: 'staff-mobile', slice: 2, slices: 2 }
+          - { group: staff-desktop-public, projects: 'staff-desktop public-desktop public-mobile', slice: 1, slices: 1 }
+          - { group: external-platform, projects: 'external-desktop external-mobile platform-desktop platform-signout', slice: 1, slices: 1 }
     steps:
+      # Supabase publishes its services on 54320-54329, inside Linux's ephemeral port range
+      # (32768-60999), so any outbound connection can hold one as its source port and make
+      # `supabase start` fail with "address already in use". Reserving the block stops the kernel
+      # handing those ports out from here on. Connections opened before this step (the runner's
+      # own, during "Set up job") can still hold one: scripts/ci-start-supabase.sh releases those.
+      - name: Reserve the local Supabase ports
+        run: |
+          sysctl net.ipv4.ip_local_port_range
+          sudo sysctl -w net.ipv4.ip_local_reserved_ports=54320-54329
+
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v5
+        id: setup-node
         with:
           node-version: '22'
-          cache: npm
 
-      - run: npm ci
+      # Restoring node_modules (including the Supabase CLI binary and the Playwright package inside
+      # it) replaces `npm ci`. The key covers everything that decides its contents; a lockfile or
+      # Node change misses, runs `npm ci`, and saves a fresh entry at the end of the job.
+      - name: Cache node_modules
+        id: node-modules-cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.setup-node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}
 
-      # Chromium is ~100MB and unchanged between runs; restoring it beats re-downloading it in
-      # every shard. Keyed on the lockfile so a Playwright version bump busts the cache.
+      - name: Install dependencies
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      # Chromium is ~100MB and unchanged between runs; restoring it beats re-downloading it on
+      # every runner. Keyed on the lockfile so a Playwright version bump busts the cache.
       - name: Cache Playwright browser
         id: playwright-cache
         uses: actions/cache@v4
@@ -159,12 +220,25 @@ jobs:
       - name: Start local Supabase, install the browser, and build the app
         # `supabase start` is dominated by image pulls and container health checks, so it runs in
         # the background while the CPU-bound browser install and `next build` happen in the
-        # foreground. Only the services the suite needs (db + auth + kong gateway + rest). Docker
-        # is preinstalled on ubuntu runners; the CLI is pinned as a devDependency.
+        # foreground. Docker is preinstalled on ubuntu runners; the CLI is pinned as a devDependency.
+        # scripts/ci-start-supabase.sh first destroys any socket already sitting on a Supabase port
+        # (logged as a warning), and on a failed start dumps sockets, containers and networks,
+        # force-removes the stack and retries once.
+        #
+        # Only the services the suite needs run: db, auth, kong, rest, and mailpit (GoTrue's SMTP
+        # target for the recovery/invite flows). `-x` takes this CLI's container names; it warns
+        # about and ignores any other name, which is how storage-api and postgres-meta used to
+        # start unasked.
+        #
+        # Images come from ghcr.io. The CLI's default registry, public.ecr.aws, often answers
+        # these shared runner IPs with "Data limit exceeded"; the CLI then retries with backoff
+        # before falling back to ghcr.io, which cost some runners over three minutes. Setting
+        # the registry skips straight to it.
         env:
           PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+          SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
         run: |
-          npx supabase start -x studio,imgproxy,inbucket,edge-runtime,realtime,storage,meta,vector,analytics,functions > supabase-start.log 2>&1 &
+          bash scripts/ci-start-supabase.sh > supabase-start.log 2>&1 &
           supabase_pid=$!
 
           if [ "$PLAYWRIGHT_CACHE_HIT" = 'true' ]; then
@@ -173,8 +247,10 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
+          echo "browser dependencies installed after ${SECONDS}s"
 
           npm run build:e2e
+          echo "build finished after ${SECONDS}s"
 
           if ! wait "$supabase_pid"; then
             cat supabase-start.log
@@ -182,52 +258,91 @@ jobs:
             exit 1
           fi
           cat supabase-start.log
+          echo "supabase ready after ${SECONDS}s"
+          echo "ephemeral source ports in use: $(ss -tanH | awk '{ n = split($4, a, ":"); p = a[n] + 0; if (p >= 32768 && p <= 60999) c++ } END { print c + 0 }')"
 
       - name: E2E tests
         # Playwright's webServer serves the build from the previous step (E2E_PREBUILT) with .env.e2e.
-        # Setup projects re-run in every shard, which is required — each shard seeds its own stack.
-        # The iPhone project needs WebKit, so it is left out here and runs in the `e2e-ios` job.
+        # `--project` selects this entry's group; its `setup` dependency runs too and seeds this
+        # runner's stack. The iPhone project needs WebKit, so it is left out here (E2E_SKIP_IOS)
+        # and runs in the `e2e-ios` job.
         env:
           E2E_PREBUILT: '1'
           E2E_SKIP_IOS: '1'
-        run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ env.SHARD_TOTAL }}
+          PROJECTS: ${{ matrix.projects }}
+          SLICE: ${{ matrix.slice }}/${{ matrix.slices }}
+        run: |
+          args=()
+          for project in $PROJECTS; do args+=("--project=$project"); done
+          npm run test:e2e -- "${args[@]}" --shard="$SLICE"
 
-      - name: Stop local Supabase
+      # Per-project test time from the JSON report, on the job summary. --tests also logs one
+      # E2E-TIMING line per test, which is enough to simulate a different split exactly.
+      - name: Summarise test time
         if: always()
-        run: npx supabase stop --no-backup || true
+        env:
+          LABEL: ${{ matrix.group }} ${{ matrix.slice }}/${{ matrix.slices }}
+        run: |
+          [ -f test-results/e2e-results.json ] || exit 0
+          node scripts/e2e-timing-summary.mjs test-results/e2e-results.json --label "$LABEL" --tests >> "$GITHUB_STEP_SUMMARY"
 
-      # Only a failing shard needs its report. Uploading every shard on every push exhausts the
+      # There is no "stop Supabase" step: the runner and its containers are thrown away.
+
+      # Only a failing runner needs its report. Uploading every runner's on every push exhausts the
       # account's artifact storage quota, which then fails otherwise green runs.
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-shard-${{ matrix.shard }}
+          name: playwright-report-${{ matrix.group }}-${{ matrix.slice }}of${{ matrix.slices }}
           path: |
             playwright-report/
             test-results/
-          # A shard that failed before Playwright ran (Supabase start, build) has no report.
+          # A runner that failed before Playwright ran (Supabase start, build) has no report.
           if-no-files-found: warn
           retention-days: 7
 
   # iPhone (WebKit) run: only the @ios subset (playwright.config.ts `mobile-ios`). It gets its own
-  # runner, in parallel with the shards, so no shard pays for the WebKit install and the extra
-  # project on top of its slice. The setup mirrors a shard's: same Supabase services, same overlap
-  # of the boot with the browser install and `next build`, same prebuilt serve. The `setup` project
-  # it depends on seeds and signs in on Playwright's default browser (Chromium), so this runner
-  # needs Chromium as well as WebKit.
+  # runners, in parallel with e2e-shard, so no shard pays for the WebKit install. Its matrix uses
+  # the same group/slice layout, and its setup mirrors a shard's: reserved ports, cached
+  # node_modules, the Supabase boot overlapped with the browser install and `next build`, and the
+  # prebuilt serve. The `setup` project it depends on seeds and signs in on Playwright's default
+  # browser (Chromium), so these runners need Chromium as well as WebKit.
   e2e-ios:
+    name: e2e-ios (${{ matrix.slice }}/${{ matrix.slices }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { group: ios, projects: 'mobile-ios', slice: 1, slices: 2 }
+          - { group: ios, projects: 'mobile-ios', slice: 2, slices: 2 }
     steps:
+      # See e2e-shard: stops the kernel handing out Supabase's ports as source ports.
+      - name: Reserve the local Supabase ports
+        run: |
+          sysctl net.ipv4.ip_local_port_range
+          sudo sysctl -w net.ipv4.ip_local_reserved_ports=54320-54329
+
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v5
+        id: setup-node
         with:
           node-version: '22'
-          cache: npm
 
-      - run: npm ci
+      # Same key as e2e-shard: node_modules does not depend on which browsers a job installs.
+      - name: Cache node_modules
+        id: node-modules-cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.setup-node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
+        run: npm ci
 
       # Separate key from the shards' Chromium-only cache: a cache entry is immutable once saved, so
       # sharing the key would leave this job restoring an entry without WebKit in it.
@@ -239,12 +354,12 @@ jobs:
           key: playwright-ios-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Start local Supabase, install the browsers, and build the app
-        # Same overlap as a shard: `supabase start` runs in the background while the browser
-        # install and `next build` run in the foreground.
+        # Same overlap, services, registry, port release and single retry as e2e-shard.
         env:
           PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+          SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
         run: |
-          npx supabase start -x studio,imgproxy,inbucket,edge-runtime,realtime,storage,meta,vector,analytics,functions > supabase-start.log 2>&1 &
+          bash scripts/ci-start-supabase.sh > supabase-start.log 2>&1 &
           supabase_pid=$!
 
           if [ "$PLAYWRIGHT_CACHE_HIT" = 'true' ]; then
@@ -253,8 +368,10 @@ jobs:
           else
             npx playwright install --with-deps chromium webkit
           fi
+          echo "browser dependencies installed after ${SECONDS}s"
 
           npm run build:e2e
+          echo "build finished after ${SECONDS}s"
 
           if ! wait "$supabase_pid"; then
             cat supabase-start.log
@@ -262,38 +379,49 @@ jobs:
             exit 1
           fi
           cat supabase-start.log
+          echo "supabase ready after ${SECONDS}s"
+          echo "ephemeral source ports in use: $(ss -tanH | awk '{ n = split($4, a, ":"); p = a[n] + 0; if (p >= 32768 && p <= 60999) c++ } END { print c + 0 }')"
 
       - name: iPhone (WebKit) E2E tests
         # `--project=mobile-ios` also runs its `setup` dependency, which seeds this runner's stack.
         env:
           E2E_PREBUILT: '1'
-        run: npm run test:e2e -- --project=mobile-ios
+          PROJECTS: ${{ matrix.projects }}
+          SLICE: ${{ matrix.slice }}/${{ matrix.slices }}
+        run: |
+          args=()
+          for project in $PROJECTS; do args+=("--project=$project"); done
+          npm run test:e2e -- "${args[@]}" --shard="$SLICE"
 
-      - name: Stop local Supabase
+      - name: Summarise test time
         if: always()
-        run: npx supabase stop --no-backup || true
+        env:
+          LABEL: ${{ matrix.group }} ${{ matrix.slice }}/${{ matrix.slices }}
+        run: |
+          [ -f test-results/e2e-results.json ] || exit 0
+          node scripts/e2e-timing-summary.mjs test-results/e2e-results.json --label "$LABEL" --tests >> "$GITHUB_STEP_SUMMARY"
 
-      # Like the shards, upload the report only on failure to stay inside the artifact quota.
+      # Like e2e-shard, upload the report only on failure to stay inside the artifact quota.
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-ios
+          name: playwright-report-${{ matrix.group }}-${{ matrix.slice }}of${{ matrix.slices }}
           path: |
             playwright-report/
             test-results/
           if-no-files-found: warn
           retention-days: 7
 
-  # Single check that gates on every shard and the iPhone run. Branch protection requires the `e2e`
-  # check by name (.github/BRANCH_PROTECTION.md); regrouping the browser jobs must not change what
-  # an administrator has to select.
+  # Single check that gates on every e2e-shard and e2e-ios runner. Branch protection requires the
+  # `e2e` check by name (.github/BRANCH_PROTECTION.md); regrouping the browser jobs must not change
+  # what an administrator has to select. A matrix job's result is a failure if any entry failed.
   e2e:
     runs-on: ubuntu-latest
     needs: [e2e-shard, e2e-ios]
     if: always()
     steps:
-      - name: Require every shard and the iPhone run to pass
+      - name: Require every e2e-shard and e2e-ios runner to pass
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
