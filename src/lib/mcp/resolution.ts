@@ -69,15 +69,15 @@ export async function findPatients(ctx: ToolContext, patientName: string): Promi
   // than filtered. RLS has already narrowed this to the caller's own clinic before it reaches here.
   const { data, error } = await ctx.supabase
     .from('patients')
-    .select('id, name, phone, dob')
+    .select('id, name, phone, dob, age_years, age_recorded_on')
     .order('name')
     .limit(PATIENT_SCAN_LIMIT)
   if (error) throw error
 
-  const patients = (data ?? []) as Array<{ id: string; name: string; phone: string | null; dob: string | null }>
+  const patients = (data ?? []) as Array<{ id: string; name: string; phone: string | null; dob: string | null; age_years: number | null; age_recorded_on: string | null }>
   return rankByName(term, patients, (patient) => patient.name)
     .slice(0, 20)
-    .map(({ item, score }) => ({ id: item.id, name: item.name, phone: item.phone, dob: item.dob, matchScore: score }))
+    .map(({ item, score }) => ({ id: item.id, name: item.name, phone: item.phone, dob: item.dob, age_years: item.age_years, age_recorded_on: item.age_recorded_on, matchScore: score }))
 }
 
 export async function resolvePatient(ctx: ToolContext, args: Record<string, unknown>) {
@@ -88,7 +88,7 @@ export async function resolvePatient(ctx: ToolContext, args: Record<string, unkn
   if (selection) {
     const patientId = await resolveResolutionToken(ctx, selection, 'patient')
     if (!patientId) return { kind: 'none' as const }
-    const { data, error } = await ctx.supabase.from('patients').select('id, name, phone, dob').eq('id', patientId).maybeSingle()
+    const { data, error } = await ctx.supabase.from('patients').select('id, name, phone, dob, age_years, age_recorded_on').eq('id', patientId).maybeSingle()
     if (error) throw error
     return data ? { kind: 'selected' as const, patient: data as PatientCandidate } : { kind: 'none' as const }
   }

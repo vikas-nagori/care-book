@@ -27,6 +27,8 @@ const patient: Patient = {
   email: null,
   address: null,
   dob: null,
+  age_years: null,
+  age_recorded_on: null,
   gender: null,
   medical_history: null,
   notes: null,
@@ -137,5 +139,33 @@ describe('PatientDetail referral', () => {
     const google = { ...patient, referral_source: 'google' } as unknown as Patient
     render(<PatientDetail {...baseProps({ patient: google, initialTab: 'profile' })} />)
     expect(screen.getAllByText('Google page').length).toBeGreaterThan(0)
+  })
+})
+
+describe('PatientDetail age', () => {
+  afterEach(() => { cleanup(); vi.useRealTimers() })
+
+  function renderAt(overrides: Partial<Patient>) {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-24T06:00:00Z'))
+    render(<PatientDetail {...baseProps({ patient: { ...patient, ...overrides } as Patient, initialTab: 'profile' })} />)
+  }
+
+  it('shows a stored date of birth as an age in whole years, not as a date', () => {
+    renderAt({ dob: '1990-03-10', gender: 'female' })
+    expect(screen.getByTestId('patient-age').textContent).toBe('Age 36 years')
+    expect(screen.queryByText(/1990/)).toBeNull()
+    expect(screen.getByText('female')).toBeTruthy()
+  })
+
+  it('ages an entered age by the years since it was recorded', () => {
+    renderAt({ age_years: 40, age_recorded_on: '2025-06-01' })
+    expect(screen.getByTestId('patient-age').textContent).toBe('Age 41 years')
+  })
+
+  it('shows no age line when the age is unknown, but still shows gender', () => {
+    renderAt({ gender: 'male' })
+    expect(screen.queryByTestId('patient-age')).toBeNull()
+    expect(screen.getByText('male')).toBeTruthy()
   })
 })

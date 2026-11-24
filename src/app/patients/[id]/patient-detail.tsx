@@ -28,6 +28,7 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { formatTime12 } from '@/lib/format-time'
 import { formatDateOnly } from '@/lib/timezone'
+import { formatAge, patientAge } from '@/lib/patients/age'
 import { getPaginationItems } from '@/lib/patients/appointment-pagination'
 import { getFundingScopeLabel } from '@/lib/billing/unified-billing'
 import { TreatmentPlanForm } from './treatment-plan-form'
@@ -86,6 +87,7 @@ export function PatientDetail({
   packageBalances,
 }: PatientDetailProps) {
   const router = useRouter()
+  const age = patientAge(patient)
   const { toast } = useToast()
   const [planOpen, setPlanOpen] = useState(false)
   const [showAllPayments, setShowAllPayments] = useState(false)
@@ -215,10 +217,10 @@ export function PatientDetail({
                   <span>{patient.address}</span>
                 </div>
               )}
-              {patient.dob && (
+              {(age !== null || patient.gender) && (
                 <div className="flex items-center gap-2">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span>{formatDateOnly(patient.dob, 'dd MMM yyyy')}</span>
+                  {age !== null && <span data-testid="patient-age">Age {formatAge(age)}</span>}
                   {patient.gender && <Badge variant="secondary" className="capitalize">{patient.gender}</Badge>}
                 </div>
               )}

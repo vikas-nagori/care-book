@@ -50,7 +50,7 @@ test('createPatientDraftFromName pre-fills the typed name and clears the remaini
     name: 'Neha Joshi',
     phone: '',
     email: '',
-    dob: '',
+    age: '',
     gender: '',
     address: '',
     medical_history: '',
@@ -63,7 +63,7 @@ test('buildPatientInsertData trims fields and converts blank optional values to 
     name: '  Neha Joshi ',
     phone: ' 9876543210 ',
     email: ' ',
-    dob: '',
+    age: '',
     gender: 'female',
     address: '  Pune ',
     medical_history: '',
@@ -72,10 +72,17 @@ test('buildPatientInsertData trims fields and converts blank optional values to 
     name: 'Neha Joshi',
     phone: '9876543210',
     email: null,
-    dob: null,
+    age_years: null,
     gender: 'female',
     address: 'Pune',
     medical_history: null,
     notes: 'First visit',
   })
+})
+
+test('buildPatientInsertData converts the age field to whole years', () => {
+  const draft = { name: 'Neha Joshi', phone: '9876543210', email: '', age: ' 42 ', gender: '', address: '', medical_history: '', notes: '' }
+  assert.equal(buildPatientInsertData(draft).age_years, 42)
+  assert.equal(buildPatientInsertData({ ...draft, age: '0' }).age_years, 0)
+  assert.equal(buildPatientInsertData({ ...draft, age: '' }).age_years, null)
 })

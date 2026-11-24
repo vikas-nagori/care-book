@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { classifyPatientMatches, normalizePatientName } from './patient-resolution.ts'
+import { classifyPatientMatches, normalizePatientName, publicPatientCandidate } from './patient-resolution.ts'
 
 const patient = (id: string, name: string) => ({ id, name, phone: '9876543210', dob: '1990-01-01' })
 
@@ -46,4 +46,13 @@ test('exact matches are ordered ahead of near matches', () => {
   const result = classifyPatientMatches('Aadi', [near, exact])
 
   assert.deepEqual(result.kind === 'ambiguous' ? result.candidates.map((c) => c.id) : [], ['p1', 'p2'])
+})
+
+test('a public candidate shows age, from an entered age or the date of birth, and masks the phone', () => {
+  const candidate = publicPatientCandidate({ id: 'p1', name: 'Priya Sharma', phone: '9876543210', dob: null, age_years: 30, age_recorded_on: '2000-01-01' })
+  assert.equal(candidate.phone, '••••••3210')
+  assert.equal(typeof candidate.age, 'number')
+  assert.ok((candidate.age ?? 0) >= 56)
+  assert.equal(publicPatientCandidate({ id: 'p2', name: 'No Age' }).age, null)
+  assert.equal('age_years' in candidate, false)
 })

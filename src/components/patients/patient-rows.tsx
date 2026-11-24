@@ -6,6 +6,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import Link from 'next/link'
 import { ChevronRight, Loader2, Search } from 'lucide-react'
+import { patientAge } from '@/lib/patients/age'
 
 export type PatientRowData = {
   id: string
@@ -13,10 +14,18 @@ export type PatientRowData = {
   phone: string | null
   gender?: string | null
   dob?: string | null
+  age_years?: number | null
+  age_recorded_on?: string | null
 }
 
 /** A row either navigates (href) or opens something in place (onSelect). */
 export type PatientRowAction = { href: string } | { onSelect: () => void }
+
+/** Compact age for a row ("42 y"), or null when unknown. */
+function ageLabel(patient: PatientRowData): string | null {
+  const age = patientAge(patient)
+  return age === null ? null : `${age} y`
+}
 
 function getInitials(name: string) {
   return name.split(' ').map((s) => s[0]).slice(0, 2).join('').toUpperCase()
@@ -137,9 +146,9 @@ export function PatientRows<T extends PatientRowData>({
             </div>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ph-ink)' }}>{patient.name}</div>
-              {patient.gender && (
+              {(patient.gender || ageLabel(patient)) && (
                 <div style={{ fontSize: 11, color: 'var(--ph-ink-4)', marginTop: 1, textTransform: 'capitalize' }}>
-                  {patient.gender}{patient.dob ? ` · ${new Date().getFullYear() - new Date(patient.dob).getFullYear()} y` : ''}
+                  {[patient.gender, ageLabel(patient)].filter(Boolean).join(' · ')}
                 </div>
               )}
             </div>
@@ -167,7 +176,7 @@ export function PatientRows<T extends PatientRowData>({
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ph-ink)' }}>{patient.name}</div>
               <div className="font-mono-data" style={{ fontSize: 11.5, color: 'var(--ph-ink-4)', marginTop: 1 }}>
-                {patient.phone}
+                {[patient.phone, ageLabel(patient)].filter(Boolean).join(' · ')}
               </div>
             </div>
             {patient.gender && (

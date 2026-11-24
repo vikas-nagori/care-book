@@ -10,15 +10,16 @@ import { PatientListHeader, PatientRows, PatientSearchBar } from '@/components/p
 import { normalizePatientSearchTerm } from '@/lib/patients/patient-search-filter'
 import type { ExternalPatient, ExternalWorkspace } from '@/lib/external/types'
 import { EXTERNAL_ACCESS_MESSAGE } from '@/lib/external/workspace'
-import { formatDateOnly } from '@/lib/timezone'
+import { formatAge, patientAge } from '@/lib/patients/age'
 import { ExternalBookingDialog } from './booking-dialog'
 import { useRequestIds } from './use-request-ids'
 
 function PatientDetails({ patient }: { patient: ExternalPatient }) {
+  const age = patientAge(patient)
   const details = [
     { label: 'Phone', value: patient.phone, href: patient.phone ? `tel:${patient.phone}` : null },
     { label: 'Email', value: patient.email, href: patient.email ? `mailto:${patient.email}` : null },
-    { label: 'Date of birth', value: patient.dob ? formatDateOnly(patient.dob, 'd MMM yyyy') : null },
+    { label: 'Age', value: age === null ? null : formatAge(age) },
     { label: 'Gender', value: patient.gender },
     { label: 'Address', value: patient.address },
   ]

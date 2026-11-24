@@ -1,14 +1,16 @@
 import type { McpToolDefinition } from '../registry.ts'
-import { boolProp, objectSchema, stringProp } from '../schema.ts'
+import { boolProp, numberProp, objectSchema, stringProp } from '../schema.ts'
 import { patientChoiceResult, resolvePatient, findPatients, issueResolutionToken } from '../resolution.ts'
 import { publicPatientCandidate } from '../patient-resolution.ts'
 import { ToolError } from '../errors.ts'
+import { AGE_PROP_DESCRIPTION, toolAgeFields, withComputedAge } from '../patient-age.ts'
 
 const PATIENT_FIELDS = {
   name: stringProp('Patient full name'),
   phone: stringProp('Required phone number'),
   email: stringProp('Optional email'),
-  dob: stringProp('Optional date of birth as yyyy-MM-dd'),
+  age: numberProp(AGE_PROP_DESCRIPTION),
+  dob: stringProp('Optional exact date of birth as yyyy-MM-dd, only if known; prefer age'),
   gender: stringProp('Optional gender'),
   address: stringProp('Optional address'),
   medical_history: stringProp('Optional medical history'),
@@ -42,12 +44,12 @@ export const patientReadTools: McpToolDefinition[] = [
       if (match.kind === 'ambiguous') return patientChoiceResult(ctx, match)
       const { data: patient, error } = await ctx.supabase
         .from('patients')
-        .select('name, phone, email, dob, gender, address, medical_history, notes, referral_source, referral_other, treatment_plans(diagnosis, goals, start_date, expected_end_date, status)')
+        .select('name, phone, email, dob, age_years, age_recorded_on, gender, address, medical_history, notes, referral_source, referral_other, treatment_plans(diagnosis, goals, start_date, expected_end_date, status)')
         .eq('id', match.patient.id)
         .maybeSingle()
       if (error) throw error
       if (!patient) return { found: false, message: 'No patient matched that name.' }
-      return { found: true, patient }
+      return { found: true, patient: withComputedAge(patient) }
     },
   },
 ]
@@ -62,6 +64,7 @@ export const patientWriteTools: McpToolDefinition[] = [
       const name = typeof args.name === 'string' ? args.name.trim() : ''
       const phone = typeof args.phone === 'string' ? args.phone.trim() : ''
       if (!name || !phone) throw new ToolError('name and phone are required.')
+      const ageFields = toolAgeFields(args.age)
       const match = await resolvePatient(ctx, { patient_name: name })
       if (match.kind === 'selected') return { created: false, requires_patient_confirmation: true, message: 'A patient with this exact name already exists. Use the existing patient instead.', candidate: publicPatientCandidate(match.patient) }
       if (match.kind === 'ambiguous') return patientChoiceResult(ctx, match)
@@ -71,13 +74,14 @@ export const patientWriteTools: McpToolDefinition[] = [
         phone,
         email: typeof args.email === 'string' && args.email.trim() ? args.email.trim() : null,
         dob: typeof args.dob === 'string' && args.dob.trim() ? args.dob.trim() : null,
+        ...ageFields,
         gender: typeof args.gender === 'string' && args.gender.trim() ? args.gender.trim() : null,
         address: typeof args.address === 'string' && args.address.trim() ? args.address.trim() : null,
         medical_history: typeof args.medical_history === 'string' && args.medical_history.trim() ? args.medical_history.trim() : null,
         notes: typeof args.notes === 'string' && args.notes.trim() ? args.notes.trim() : null,
-      }).select('name, phone, email, dob, gender, address, medical_history, notes').single()
+      }).select('name, phone, email, dob, age_years, age_recorded_on, gender, address, medical_history, notes').single()
       if (error) throw error
-      return { created: true, patient: data }
+      return { created: true, patient: withComputedAge(data) }
     },
   },
 ]

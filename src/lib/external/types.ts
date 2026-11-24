@@ -4,6 +4,8 @@ export type ExternalPatient = {
   name: string
   phone: string | null
   dob: string | null
+  age_years: number | null
+  age_recorded_on: string | null
   gender: string | null
   email: string | null
   address: string | null

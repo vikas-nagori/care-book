@@ -35,3 +35,11 @@ export function upcomingClinicSlot(now = new Date()): { date: string; time: stri
     time: `${value('hour')}:${value('minute')}`,
   }
 }
+
+/** Whole years from a YYYY-MM-DD date to `today` (clinic date): the age the app shows for a dob. */
+export function wholeYearsSince(date: string, today = clinicDate()): number {
+  const [fromYear, fromMonth, fromDay] = date.split('-').map(Number)
+  const [toYear, toMonth, toDay] = today.split('-').map(Number)
+  const beforeAnniversary = toMonth < fromMonth || (toMonth === fromMonth && toDay < fromDay)
+  return Math.max(0, toYear - fromYear - (beforeAnniversary ? 1 : 0))
+}

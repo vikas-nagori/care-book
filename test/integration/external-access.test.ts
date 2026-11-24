@@ -77,7 +77,7 @@ test('existing Temporary Staff, bookings and internal profiles survive upgrade; 
 test('atomic grants validate clinic, active role and invite status; only clinic admins can replace or see them', { skip }, () => {
   const p = patient(clinic, 'Shared Patient')
   replace(admin, p, [a, b, a])
-  assert.deepEqual(workspace(a).patients, [{ id: p, name: 'Shared Patient', phone: '123', dob: null, gender: null, address: null, email: null }])
+  assert.deepEqual(workspace(a).patients, [{ id: p, name: 'Shared Patient', phone: '123', dob: null, age_years: null, age_recorded_on: null, gender: null, address: null, email: null }])
   assert.deepEqual(workspace(b).patients, workspace(a).patients)
   assert.deepEqual(workspace(outsider).patients, [])
   const additional = patient(clinic, 'Additional Patient')

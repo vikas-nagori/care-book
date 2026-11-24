@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { ADMIN, EXTERNAL, EXTERNAL_EMPTY, PASSWORD, STAFF } from '../support/accounts'
-import { clinicDate } from '../support/clinic-date'
+import { clinicDate, wholeYearsSince } from '../support/clinic-date'
 import { SEED } from '../support/ids'
 import { adminClient } from '../support/supabase-admin'
 import { gotoNotFoundRoute } from '../support/assertions'
@@ -26,6 +26,10 @@ test('external calendar and patient profile expose only explicitly shared coordi
   await expect(profile.getByText('leela@example.test', { exact: true })).toBeVisible()
   await expect(profile.getByText('10 Example Lane', { exact: true })).toBeVisible()
   await expect(profile.getByText('9876500010', { exact: true })).toBeVisible()
+  // The seeded date of birth reaches External Staff only as an age.
+  await expect(profile.getByText(`${wholeYearsSince('1990-03-10')} years`, { exact: true })).toBeVisible()
+  await expect(profile.getByText('Age', { exact: true })).toBeVisible()
+  await expect(profile.getByText(/1990/)).toHaveCount(0)
   await expect(page.locator('body')).not.toContainText('PRIVATE_')
   await expect(page.getByRole('link', { name: 'Billing', exact: true })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Settings', exact: true })).toHaveCount(0)

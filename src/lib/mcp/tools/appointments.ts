@@ -4,6 +4,7 @@ import { CLINIC_TIME_ZONE, getZonedDate } from '@/lib/timezone'
 import type { McpToolDefinition, ToolContext } from '../registry.ts'
 import { boolProp, enumProp, numberProp, objectSchema, stringProp } from '../schema.ts'
 import { ToolError } from '../errors.ts'
+import { AGE_PROP_DESCRIPTION, toolAgeFields } from '../patient-age.ts'
 import { describeFeeSource, resolveAppointmentFee } from '../appointment-fee.ts'
 import { resolveAppointmentAssignee } from '../appointment-assignee.ts'
 import { accountDisplayName } from '../../auth/mobile-number.ts'
@@ -340,7 +341,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
       recurrence_weekdays: { type: 'array', items: { type: 'integer', minimum: 0, maximum: 6 } },
       recurrence_total_sessions: numberProp('Optional number of recurring sessions'),
       patient_selection_token: stringProp('Opaque patient token returned by a previous match'),
-      new_patient: objectSchema({ name: stringProp('New patient name'), phone: stringProp('New patient phone'), email: stringProp('Optional email'), dob: stringProp('Optional date of birth, yyyy-MM-dd') }, ['name', 'phone']),
+      new_patient: objectSchema({ name: stringProp('New patient name'), phone: stringProp('New patient phone'), email: stringProp('Optional email'), age: numberProp(AGE_PROP_DESCRIPTION), dob: stringProp('Optional exact date of birth, yyyy-MM-dd, only if known; prefer age') }, ['name', 'phone']),
       confirm: boolProp('Set true to confirm inline patient creation'),
     }, ['patient_name', 'date', 'time', 'appointment_type_name']),
     handler: async (args, ctx) => {
@@ -391,6 +392,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
         const inlinePhone = typeof inlinePatient.phone === 'string' ? inlinePatient.phone.trim() : ''
         if (!inlineName || !inlinePhone) throw new ToolError('new_patient.name and new_patient.phone are required.')
         if (normalized(inlineName) !== normalized(patientName)) throw new ToolError('new_patient.name must match patient_name.')
+        toolAgeFields(inlinePatient.age, 'new_patient.age')
       }
 
       // Whoever is booking is the treating clinician unless they say otherwise. A shared type is
@@ -466,6 +468,7 @@ export const appointmentWriteTools: McpToolDefinition[] = [
           phone: inlinePatient.phone,
           email: typeof inlinePatient.email === 'string' ? inlinePatient.email.trim() || null : null,
           dob: typeof inlinePatient.dob === 'string' ? inlinePatient.dob.trim() || null : null,
+          ...toolAgeFields(inlinePatient.age, 'new_patient.age'),
         }).select('id').single()
         if (error || !created) throw new ToolError('Unable to create the new patient.')
         patientId = created.id

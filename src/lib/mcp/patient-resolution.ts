@@ -1,8 +1,12 @@
+import { patientAge } from '../patients/age.ts'
+
 export type PatientCandidate = {
   id: string
   name: string
   phone?: string | null
   dob?: string | null
+  age_years?: number | null
+  age_recorded_on?: string | null
   matchScore?: number | null
 }
 
@@ -44,5 +48,5 @@ export function maskPhone(phone: string | null | undefined): string | null {
 }
 
 export function publicPatientCandidate(candidate: PatientCandidate) {
-  return { name: candidate.name, phone: maskPhone(candidate.phone), dob: candidate.dob ?? null }
+  return { name: candidate.name, phone: maskPhone(candidate.phone), dob: candidate.dob ?? null, age: patientAge(candidate) }
 }

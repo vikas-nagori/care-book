@@ -10,6 +10,8 @@ export type AppointmentFormData = {
   notes?: string
   appointmentTypeName?: string
   assignedStaffLabel?: string | RegExp
+  /** Create `patientName` inline instead of picking an existing patient. Age is optional. */
+  newPatient?: { phone: string; age?: string }
 }
 
 export class AppointmentForm {
@@ -21,7 +23,13 @@ export class AppointmentForm {
   async fill(data: AppointmentFormData): Promise<void> {
     const patientSearch = this.page.getByLabel('Patient *', { exact: true })
     await patientSearch.fill(data.patientName)
-    await this.page.getByRole('button', { name: data.patientName, exact: true }).click()
+    if (data.newPatient) {
+      await this.page.getByRole('button', { name: `Create new patient: "${data.patientName}"`, exact: true }).click()
+      await this.page.getByLabel('Phone *', { exact: true }).fill(data.newPatient.phone)
+      if (data.newPatient.age !== undefined) await this.page.getByLabel('Age (years)', { exact: true }).fill(data.newPatient.age)
+    } else {
+      await this.page.getByRole('button', { name: data.patientName, exact: true }).click()
+    }
 
     await this.page.getByLabel('Date *', { exact: true }).fill(data.date)
     await this.page.getByLabel('Time *', { exact: true }).fill(data.time)

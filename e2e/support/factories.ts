@@ -14,6 +14,8 @@ export type E2EPatientRow = Row & {
   phone: string
   email: string | null
   dob: string | null
+  age_years: number | null
+  age_recorded_on: string | null
   gender: string | null
   address: string | null
   medical_history: string | null

@@ -53,7 +53,11 @@ export type Patient = {
   name: string
   phone: string
   email: string | null
+  /** Legacy exact date of birth. Never rewritten; the form now records age_years instead. */
   dob: string | null
+  /** Age typed on the patient form, as of age_recorded_on. See src/lib/patients/age.ts. */
+  age_years: number | null
+  age_recorded_on: string | null
   gender: string | null
   address: string | null
   medical_history: string | null
