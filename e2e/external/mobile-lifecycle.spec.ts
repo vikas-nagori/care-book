@@ -6,7 +6,7 @@
 // The desktop project skips this whole file (the beforeEach below): it is about the phone app.
 // Owned by the mobile package (plan section 6); handed to the External package's directory.
 
-import type { Page } from '@playwright/test'
+import type { BrowserContext, Page, Response } from '@playwright/test'
 
 import { EXTERNAL, CLINIC_A } from '../support/accounts'
 import { attachErrorGuards, gotoSuccessfulRoute } from '../support/assertions'
@@ -30,6 +30,27 @@ test.use({ serviceWorkers: 'block' })
 test.beforeEach(({}, testInfo) => {
   test.skip(!isMobileProject(testInfo), 'phone-only: the installed app is the primary client (plan 5.7)')
 })
+
+
+/**
+ * The document response re-issued the session cookie, and the device now keeps it for its full
+ * 400-day life. Chromium reports each Set-Cookie as sent (Max-Age=34560000); WebKit may fold them
+ * into one header and drop attributes, so the stored cookie's expiry is checked on every engine.
+ */
+async function expectSessionRenewed(response: Response, context: BrowserContext) {
+  const issued = (await response.headersArray())
+    .filter(({ name }) => name.toLowerCase() === 'set-cookie')
+    .flatMap(({ value }) => value.split('\n'))
+    .filter((value) => /^sb-[^=]*-auth-token/.test(value))
+  expect(issued.length, 'the session cookie was not re-issued').toBeGreaterThan(0)
+  for (const cookie of issued) {
+    const maxAge = cookie.match(/Max-Age=(\d+)/i)
+    if (maxAge) expect(Number(maxAge[1])).toBe(34_560_000)
+  }
+  const stored = (await context.cookies()).filter((cookie) => /^sb-.*-auth-token/.test(cookie.name))
+  expect(stored.length).toBeGreaterThan(0)
+  for (const cookie of stored) expect(cookie.expires).toBeGreaterThan(Date.now() / 1000 + 399 * 86_400)
+}
 
 const OFFLINE_TEXT = /Failed to load resource|ERR_INTERNET_DISCONNECTED|ERR_FAILED|network connection|offline|Load failed/i
 
@@ -145,6 +166,10 @@ test('M-15 (M-1) a resume whose version check fails does not reload /external', 
   await page.clock.install()
   await page.goto(`/external?date=${clinicDate(166)}`)
   await expect(heading(page)).toBeVisible()
+  // Let the Vercel analytics scripts settle first: for the external role they are redirected to
+  // /external, and with a route installed Playwright no longer reports that redirect, so the
+  // guards could not recognise the resulting MIME-type console error as the known local noise.
+  await page.waitForLoadState('networkidle')
   let loads = 0
   page.on('load', () => { loads += 1 })
   const failing = await serveAppVersion(page, { status: 500 })
@@ -208,11 +233,7 @@ test('M-15 (M-6) a cold start on /external opens it directly, signed in, and ren
     expect(response!.request().redirectedFrom()).toBeNull()
     await expect(heading(page)).toBeVisible()
     expect(new URL(page.url()).pathname).toBe('/external')
-    const session = (await response!.headersArray())
-      .filter(({ name, value }) => name.toLowerCase() === 'set-cookie' && /^sb-[^=]*-auth-token/.test(value))
-      .map(({ value }) => value)
-    expect(session.length).toBeGreaterThan(0)
-    for (const cookie of session) expect(cookie).toMatch(/Max-Age=34560000/i)
+    await expectSessionRenewed(response!, context)
     await guards.assertClean()
   } finally {
     await context.close()

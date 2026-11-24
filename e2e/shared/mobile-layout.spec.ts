@@ -23,7 +23,7 @@ import {
   tapTwice,
 } from '../support/mobile'
 import { pageRoutesFor } from '../support/route-manifest'
-import { FLOWS, phoneGuards, phoneSkipReason, toastRegion, type FlowId } from './mobile-flows'
+import { FLOWS, phoneGuards, phoneSkipReason, toast, type FlowId } from './mobile-flows'
 
 test.use({ serviceWorkers: 'block' })
 
@@ -37,7 +37,14 @@ test.beforeEach(({}, testInfo) => {
 // ---------------------------------------------------------------------------------------------
 
 /** Flows whose double tap is a known bug, with the bug id. */
-const DOUBLE_TAP_BUGS: Partial<Record<FlowId, string>> = {}
+const DOUBLE_TAP_BUGS: Partial<Record<FlowId, string>> = {
+  // G-14: two activations before React commits `loading` record the payment twice (no
+  // idempotency key on record_payment_v2).
+  payment: 'G-14: a double tap on Save Payment records the payment twice',
+  // G-4 (same root: no unique note per appointment): the second submit also inserts, and the
+  // detail page, which reads the note with .maybeSingle(), then shows no notes at all.
+  'session-notes': 'G-4: a double tap on Save Notes inserts two notes and the page then shows none',
+}
 
 for (const flowId of ['book-schedule', 'book-dashboard', 'session-notes', 'reminder', 'patient', 'payment'] as const satisfies readonly FlowId[]) {
   const flow = FLOWS[flowId]
@@ -51,11 +58,11 @@ for (const flowId of ['book-schedule', 'book-dashboard', 'session-notes', 'remin
     await open.fill()
 
     await tapTwice(open.submit)
-    await open.expectSaved()
     await expect.poll(() => open.rows()).toBeGreaterThan(0)
     // Let a second request, if one went out, land before counting.
     await page.waitForLoadState('networkidle')
     expect(await open.rows()).toBe(1)
+    await open.expectSaved()
     await guards.assertClean()
   })
 }
@@ -74,6 +81,13 @@ type Surface = {
   name: string
   adminOnly?: boolean
   open(page: Page, factory: E2EFactory): Promise<OpenSurface>
+}
+
+/** The entry form lists the patients loaded with the page, so create the patient first. */
+async function choosePatient(page: Page, dialog: Locator, patient: { name: unknown }) {
+  await dialog.getByLabel('Patient *', { exact: true }).tap()
+  await page.getByPlaceholder('Search patient…', { exact: true }).fill(patient.name as string)
+  await page.getByRole('button', { name: patient.name as string, exact: true }).tap()
 }
 
 async function openSettingsSheet(page: Page, title: string) {
@@ -104,7 +118,7 @@ const SURFACES: readonly Surface[] = [
         submit,
         async invalid() {
           await submit.tap()
-          return toastRegion(page).getByText('Check the age', { exact: true })
+          return toast(page, 'Check the age')
         },
       }
     },
@@ -171,19 +185,24 @@ const SURFACES: readonly Surface[] = [
   {
     name: 'billing entry: payment',
     adminOnly: true,
-    async open(page) {
+    async open(page, factory) {
+      const patient = await factory.createPatient()
       await page.goto('/billing?new=1')
       const dialog = page.getByRole('dialog', { name: 'New Billing Entry' })
+      // Save stays disabled (and so cannot be hit-tested) until a patient is chosen.
+      await choosePatient(page, dialog, patient)
       return { submit: dialog.getByRole('button', { name: 'Save Payment', exact: true }) }
     },
   },
   {
     name: 'billing entry: package',
     adminOnly: true,
-    async open(page) {
+    async open(page, factory) {
+      const patient = await factory.createPatient()
       await page.goto('/billing?new=1')
       const dialog = page.getByRole('dialog', { name: 'New Billing Entry' })
       await dialog.getByRole('button', { name: /Create package/ }).tap()
+      await choosePatient(page, dialog, patient)
       return { submit: dialog.getByRole('button', { name: 'Save Package', exact: true }) }
     },
   },
@@ -196,6 +215,8 @@ const SURFACES: readonly Surface[] = [
       await page.goto('/billing?tab=payments')
       await page.getByRole('button', { name: `Refund payment for ${patient.name} · ₹750`, exact: true }).filter({ visible: true }).tap()
       const dialog = page.getByRole('alertdialog', { name: 'Record refund' })
+      // Save stays disabled (and so cannot be hit-tested) until a reason is given.
+      await dialog.getByLabel('Reason *', { exact: true }).fill('E2E reachability check')
       return { submit: dialog.getByRole('button', { name: 'Save audited change', exact: true }) }
     },
   },
@@ -211,7 +232,7 @@ const SURFACES: readonly Surface[] = [
           await sheet.getByLabel('Invitee name', { exact: true }).fill(factory.uniqueName('reach-invitee'))
           await sheet.getByLabel(/^Mobile number/).fill('12345')
           await submit.tap()
-          return toastRegion(page).getByText('Login not created', { exact: true })
+          return toast(page, 'Login not created')
         },
       }
     },
@@ -234,8 +255,9 @@ const SURFACES: readonly Surface[] = [
         async invalid() {
           // Never a valid change: this must not touch the shared account's password.
           await sheet.getByLabel('Current password', { exact: true }).fill('not-the-password')
-          await sheet.getByLabel('New password', { exact: true }).fill('short')
-          await sheet.getByLabel('Confirm new password', { exact: true }).fill('different')
+          // Long enough for the browser's own checks; the mismatch is caught before any request.
+          await sheet.getByLabel('New password', { exact: true }).fill('Mismatch-Check-1')
+          await sheet.getByLabel('Confirm new password', { exact: true }).fill('Mismatch-Check-2')
           await submit.tap()
           return sheet.locator('p.text-destructive').first()
         },
@@ -248,6 +270,11 @@ for (const viewport of [PHONE_VIEWPORT, SMALL_PHONE_VIEWPORT]) {
   for (const surface of SURFACES) {
     test(`M-10 at ${viewport.width}×${viewport.height}, the ${surface.name} submit and its error are reachable above the bottom navigation`, async ({ page, factory }, testInfo) => {
       test.skip(surface.adminOnly === true && projectRole(testInfo) !== 'admin', 'admin-only surface')
+      if (viewport.width === SMALL_PHONE_VIEWPORT.width && surface.name.startsWith('billing entry')) {
+        // NEW-M10 (found by this package, no G-id yet): at 320 px the New Billing Entry dialog is
+        // about 350 px wide, so its Save button runs off the right edge of the screen.
+        test.fail(true, 'NEW-M10: the billing entry dialog is wider than a 320 px phone')
+      }
       const guards = phoneGuards(page)
       await page.setViewportSize(viewport)
       const open = await surface.open(page, factory)
@@ -292,19 +319,30 @@ test('M-11 a 60-character unbroken name and a long diagnosis do not make any scr
   const date = clinicDate(164)
   const appointment = await factory.createAppointment({ patientId: patient.id, date, time: '13:05', notes: unbroken })
 
-  const screens: { path: string; then?: (page: Page) => Promise<void> }[] = [
-    { path: `/patients/${patient.id}` },
-    { path: `/patients/${patient.id}`, then: (p) => p.getByRole('tab', { name: 'Plans', exact: true }).tap() },
-    { path: `/patients/${patient.id}/edit` },
-    { path: `/schedule/${appointment.id}` },
-    { path: `/schedule?date=${date}` },
-    { path: '/patients', then: async (p) => { await p.getByPlaceholder(/search/i).filter({ visible: true }).first().fill(unbroken) } },
+  const nameText = (p: Page) => p.getByText(new RegExp(unbroken)).filter({ visible: true }).first()
+  const screens: { path: string; ready: (page: Page) => Promise<void> }[] = [
+    { path: `/patients/${patient.id}`, ready: (p) => expect(nameText(p)).toBeVisible() },
+    {
+      path: `/patients/${patient.id}`,
+      async ready(p) {
+        await p.getByRole('tab', { name: 'Plans', exact: true }).tap()
+        await expect(p.getByText(/lumbosacralradiculopathy/).filter({ visible: true }).first()).toBeVisible()
+      },
+    },
+    { path: `/patients/${patient.id}/edit`, ready: (p) => expect(p.getByLabel('Name *', { exact: true })).toHaveValue(patient.name as string) },
+    { path: `/schedule/${appointment.id}`, ready: (p) => expect(nameText(p)).toBeVisible() },
+    { path: `/schedule?date=${date}`, ready: (p) => expect(nameText(p)).toBeVisible() },
+    {
+      path: '/patients',
+      async ready(p) {
+        await p.getByPlaceholder(/search/i).filter({ visible: true }).first().fill(unbroken)
+        await expect(nameText(p)).toBeVisible()
+      },
+    },
   ]
   for (const screen of screens) {
     await page.goto(screen.path)
-    await expect(page.getByText(new RegExp(unbroken)).filter({ visible: true }).first()).toBeVisible()
-    if (screen.then) await screen.then(page)
-    await expect(page.getByText(new RegExp(unbroken)).filter({ visible: true }).first()).toBeVisible()
+    await screen.ready(page)
     await expectNoHorizontalOverflow(page)
     await expectNoLeakedNulls(page)
   }

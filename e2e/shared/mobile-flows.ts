@@ -59,8 +59,13 @@ export type Flow = {
 
 export const BOOKINGS_PATH = '/api/appointments/bookings'
 
-export function toastRegion(page: Page): Locator {
-  return page.getByRole('region', { name: /^Notifications/ })
+/**
+ * A toast's title or description as the user sees it. Matched by text, not role: while a modal
+ * dialog is open Radix marks the rest of the page (the toast region included) aria-hidden, so a
+ * role query cannot see a toast raised from inside a dialog.
+ */
+export function toast(page: Page, text: string | RegExp): Locator {
+  return page.getByText(text, typeof text === 'string' ? { exact: true } : undefined).filter({ visible: true }).first()
 }
 
 /** Why a test does not run on this project, or null when it does (desktop never runs these). */
@@ -143,7 +148,7 @@ async function bookingFlow(page: Page, factory: E2EFactory, where: 'schedule' | 
     rows: async () => (await factory.findAppointments({ patientId: patient.id, notes })).length,
     async expectSaved() {
       await expect(dialog).toBeHidden()
-      await expect(toastRegion(page).getByText('Appointment booked', { exact: true })).toBeVisible()
+      await expect(toast(page, 'Appointment booked')).toBeVisible()
     },
   }
 }
@@ -183,7 +188,7 @@ async function sessionNotesFlow(page: Page, factory: E2EFactory): Promise<OpenFl
     },
     rows: async () => (await factory.findSessionNotes(appointment.id)).length,
     async expectSaved() {
-      await expect(toastRegion(page).getByText('Notes saved', { exact: true })).toBeVisible()
+      await expect(toast(page, 'Notes saved')).toBeVisible()
       await expect(dialog).toBeHidden()
       await expect(page.getByText(values.subjective, { exact: true })).toBeVisible()
     },
@@ -272,7 +277,7 @@ async function patientFlow(page: Page, factory: E2EFactory): Promise<OpenFlow> {
     rows: () => countRows('patients', 'name', values.name),
     async expectSaved() {
       await expect(page).toHaveURL(/\/patients$/)
-      await expect(toastRegion(page).getByText('Patient added', { exact: true })).toBeVisible()
+      await expect(toast(page, 'Patient added')).toBeVisible()
     },
   }
 }
@@ -317,7 +322,7 @@ async function paymentFlow(page: Page, factory: E2EFactory): Promise<OpenFlow> {
     rows: async () => (await factory.findPayments({ patientId: patient.id })).filter((row) => row.notes === notes).length,
     async expectSaved() {
       await expect(dialog).toBeHidden()
-      await expect(toastRegion(page).getByText('Payment recorded', { exact: true })).toBeVisible()
+      await expect(toast(page, 'Payment recorded')).toBeVisible()
     },
   }
 }

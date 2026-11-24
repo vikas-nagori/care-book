@@ -6,7 +6,7 @@
 // Desktop projects skip this whole file (the beforeEach below): it is about the phone app.
 // M-1, M-2 and M-6 also run on `mobile-ios` (iPhone, WebKit) through the @ios tag.
 
-import type { Browser, Locator, Page, TestInfo } from '@playwright/test'
+import type { Browser, BrowserContext, Locator, Page, Response, TestInfo } from '@playwright/test'
 
 import { SEED } from '../support/ids'
 import { clinicDate } from '../support/clinic-date'
@@ -34,6 +34,27 @@ function fullDateLabel(date: string) {
 }
 
 /** The appointment detail screen (its phone header title is plain text, not a heading). */
+
+/**
+ * The document response re-issued the session cookie, and the device now keeps it for its full
+ * 400-day life. Chromium reports each Set-Cookie as sent (Max-Age=34560000); WebKit may fold them
+ * into one header and drop attributes, so the stored cookie's expiry is checked on every engine.
+ */
+async function expectSessionRenewed(response: Response, context: BrowserContext) {
+  const issued = (await response.headersArray())
+    .filter(({ name }) => name.toLowerCase() === 'set-cookie')
+    .flatMap(({ value }) => value.split('\n'))
+    .filter((value) => /^sb-[^=]*-auth-token/.test(value))
+  expect(issued.length, 'the session cookie was not re-issued').toBeGreaterThan(0)
+  for (const cookie of issued) {
+    const maxAge = cookie.match(/Max-Age=(\d+)/i)
+    if (maxAge) expect(Number(maxAge[1])).toBe(34_560_000)
+  }
+  const stored = (await context.cookies()).filter((cookie) => /^sb-.*-auth-token/.test(cookie.name))
+  expect(stored.length).toBeGreaterThan(0)
+  for (const cookie of stored) expect(cookie.expires).toBeGreaterThan(Date.now() / 1000 + 399 * 86_400)
+}
+
 const appointmentLandmark = (page: Page) => page.getByText('Appointment', { exact: true }).filter({ visible: true }).first()
 
 const scheduleHeading = (page: Page) => page.getByRole('heading', { name: 'Schedule', exact: true }).filter({ visible: true })
@@ -290,11 +311,7 @@ for (const link of COLD_START_LINKS) {
       const requested = new URL(link.path, 'http://localhost')
       expect(new URL(page.url()).pathname).toBe(requested.pathname)
 
-      const session = (await response!.headersArray())
-        .filter(({ name, value }) => name.toLowerCase() === 'set-cookie' && /^sb-[^=]*-auth-token/.test(value))
-        .map(({ value }) => value)
-      expect(session.length, 'the session cookie was not re-issued').toBeGreaterThan(0)
-      for (const cookie of session) expect(cookie).toMatch(/Max-Age=34560000/i)
+      await expectSessionRenewed(response!, context)
       await guards.assertClean()
     } finally {
       await context.close()

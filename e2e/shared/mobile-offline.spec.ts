@@ -15,7 +15,7 @@ import {
   failNextServerAction,
 } from '../support/fault-injection'
 import { E2E_APP_VERSION, backgroundApp, expectInViewport, serveAppVersion } from '../support/mobile'
-import { BOOKINGS_PATH, FLOWS, openStatusFlow, phoneGuards, phoneSkipReason, toastRegion, type FlowId } from './mobile-flows'
+import { BOOKINGS_PATH, FLOWS, openStatusFlow, phoneGuards, phoneSkipReason, type FlowId } from './mobile-flows'
 
 test.use({ serviceWorkers: 'block' })
 
@@ -40,9 +40,8 @@ function offlineGuards(page: Page, allowCrashText?: readonly string[]) {
 
 /** The message as the user sees it: a toast, or the form's own inline alert. */
 function message(page: Page, text: string | RegExp) {
-  return toastRegion(page).getByText(text)
-    .or(page.getByRole('alert').filter({ hasText: text }))
-    .filter({ visible: true }).first()
+  // By text: a toast raised from inside a modal dialog is aria-hidden to role queries.
+  return page.getByText(text).filter({ visible: true }).first()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -122,6 +121,11 @@ test('M-7 with no signal, a booking is held for a check, keeps the input, and bo
 })
 
 test('M-7 a resume with no signal does not crash or sign out, and the screen catches up once back online', async ({ page, context, factory }) => {
+  // NEW-M7 (found by this package, no G-id yet): resume-refresh.tsx calls router.refresh() even
+  // when the version check failed for lack of signal; the RSC fetch fails, Next falls back to a
+  // full browser navigation, and with no signal the phone is left on a blank error page instead
+  // of the app it was showing.
+  test.fail(true, 'NEW-M7: a resume with no signal navigates away to the browser offline page')
   const guards = offlineGuards(page)
   const date = clinicDate(163)
   await page.clock.install()
