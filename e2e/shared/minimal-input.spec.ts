@@ -247,10 +247,9 @@ test('re-saving a name-only patient unchanged writes no age and leaves every opt
   await guards.assertClean()
 })
 
-// PA-3 (decision D4a). C-1: clearing the age today writes age_years = NULL but keeps the legacy
-// dob, so patientAge() falls back to the dob and the age comes straight back.
-test('C-1: clearing Age on a patient with a legacy date of birth removes the age and the date of birth', { tag: IOS_TAG }, async ({ page, factory, browser }, testInfo) => {
-  test.fail(true, 'C-1: clearing Age keeps the legacy dob, so the age is still shown')
+// PA-3 (decision D4a, change C-1): emptying Age deletes the legacy dob too, or patientAge() would
+// fall back to it and the age would come straight back.
+test('clearing Age on a patient with a legacy date of birth removes the age and the date of birth', { tag: IOS_TAG }, async ({ page, factory, browser }, testInfo) => {
   const guards = guardsFor(page)
   const dob = '1980-05-05'
   const patient = await factory.createPatient({ dob, phone: null })

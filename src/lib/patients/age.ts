@@ -1,7 +1,7 @@
 // Patient age in whole years.
 //
 // Patients carry two optional sources of age: the legacy `dob` (exact date of birth, never
-// rewritten) and `age_years` + `age_recorded_on` (an age typed on the patient form, plus the IST
+// rewritten except deleted when someone empties the Age field; see ageFieldsForSave) and `age_years` + `age_recorded_on` (an age typed on the patient form, plus the IST
 // day it was typed). An entered age wins and grows by the whole years elapsed since it was
 // recorded, so it stays right over time; otherwise the age comes from the date of birth.
 
@@ -68,21 +68,30 @@ export function parseAgeInput(raw: string | null | undefined): AgeInputResult {
   return { ok: true, age }
 }
 
+/** Columns an edit may write for the Age field. `dob` is only ever written as null (see below). */
+export type PatientAgeWrite = Partial<PatientAgeFields> & { dob?: null }
+
 /**
  * The age columns to write when a patient is saved with `age` in the form.
  *
  * Returns `{}` when the shown age did not change, so a date of birth keeps driving the age and an
- * earlier entry keeps its anniversary. The date of birth itself is never written.
+ * earlier entry keeps its anniversary. A corrected age is stored beside the date of birth, which
+ * stays untouched.
+ *
+ * The one exception (owner decision D4a, change C-1): an edit that empties an Age that was shown
+ * also deletes the date of birth, or patientAge() would fall back to it and the age would come
+ * straight back. A new patient never sends `dob`.
  */
 export function ageFieldsForSave(
   age: number | null,
   existing: PatientAgeSource | null,
   today: string = clinicToday(),
-): Partial<PatientAgeFields> {
+): PatientAgeWrite {
   if (existing && patientAge(existing, today) === age) return {}
-  return age === null
-    ? { age_years: null, age_recorded_on: null }
-    : { age_years: age, age_recorded_on: today }
+  if (age !== null) return { age_years: age, age_recorded_on: today }
+  return existing
+    ? { age_years: null, age_recorded_on: null, dob: null }
+    : { age_years: null, age_recorded_on: null }
 }
 
 export function formatAge(age: number): string {

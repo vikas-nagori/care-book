@@ -24,7 +24,7 @@ import { ReferralFields, useReferralSelection, type ReferralPatientOption } from
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
 import { requestErrorMessage } from '@/lib/actions/request-error-message'
-import { ageFieldsForSave, parseAgeInput, patientAge, type PatientAgeFields } from '@/lib/patients/age'
+import { ageFieldsForSave, parseAgeInput, patientAge, type PatientAgeWrite } from '@/lib/patients/age'
 import type { Doctor, Patient } from '@/lib/supabase/types'
 
 type PatientFormValues = {
@@ -39,8 +39,9 @@ type PatientFormValues = {
   referred_by_doctor_id: string | null
   referred_by_patient_id: string | null
   referral_other: string | null
-  // The legacy `dob` is never written: an edit that leaves the shown age alone omits these keys.
-} & Partial<PatientAgeFields>
+  // An edit that leaves the shown age alone omits these keys; the legacy `dob` is only ever written
+  // as null, when an edit empties the Age field (decision D4a).
+} & PatientAgeWrite
 
 export function PatientForm({
   patient,

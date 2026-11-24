@@ -378,6 +378,24 @@ describe('PatientForm age', () => {
     expect(payload).not.toHaveProperty('dob')
   })
 
+  it('deletes the stored date of birth when an edit empties the Age field (D4a)', async () => {
+    render(<PatientForm patient={existing({ dob: '1990-03-10' })} />)
+    fireEvent.change(screen.getByLabelText('Age (years)'), { target: { value: '' } })
+    fireEvent.submit(screen.getByLabelText('Name *').closest('form')!)
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledOnce())
+    expect(mocks.update.mock.calls[0][0]).toMatchObject({ dob: null, age_years: null, age_recorded_on: null })
+  })
+
+  it('leaves the date of birth alone when only another field changes', async () => {
+    render(<PatientForm patient={existing({ dob: '1990-03-10' })} />)
+    fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '9876500002' } })
+    fireEvent.submit(screen.getByLabelText('Name *').closest('form')!)
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledOnce())
+    expect(mocks.update.mock.calls[0][0]).not.toHaveProperty('dob')
+  })
+
   it('leaves the age blank for a patient with no age on record', () => {
     render(<PatientForm patient={existing({})} />)
     expect((screen.getByLabelText('Age (years)') as HTMLInputElement).value).toBe('')
