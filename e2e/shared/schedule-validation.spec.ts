@@ -52,8 +52,8 @@ async function openNewForm(page: Page, factory: E2EFactory) {
   const sharedType = await factory.findAppointmentType(true)
   await page.goto('/schedule/new')
   await expect(page.getByLabel('Patient *', { exact: true })).toBeVisible()
-  // Pick the type explicitly: /schedule/new does not preselect one (G-19, pinned below), and a
-  // submit without a type is refused for that before any other check runs.
+  // Pick the type explicitly: /schedule/new preselects the clinic's default type (G-19, below),
+  // which need not be the shared type these cases price and assign against.
   const form = new AppointmentForm(page, sharedType.name)
   await form.chooseType(sharedType.name)
   return form
@@ -63,11 +63,10 @@ function bookButton(page: Page) {
   return page.getByRole('button', { name: 'Book Appointment', exact: true })
 }
 
-test('G-19: /schedule/new preselects the default appointment type once the types load', async ({ page, factory }, testInfo) => {
-  // G-19 (new, found by S-8; needs its own fix): the form loads the clinic's types in the browser
-  // but leaves Type on "Select type", so Book is refused with "Appointment type required" until a
-  // type is picked by hand. The dashboard dialog, which passes the types in, does preselect one.
-  testInfo.fail(true, 'G-19: /schedule/new never preselects the default appointment type')
+test('G-19: /schedule/new preselects the default appointment type once the types load', async ({ page, factory }) => {
+  // G-19: the form loads the clinic's types in the browser. Setting the default in the same render
+  // that first mounted the options made Radix's hidden native <select> report '', which wiped the
+  // type back to "Select type". The dashboard dialog, which passes the types in, was unaffected.
   const guards = guardsFor(page)
   const sharedType = await factory.findAppointmentType(true)
   await page.goto('/schedule/new')

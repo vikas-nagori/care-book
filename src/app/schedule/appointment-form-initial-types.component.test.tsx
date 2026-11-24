@@ -99,6 +99,16 @@ describe('AppointmentForm initial appointment types', () => {
     )
   })
 
+  it('preselects the default type when the form loads the types itself (G-19, /schedule/new)', async () => {
+    mocks.order.mockResolvedValue({ data: staffSafeAppointmentTypes, error: null })
+    render(<AppointmentForm patients={[]} canViewPaymentSignals={false} />)
+
+    await waitFor(() => expect(mocks.from).toHaveBeenCalledWith('appointment_types'))
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Type' }).textContent).toContain('Clinic Visit')
+    })
+  })
+
   it('initializes the admin fee from a full default appointment type', async () => {
     render(
       <AppointmentForm

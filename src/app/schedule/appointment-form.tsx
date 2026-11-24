@@ -366,6 +366,10 @@ export function AppointmentForm({
 
   // Update assignment + fee when the selected type changes
   function handleTypeChange(typeId: string) {
+    // No type is ever offered with an empty id. Radix Select reports '' from its hidden native
+    // <select> when the value is set in the same render that first mounts the options (the
+    // types loaded in the browser on /schedule/new), which used to wipe the default type (G-19).
+    if (!typeId) return
     setAppointmentTypeId(typeId)
     feeTouched.current = false
     setFeeFromHistory(false)
