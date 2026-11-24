@@ -284,105 +284,118 @@ const BILLING: readonly ManifestEntry[] = [
 // ============================================================================================
 // BEGIN settings-auth (plan 5.4, branch test/e2e-settings-auth) — edit only inside this block
 // ============================================================================================
+const SA_SETTINGS = 'e2e/admin/settings.spec.ts'
+const SA_FAILURES = 'e2e/admin/settings-failures.spec.ts'
+const SA_MINIMAL = 'e2e/admin/settings-minimal-input.spec.ts'
+const SA_AUTH = 'e2e/public/auth-flows.spec.ts'
+const SA_AUTH_FAILURES = 'e2e/public/auth-failures.spec.ts'
+// Forms whose every input is required: the happy test already submits only required fields.
+const ALL_REQUIRED = { exempt: 'every input on this form is required; the happy test is the required-only submission' } as const
+// Buttons that send no user input (an id only), so there is no optional field to leave blank.
+const NO_INPUT = { exempt: 'no user-entered fields: the control sends only a record id' } as const
+
 const SETTINGS_AUTH: readonly ManifestEntry[] = [
   {
     id: 'src/app/settings/actions.ts#updateGlobalSettings@src/app/settings/settings-form.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'updates clinic and home-visit fees and restores the singleton setting'),
-    minimal: todo('settings-auth'),
-    // The Phase 0 proof of the fault helpers (plan F8) drives this exact call site.
-    failure: ref('e2e/admin/fault-injection-smoke.spec.ts', 'a tap on a stale build shows the update message, reloads and saves nothing'),
+    minimal: ALL_REQUIRED,
+    // The Phase 0 proof of the fault helpers (plan F8) drives this exact call site; SA-9 adds desktop.
+    failure: ref(SA_FAILURES, 'SA-9: an aborted Save Settings saves nothing and the retry works'),
   },
   {
     id: 'src/app/settings/actions.ts#createAppointmentType@src/app/settings/appointment-types-list.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'creates, edits, and deletes an appointment type'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: ALL_REQUIRED,
+    failure: ref(SA_FAILURES, 'SA-9: aborted appointment-type Save (add and edit) and Delete recover and the retries work'),
   },
   {
     id: 'src/app/settings/actions.ts#updateAppointmentType@src/app/settings/appointment-types-list.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'creates, edits, and deletes an appointment type'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: ALL_REQUIRED,
+    failure: ref(SA_FAILURES, 'SA-9: aborted appointment-type Save (add and edit) and Delete recover and the retries work'),
   },
   {
     id: 'src/app/settings/actions.ts#deleteAppointmentType@src/app/settings/appointment-types-list.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'creates, edits, and deletes an appointment type'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: NO_INPUT,
+    failure: ref(SA_FAILURES, 'SA-9: aborted appointment-type Save (add and edit) and Delete recover and the retries work'),
   },
   {
     id: 'src/app/settings/actions.ts#createPackageTemplate@src/app/settings/package-templates-list.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'creates, edits, and deletes a package template'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: ALL_REQUIRED,
+    failure: ref(SA_FAILURES, 'SA-9: aborted package-template Save (add and edit) and Delete recover and the retries work'),
   },
   {
     id: 'src/app/settings/actions.ts#updatePackageTemplate@src/app/settings/package-templates-list.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'creates, edits, and deletes a package template'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: ALL_REQUIRED,
+    failure: ref(SA_FAILURES, 'SA-9: aborted package-template Save (add and edit) and Delete recover and the retries work'),
   },
   {
     id: 'src/app/settings/actions.ts#deletePackageTemplate@src/app/settings/package-templates-list.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'creates, edits, and deletes a package template'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: NO_INPUT,
+    failure: ref(SA_FAILURES, 'SA-9: aborted package-template Save (add and edit) and Delete recover and the retries work'),
   },
   {
     id: 'src/app/settings/actions.ts#createUserInvite@src/app/settings/invite-form.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'invites a user with a temp password, re-issues it, revokes it, and re-invites'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: ref(SA_MINIMAL, 'SA-1: a mobile-only Staff invitee who has signed in renders cleanly in Settings, on the schedule and in the patient access picker'),
+    failure: ref(SA_FAILURES, 'SA-9: an aborted Create Login keeps the form, creates nothing, and the retry works'),
   },
   {
     id: 'src/app/settings/actions.ts#createUserInvite@src/app/settings/external-staff-list.tsx',
     kind: 'server-action',
-    happy: todo('settings-auth'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    happy: ref(SA_SETTINGS, 'SA-5: Temporary Staff → Create login needs an email, links the invite, and shows onboarded after first login'),
+    // The Temporary Staff row is factory-made with email and notes NULL; the row is leak-checked.
+    minimal: ref(SA_SETTINGS, 'SA-5: Temporary Staff → Create login needs an email, links the invite, and shows onboarded after first login'),
+    failure: ref(SA_FAILURES, 'SA-9: an aborted Temporary Staff Create login creates no invite and the retry works'),
   },
   {
     id: 'src/app/settings/actions.ts#createExternalStaff@src/app/settings/external-staff-list.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'creates temporary staff without sending an invite'),
     minimal: ref('e2e/admin/minimal-input.spec.ts', 'temporary staff added without an email renders in settings'),
-    failure: todo('settings-auth'),
+    failure: ref(SA_FAILURES, 'SA-9: an aborted Add Temporary Staff keeps the form, adds nothing, and the retry works'),
   },
   {
     id: 'src/app/settings/actions.ts#issueInviteTempPassword@src/app/settings/user-invites-list.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'invites a user with a temp password, re-issues it, revokes it, and re-invites'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: NO_INPUT,
+    failure: ref(SA_FAILURES, 'SA-9: an aborted New password leaves the invite alone and the retry issues one'),
   },
   {
     id: 'src/app/settings/actions.ts#revokeUserInvite@src/app/settings/user-invites-list.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'invites a user with a temp password, re-issues it, revokes it, and re-invites'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: NO_INPUT,
+    failure: ref(SA_FAILURES, 'SA-9: an aborted Revoke leaves the invite pending and the retry revokes it'),
   },
   {
     id: 'src/app/settings/actions.ts#changeOwnPassword@src/app/settings/change-password-form.tsx',
     kind: 'server-action',
     happy: ref('e2e/public/auth-flows.spec.ts', 'changes the password from Settings with current-password verification, no email involved'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    // An email-less account changes its password (re-verified through its mobile number).
+    minimal: ref(SA_MINIMAL, 'SA-2: an email-less Staff account reads "Not added yet", changes its password by mobile number and logs out'),
+    failure: ref(SA_FAILURES, 'SA-9: an aborted Change Password keeps the old password and the retry changes it'),
   },
   {
     id: 'src/app/settings/actions.ts#logoutFromSettings@src/app/settings/account-summary.tsx',
     kind: 'form-action',
-    happy: ref('e2e/public/auth-flows.spec.ts', 'changes the password from Settings with current-password verification, no email involved'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    happy: ref(SA_SETTINGS, 'SA-18: an admin logs out from Settings and protected routes then go to sign-in'),
+    minimal: ref(SA_MINIMAL, 'SA-2: an email-less Staff account reads "Not added yet", changes its password by mobile number and logs out'),
+    // Pinned with test.fail until G-15 (native form action outside callServerAction) is fixed.
+    failure: ref(SA_FAILURES, 'G-15 SA-18: a Logout whose request fails says so and leaves Settings usable'),
   },
   {
     id: 'src/app/settings/actions.ts#revokeConnectedMcpApp@src/app/settings/connected-apps.tsx',
@@ -409,43 +422,44 @@ const SETTINGS_AUTH: readonly ManifestEntry[] = [
     id: 'src/app/auth/change-password/actions.ts#completeForcedPasswordChange@src/app/auth/change-password/change-password-form.tsx',
     kind: 'server-action',
     happy: ref('e2e/admin/settings.spec.ts', 'an invited user signs in with the temp password and must set their own'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    // The mobile-only (email-less) invitee completes the forced change, then every screen is leak-checked.
+    minimal: ref(SA_MINIMAL, 'SA-1: a mobile-only Staff invitee who has signed in renders cleanly in Settings, on the schedule and in the patient access picker'),
+    failure: ref(SA_AUTH_FAILURES, 'SA-13: Save New Password with no answer says so, keeps the temporary password, and the retry sets it'),
   },
   {
     id: 'src/app/auth/complete-invite/actions.ts#completeInvitedSignup@src/app/auth/complete-invite/complete-invite-form.tsx',
     kind: 'server-action',
     happy: ref('e2e/public/auth-flows.spec.ts', 'completes a real pending invite and signs in with the new password'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: ALL_REQUIRED,
+    failure: ref(SA_AUTH_FAILURES, 'SA-13: Finish Sign-Up with no answer says so, keeps the invite pending, and the retry completes it'),
   },
   {
     id: 'src/app/clinic-onboarding/actions.ts#createClinicOnboardingRequest@src/app/clinic-onboarding/clinic-onboarding-form.tsx',
     kind: 'server-action',
     happy: ref('e2e/public/auth-flows.spec.ts', 'submits a representative clinic onboarding request'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: ref(SA_AUTH, 'SA-14: a clinic request with clinic phone and address left blank stores both as NULL'),
+    failure: ref(SA_AUTH_FAILURES, 'SA-13: Submit Request with no answer says so, saves nothing, and the retry submits it'),
   },
   {
     id: 'supabase:auth.signInWithPassword@src/app/login/page.tsx',
     kind: 'supabase',
     happy: ref('e2e/public/auth-flows.spec.ts', 'shows invalid login and accepts valid credentials for a disposable local user'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: ALL_REQUIRED,
+    failure: ref(SA_AUTH_FAILURES, 'SA-13: Sign In with no answer from Auth says so, re-enables, and the retry signs in'),
   },
   {
     id: 'supabase:auth.resetPasswordForEmail@src/app/login/page.tsx',
     kind: 'supabase',
     happy: ref('e2e/public/auth-flows.spec.ts', 'requests a password reset through the real login UI'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: ALL_REQUIRED,
+    failure: ref(SA_AUTH_FAILURES, 'SA-13: Send Reset Link with no answer from Auth says so, re-enables, and the retry sends it'),
   },
   {
     id: 'supabase:auth.updateUser@src/app/auth/update-password/update-password-form.tsx',
     kind: 'supabase',
     happy: ref('e2e/public/auth-flows.spec.ts', 'updates a password through a real local recovery action link'),
-    minimal: todo('settings-auth'),
-    failure: todo('settings-auth'),
+    minimal: ALL_REQUIRED,
+    failure: ref(SA_AUTH_FAILURES, 'SA-13: Update Password with no answer from Auth says so, re-enables, and the retry saves it'),
   },
 ]
 // END settings-auth ===========================================================================

@@ -1,8 +1,11 @@
-import type { Browser } from '@playwright/test'
-import { SettingsView } from '../pages/settings-view'
+import type { Browser, Page } from '@playwright/test'
+import { SettingsView, formatMobile } from '../pages/settings-view'
 import { CLINIC_A } from '../support/accounts'
-import { attachErrorGuards } from '../support/assertions'
-import { test, expect } from '../support/factories'
+import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
+import { test, expect, type E2EFactory } from '../support/factories'
+import { expectFailureMessage } from '../support/fault-injection'
+import { isMobileProject, stubShare } from '../support/mobile'
+import { assertResponsiveClinicNavigation } from '../support/nav'
 
 function stablePhone(token: string): string {
   let hash = 0
@@ -100,11 +103,13 @@ test('creates temporary staff without sending an invite', async ({ page, factory
   await guards.assertClean()
 })
 
-async function signInAs(browser: Browser, mobileNumber: string, password: string) {
+async function signInAs(browser: Browser, mobileNumber: string, password: string, options: { skipTour?: boolean } = {}) {
   // `browser.newContext()` inherits the project's storageState (the admin session), so the
   // invitee's context must start explicitly signed out.
   const context = await browser.newContext({ storageState: { cookies: [], origins: [] } })
   const page = await context.newPage()
+  // A first sign-in opens the guided tour, a modal that hides the app from assistive tech.
+  if (options.skipTour) await page.addInitScript(() => window.localStorage.setItem('care-book:guided-tour-seen', 'true'))
   await page.goto('http://localhost:3000/login')
   // Invitees sign in with the mobile number the admin entered — the login the invite creates.
   await page.getByLabel('Mobile number', { exact: true }).fill(mobileNumber)
@@ -358,4 +363,240 @@ test('shares a patient with a pending External Staff invitee, who sees it after 
   await expect(external.page.getByRole('button', { name: new RegExp(patient.name as string) }).filter({ visible: true })).toBeVisible()
   await external.context.close()
   await guards.assertClean()
+})
+
+// ---------------------------------------------------------------------------------------------
+// Plan 5.4 (settings and auth). Every account whose password or session changes here is a
+// throwaway factory user signed in on its own browser context: Logout revokes *every* session of
+// the user (Supabase's default global scope), so the seeded shared sessions are never used for it.
+// ---------------------------------------------------------------------------------------------
+
+/** First sign-in with a temporary password: the forced change page, then the app. */
+async function completeFirstLogin(page: Page, newPassword: string) {
+  await page.waitForURL('**/auth/change-password', { timeout: 15_000 })
+  await page.getByLabel('New password', { exact: true }).fill(newPassword)
+  await page.getByLabel('Confirm new password', { exact: true }).fill(newPassword)
+  // Enter, not a click: success replaces the route while the button is disabled.
+  await page.getByLabel('Confirm new password', { exact: true }).press('Enter')
+  await page.waitForURL((url) => !url.pathname.startsWith('/auth/') && !url.pathname.startsWith('/login'), { timeout: 15_000 })
+}
+
+test('SA-5: Temporary Staff → Create login needs an email, links the invite, and shows onboarded after first login', async ({ page, browser, factory }) => {
+  const guards = attachErrorGuards(page)
+  const staff = await factory.createExternalStaff()
+  const email = factory.uniqueEmail('temp-login')
+  factory.watchUiInvite(email)
+
+  await page.goto('/settings')
+  const settings = new SettingsView(page)
+
+  // Blank email: refused before any request, button usable, no invite.
+  const button = await settings.createLoginForTemporaryStaff(staff.name)
+  await expectFailureMessage(page, 'Enter an email address before creating a login.')
+  await expect(button).toBeEnabled()
+  await expect(button).toHaveAccessibleName('Create login')
+  expect(await factory.findInviteByMobile(staff.phone)).toBeNull()
+
+  // A valid email creates the login, linked to this Temporary Staff row.
+  await settings.createLoginForTemporaryStaff(staff.name, { email })
+  const tempPassword = await settings.takeTempPassword()
+  const invite = await factory.findInviteByEmail(email)
+  expect(invite).toMatchObject({
+    email,
+    role: 'staff',
+    status: 'pending',
+    external_staff_id: staff.id,
+    full_name: staff.name,
+    mobile_number: staff.phone,
+  })
+  expect(invite!.auth_user_id).not.toBeNull()
+  await settings.openSection('Temporary Staff')
+  await expect(settings.temporaryStaffRow(staff.name).getByText('invite pending', { exact: true })).toBeVisible()
+  await expect(settings.createLoginForTemporaryStaffButton(staff.name)).toHaveCount(0)
+
+  // First sign-in with the temporary password onboards the Temporary Staff row.
+  const invitee = await signInAs(browser, staff.phone, tempPassword)
+  const inviteeGuards = attachErrorGuards(invitee.page)
+  await completeFirstLogin(invitee.page, `E2e-${factory.token}-T3mp`)
+  await inviteeGuards.assertClean()
+  await invitee.context.close()
+
+  await expect.poll(async () => (await factory.findExternalStaff({ name: staff.name, phone: staff.phone }))?.status).toBe('onboarded')
+  expect(await factory.findExternalStaff({ name: staff.name, phone: staff.phone })).toMatchObject({ linked_profile_id: invite!.auth_user_id })
+  await page.reload()
+  await settings.openSection('Temporary Staff')
+  const row = settings.temporaryStaffRow(staff.name)
+  await expect(row.getByText('onboarded', { exact: true })).toBeVisible()
+  await expect(row.getByText('Linked to user', { exact: true })).toBeVisible()
+  await expectNoLeakedNulls(page, { scope: settings.sectionScope('Temporary Staff') })
+  await guards.assertClean()
+})
+
+test('SA-5: Temporary Staff with a +91-formatted phone → Create login re-enables and says why', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const mobile = factory.uniqueMobile()
+  const staff = await factory.createExternalStaff({ phone: `+91 ${formatMobile(mobile)}` })
+  const email = factory.uniqueEmail('temp-login-plus91')
+  factory.watchUiInvite(email)
+
+  await page.goto('/settings')
+  const settings = new SettingsView(page)
+  const button = await settings.createLoginForTemporaryStaff(staff.name, { email })
+  await expectFailureMessage(page, 'Enter your 10-digit mobile number, without +91 or 0.')
+  await expect(button).toBeEnabled()
+  await expect(button).toHaveAccessibleName('Create login')
+  expect(await factory.findInviteByEmail(email)).toBeNull()
+  await guards.assertClean()
+})
+
+// G-8: Temporary Staff → Create login dead-ends when the stored phone is not a bare 10-digit
+// number: the message asks for "your" number, but there is no field to edit it, so the admin can
+// never create this login. The fixed app creates the login (normalising the number) or lets the
+// admin correct it. Remove test.fail when G-8 is fixed.
+test.fail('G-8 SA-5: Temporary Staff with a +91-formatted phone can still be given a login', async ({ page, factory }) => {
+  const mobile = factory.uniqueMobile()
+  const staff = await factory.createExternalStaff({ phone: `+91 ${formatMobile(mobile)}` })
+  const email = factory.uniqueEmail('temp-login-g8')
+  factory.watchUiInvite(email)
+  factory.watchUiMobileInvite(mobile)
+
+  await page.goto('/settings')
+  const settings = new SettingsView(page)
+  await settings.createLoginForTemporaryStaff(staff.name, { email })
+  await settings.takeTempPassword()
+  expect(await factory.findInviteByEmail(email)).toMatchObject({ mobile_number: mobile, external_staff_id: staff.id })
+})
+
+test('SA-6: an Admin invited by mobile only signs in, sets a password and gets the admin workspace', async ({ page, browser, factory }) => {
+  const guards = attachErrorGuards(page)
+  const name = factory.uniqueName('mobile-only-admin')
+  const phone = factory.uniqueMobile()
+  factory.watchUiMobileInvite(phone)
+
+  await page.goto('/settings')
+  const settings = new SettingsView(page)
+  const tempPassword = await settings.inviteUser({ name, phone, role: 'Admin' })
+  const invite = await factory.findInviteByMobile(phone)
+  expect(invite).toMatchObject({ email: null, role: 'admin', status: 'pending', full_name: name })
+
+  const invitee = await signInAs(browser, phone, tempPassword, { skipTour: true })
+  const inviteeGuards = attachErrorGuards(invitee.page)
+  await completeFirstLogin(invitee.page, `E2e-${factory.token}-Adm1n`)
+  await expect(invitee.page).toHaveURL('http://localhost:3000/')
+  await assertResponsiveClinicNavigation(invitee.page, 'admin')
+  await expectNoLeakedNulls(invitee.page)
+  await inviteeGuards.assertClean()
+  await invitee.context.close()
+
+  await expect.poll(async () => (await factory.findInviteByMobile(phone))?.status).toBe('accepted')
+  expect(await factory.findProfileById(invite!.auth_user_id!)).toMatchObject({
+    role: 'admin', clinic_id: CLINIC_A.id, email: null, full_name: name, mobile_number: phone,
+  })
+  await guards.assertClean()
+})
+
+test('SA-7: Copy login details puts the mobile number and password on the clipboard', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  const name = factory.uniqueName('copy-login')
+  const phone = factory.uniqueMobile()
+  factory.watchUiMobileInvite(phone)
+
+  await page.goto('/settings')
+  const settings = new SettingsView(page)
+  await settings.submitInvite({ name, phone })
+  const password = await settings.takeTempPassword({ keepOpen: true })
+  const dialog = settings.tempPasswordDialog()
+  await dialog.getByRole('button', { name: 'Copy login details', exact: true }).click()
+  await expect(dialog.getByRole('status')).toHaveText('Login details copied — paste them into WhatsApp or a text message.')
+  await expect(dialog.getByRole('button', { name: 'Copied', exact: true })).toBeVisible()
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText())
+  expect(clipboard).toContain(`Mobile number: ${formatMobile(phone)}`)
+  expect(clipboard).toContain(`Temporary password: ${password}`)
+  expect(clipboard).toContain('http://localhost:3000/login')
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await guards.assertClean()
+})
+
+test('SA-7: on a phone the login details go out through the share sheet', async ({ page, factory }, testInfo) => {
+  testInfo.skip(!isMobileProject(testInfo), 'the native share sheet is the phone hand-over')
+  const guards = attachErrorGuards(page)
+  const share = await stubShare(page)
+  const name = factory.uniqueName('share-login')
+  const phone = factory.uniqueMobile()
+  factory.watchUiMobileInvite(phone)
+
+  await page.goto('/settings')
+  const settings = new SettingsView(page)
+  await settings.submitInvite({ name, phone })
+  const password = await settings.takeTempPassword({ keepOpen: true })
+  const dialog = settings.tempPasswordDialog()
+  await dialog.getByRole('button', { name: 'Share login', exact: true }).tap()
+  await expect(dialog.getByRole('status')).toHaveText('Login details shared.')
+  const calls = await share.calls()
+  expect(calls).toHaveLength(1)
+  expect(calls[0].title).toBe('Care-Book login')
+  expect(calls[0].text).toContain(`Mobile number: ${formatMobile(phone)}`)
+  expect(calls[0].text).toContain(`Temporary password: ${password}`)
+  await dialog.getByRole('button', { name: 'Done', exact: true }).tap()
+  await expect(dialog).toBeHidden()
+  await guards.assertClean()
+})
+
+test('SA-7: on a phone a dismissed share sheet is not an error and the details can still be copied', async ({ page, factory }, testInfo) => {
+  testInfo.skip(!isMobileProject(testInfo), 'the native share sheet is the phone hand-over')
+  const guards = attachErrorGuards(page)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  const share = await stubShare(page, { reject: true })
+  const name = factory.uniqueName('share-dismissed')
+  const phone = factory.uniqueMobile()
+  factory.watchUiMobileInvite(phone)
+
+  await page.goto('/settings')
+  const settings = new SettingsView(page)
+  await settings.submitInvite({ name, phone })
+  const password = await settings.takeTempPassword({ keepOpen: true })
+  const dialog = settings.tempPasswordDialog()
+  await dialog.getByRole('button', { name: 'Share login', exact: true }).tap()
+  await expect.poll(async () => (await share.calls()).length).toBe(1)
+  // Dismissing the sheet is a choice, not a failure: no error, no "shared", the sheet stays usable.
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await expect(dialog.getByRole('status')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: /^Notifications/ }).locator('li').filter({ hasText: /fail|error|wrong|couldn/i })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Copy login details', exact: true }).tap()
+  await expect(dialog.getByRole('status')).toHaveText('Login details copied — paste them into WhatsApp or a text message.')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(`Temporary password: ${password}`)
+  await guards.assertClean()
+})
+
+async function logoutFromSettingsAs(browser: Browser, factory: E2EFactory, role: 'admin' | 'staff') {
+  const user = await factory.createAuthUser({ clinicId: CLINIC_A.id, role })
+  const session = await signInAs(browser, user.mobileNumber, user.password)
+  const guards = attachErrorGuards(session.page)
+  await session.page.waitForURL('http://localhost:3000/')
+  await session.page.goto('/settings')
+  const settings = new SettingsView(session.page)
+  const logout = await settings.logoutButton()
+  await logout.click()
+  await session.page.waitForURL('**/login**', { timeout: 15_000 })
+
+  // The session is gone: protected routes bounce to sign-in, carrying where they were going.
+  await session.page.goto('/schedule')
+  await expect.poll(() => new URL(session.page.url()).pathname).toBe('/login')
+  expect(new URL(session.page.url()).searchParams.get('next')).toBe('/schedule')
+  await expect(session.page.getByRole('button', { name: 'Sign In', exact: true })).toBeVisible()
+  await session.page.goto('/settings')
+  await expect.poll(() => new URL(session.page.url()).pathname).toBe('/login')
+  await guards.assertClean()
+  await session.context.close()
+}
+
+test('SA-18: an admin logs out from Settings and protected routes then go to sign-in', async ({ browser, factory }) => {
+  await logoutFromSettingsAs(browser, factory, 'admin')
+})
+
+test('SA-18: a staff member logs out from Settings and protected routes then go to sign-in', async ({ browser, factory }) => {
+  await logoutFromSettingsAs(browser, factory, 'staff')
 })
