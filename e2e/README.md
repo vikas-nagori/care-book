@@ -221,3 +221,12 @@ details.
   registered auth IDs. Approval watchers use the unique request email/name and invite email to
   recover partially-created clinic/settings/type/invite/auth artifacts. Service-role find helpers
   both verify persistence and track returned mutable rows. Never update or delete fixed `SEED` rows.
+
+## Minimal-input coverage
+
+Every spec used to fill every field, so nothing ever stored a NULL in an optional column. That is how a mobile-only invite (no email) reached production and crashed `/settings` on 2026-11-24.
+
+- Page objects (`e2e/pages/*`) fill an optional field **only when the spec passes it**. Omitting a field leaves it blank, as a user would.
+- `e2e/shared/minimal-input.spec.ts` (admin + staff) and `e2e/admin/minimal-input.spec.ts` submit each form with required fields only. They then visit every screen that renders the record.
+- `expectNoLeakedNulls(page)` (`support/assertions.ts`) fails on visible `null`/`undefined`/`NaN` text and on `tel:null`-style links. `attachErrorGuards` catches the crashes.
+- A new optional field or newly nullable column needs a blank case here. The Supabase clients are untyped, so `tsc` will not flag a `.trim()` on the new NULL.
