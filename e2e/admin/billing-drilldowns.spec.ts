@@ -3,8 +3,15 @@
 // accordion per date and paginates over whole dates; and a package opens a detail page showing the
 // dates its sessions were taken. Data is built per-test with the factory.
 
+import {
+  BillingEntryForm,
+  openBillingTab,
+  openPatientBillingTab,
+  paymentActionButton,
+  revealAllRows,
+} from '../pages/billing-entry-form'
 import { CLINIC_A } from '../support/accounts'
-import { attachErrorGuards } from '../support/assertions'
+import { attachErrorGuards, expectNoLeakedNulls } from '../support/assertions'
 import { expandDateGroup } from '../support/date-groups'
 import { clinicDate } from '../support/clinic-date'
 import { test, expect } from '../support/factories'
@@ -132,3 +139,85 @@ function clinicDateLabel(offset: number): string {
   const monthName = new Date(Date.UTC(year, month - 1, day)).toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })
   return `${String(day).padStart(2, '0')} ${monthName} ${year}`
 }
+
+// B-4. A package session whose appointment was deleted keeps its ledger row (the FK is
+// `on delete set null`); the history must name it, not print "null". A completed session with a
+// NULL fee (legacy row) bills ₹0 on the billed drill-down.
+test('a package session whose appointment was deleted reads "Deleted appointment", and a NULL-fee session bills ₹0', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient({ phone: null })
+  const pkg = await factory.createPackage({
+    patientId: patient.id,
+    name: factory.uniqueName('deleted-session-package'),
+    total_sessions: 4,
+    total_amount: 3200,
+    per_session_amount: 800,
+    paid_amount: 3200,
+    payment_timing: 'prepaid',
+  })
+  const appointment = await factory.createAppointment({
+    patientId: patient.id, date: clinicDate(-2), time: '08:45', fee: 800, status: 'completed', payment_status: 'unpaid',
+  })
+  // The billing trigger availed the session against the prepaid package.
+  await page.goto(`/billing/packages/${pkg.id}`)
+  await expect(page.getByRole('heading', { name: 'Session history · 1' })).toBeVisible()
+
+  await factory.deleteAppointmentHard(appointment.id)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Session history · 1' })).toBeVisible()
+  await expect(page.getByText(`Deleted appointment · ${appointment.id}`, { exact: true })).toBeVisible()
+  await expectNoLeakedNulls(page)
+
+  const legacy = await factory.createPatient({ phone: null })
+  await factory.createAppointment({
+    patientId: legacy.id, date: clinicDate(), time: '07:25', fee: null, status: 'completed', payment_status: 'unpaid',
+  })
+  await page.goto('/billing/metrics/billed-this-month')
+  await expandDateGroup(page.getByTestId('date-group-header').filter({ hasText: dayLabel() }).first())
+  const row = page.getByTestId('date-group-list').locator('div').filter({ hasText: legacy.name as string }).filter({ hasText: '₹' }).last()
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('₹0')
+  await expectNoLeakedNulls(page)
+  await guards.assertClean()
+})
+
+// B-19. The patient's Billing tab folds a long payment history behind "Show all N payments", and a
+// payment cancelled through the audited UI reads "· voided" there and "Cancelled" on /billing.
+test('a patient with 21 payments folds them behind "Show all", and a voided payment reads voided and Cancelled', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient({ phone: null })
+  const name = patient.name as string
+  await factory.createPayments(20, { patientId: patient.id, startDayOffset: -400 })
+  await factory.createPayment({ patientId: patient.id, amount: 1234, date: clinicDate() })
+
+  await openPatientBillingTab(page, patient.id)
+  const cards = page.getByText(/^₹(750|1,234)$/).filter({ visible: true })
+  const toggle = page.getByRole('button', { name: /^(Show all 21 payments|Show less)$/ })
+  await expect(toggle).toHaveAccessibleName('Show all 21 payments')
+  await expect(cards).toHaveCount(20)
+  await toggle.click()
+  await expect(toggle).toHaveAccessibleName('Show less')
+  await expect(cards).toHaveCount(21)
+  await expectNoLeakedNulls(page)
+  await toggle.click()
+  await expect(cards).toHaveCount(20)
+
+  // Cancel the ₹1,234 receipt with only the required reason.
+  await page.goto('/billing?tab=payments')
+  await new BillingEntryForm(page).voidPayment(name, 1234)
+  await expect(paymentActionButton(page, 'Cancel', name, 1234)).toHaveCount(0)
+  await openBillingTab(page, 'Payments')
+  await revealAllRows(page)
+  // The row this viewport shows (the desktop grid or the phone twin).
+  const voidedRow = page.locator('div').filter({ visible: true })
+    .filter({ hasText: name }).filter({ hasText: '₹1,234' }).filter({ hasText: 'Cancelled' }).last()
+  await expect(voidedRow).toBeVisible()
+  await expectNoLeakedNulls(page)
+
+  await openPatientBillingTab(page, patient.id)
+  const voidedCard = page.locator('div').filter({ has: page.getByText('₹1,234', { exact: true }) }).filter({ hasText: '· voided' }).last()
+  await expect(voidedCard).toBeVisible()
+  await expect(page.getByText(/· voided$/).filter({ visible: true })).toHaveCount(1)
+  await expectNoLeakedNulls(page)
+  await guards.assertClean()
+})

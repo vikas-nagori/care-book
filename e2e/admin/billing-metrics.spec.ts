@@ -5,10 +5,12 @@
 // only assert that the two types we created are present, never exact clinic-wide totals.
 
 import { BillingEntryForm } from '../pages/billing-entry-form'
-import { attachErrorGuards } from '../support/assertions'
+import { CLINIC_A } from '../support/accounts'
+import { attachErrorGuards, gotoNotFoundRoute } from '../support/assertions'
 import { collapseDateGroup, expandDateGroup } from '../support/date-groups'
 import { clinicDate } from '../support/clinic-date'
 import { test, expect } from '../support/factories'
+import { adminClient } from '../support/supabase-admin'
 
 test('Billed drill-down shows a per-appointment-type breakdown strip', async ({ page, factory }) => {
   const guards = attachErrorGuards(page)
@@ -309,8 +311,11 @@ test('Monthly billed trend compares a month with the one before, per appointment
   await guards.assertClean()
 })
 
+// The server reads the real clock, so the clinic date cannot be frozen from the browser. Instead of
+// skipping on the 1st (plan B-18), each day asserts what that day must show: from the 2nd the
+// till-date view drops today's session; on the 1st no day has finished, so the comparison is not
+// offered and the full month still counts today's session.
 test('Billed till date leaves out today, counting finished days only', async ({ page, factory }) => {
-  test.skip(clinicDate().endsWith('-01'), 'no finished day on the 1st')
   const guards = attachErrorGuards(page)
   const patient = await factory.createPatient()
   const todaysFee = 777
@@ -326,6 +331,14 @@ test('Billed till date leaves out today, counting finished days only', async ({ 
   await page.goto('/billing/metrics/billed-last-month')
   // Full month: the current month includes today's session.
   const fullCurrent = await panelAmount(page)
+  expect(fullCurrent).toBeGreaterThanOrEqual(todaysFee)
+
+  if (clinicDate().endsWith('-01')) {
+    await expect(page.getByText('From the 2nd, Billed till date compares it with last month.', { exact: false })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Compare billed till date' })).toHaveCount(0)
+    await guards.assertClean()
+    return
+  }
 
   await page.getByRole('button', { name: 'Compare billed till date' }).click()
   await expect(page.getByRole('combobox', { name: 'Trend range' })).toContainText('Billed till date')
@@ -336,6 +349,38 @@ test('Billed till date leaves out today, counting finished days only', async ({ 
   await expect(page.getByText(/the last finished day, so months compare like for like\.$/)).toBeVisible()
 
   await guards.assertClean()
+})
+
+// B-18. Pagination runs over whole dates; a page past the end lands on the last real page, and a
+// slug that is not a metric is not found.
+test('a page past the end redirects to the last page, and an unknown metric is not found', async ({ page, factory }) => {
+  const guards = attachErrorGuards(page)
+  const patient = await factory.createPatient()
+  // 16 distinct dates in the clinic month (days 01–16 always exist) guarantee a second page.
+  const month = clinicDate().slice(0, 8)
+  const { error } = await adminClient().from('payments').insert(Array.from({ length: 16 }, (_, i) => ({
+    clinic_id: CLINIC_A.id,
+    patient_id: patient.id as string,
+    amount: 200 + i,
+    payment_method: 'upi',
+    date: `${month}${String(i + 1).padStart(2, '0')}`,
+    notes: factory.uniqueName('page-past-end'),
+  })))
+  expect(error).toBeNull()
+
+  await page.goto('/billing/metrics/received-this-month?page=999')
+  // The page streams behind loading.tsx, so the redirect lands after the first paint.
+  await expect(page).toHaveURL(/\/billing\/metrics\/received-this-month\?page=(?!999$)\d+$/)
+  const lastPage = Number(new URL(page.url()).searchParams.get('page'))
+  expect(lastPage).toBeGreaterThanOrEqual(2)
+  expect(lastPage).toBeLessThan(999)
+  const nav = page.getByRole('navigation', { name: 'Received pages' })
+  await expect(nav.locator('[aria-current="page"]')).toHaveText(String(lastPage))
+  await expect(nav.getByRole('button', { name: 'Next', exact: true })).toBeDisabled()
+  await expect(page.getByTestId('date-group-header').first()).toBeVisible()
+  await guards.assertClean()
+
+  await gotoNotFoundRoute(page, '/billing/metrics/not-a-metric')
 })
 
 /** The "Total billed · this month" tile on the billing overview, as a number. */
