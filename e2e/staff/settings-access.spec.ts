@@ -188,7 +188,8 @@ test('C-4 SA-17: signed-in staff opening /auth/update-password directly are sent
   const guards = attachErrorGuards(page)
 
   await page.goto('/auth/update-password')
-  expect(new URL(page.url()).pathname).toBe('/settings')
+  // The root loading.tsx streams first, so the redirect lands in the browser: wait for it.
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/settings')
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
   await expect(page.getByLabel('Current password', { exact: true }).or(page.getByRole('button', { name: /^Your Account/ })).first()).toBeVisible()
   await expect(page.getByText('Reset your password', { exact: true })).toHaveCount(0)
@@ -207,7 +208,8 @@ test('C-4 SA-17: signed-in External Staff opening /auth/update-password directly
   await expect(page).toHaveURL(/\/external$/)
 
   await page.goto('/auth/update-password')
-  expect(new URL(page.url()).pathname).toBe('/external/account')
+  // The root loading.tsx streams first, so the redirect lands in the browser: wait for it.
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/external/account')
   await expect(page.getByRole('heading', { name: 'Your account', exact: true })).toBeVisible()
   await expect(page.getByText('Reset your password', { exact: true })).toHaveCount(0)
   await expectNoLeakedNulls(page)
@@ -220,7 +222,8 @@ test('C-4 SA-17: a signed-in platform admin opening /auth/update-password direct
   const page = await context.newPage()
 
   await page.goto('/auth/update-password')
-  expect(new URL(page.url()).pathname).toBe('/platform')
+  // The root loading.tsx streams first, so the redirect lands in the browser: wait for it.
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/platform')
   await expect(page.getByText('Superadmin console', { exact: true })).toBeVisible()
   await expect(page.getByText('Reset your password', { exact: true })).toHaveCount(0)
   await context.close()
