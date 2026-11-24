@@ -30,10 +30,12 @@ function database(role = 'staff', accountStatus = 'active', clinicStatus = 'acti
     from(table: string) {
       let inserted: Record<string, unknown>[] | undefined
       const filters = new Map<string, unknown>()
+      const exclusions = new Map<string, unknown>()
       const query = {
         select() { return query },
         eq(key: string, value: unknown) { filters.set(key, value); return query },
         in(key: string, value: unknown) { filters.set(key, value); return query },
+        neq(key: string, value: unknown) { exclusions.set(key, value); return query },
         insert(value: Record<string, unknown> | Record<string, unknown>[]) { inserted = Array.isArray(value) ? value : [value]; return query },
         maybeSingle() { return query },
         single() { return query },
@@ -50,6 +52,7 @@ function database(role = 'staff', accountStatus = 'active', clinicStatus = 'acti
           for (const [key, value] of filters) {
             selected = selected.filter(row => Array.isArray(value) ? value.includes(row[key]) : row[key] === value)
           }
+          for (const [key, value] of exclusions) selected = selected.filter(row => row[key] !== value)
           return Promise.resolve({ data: selected, error: null }).then(resolve)
         },
       }
@@ -76,6 +79,23 @@ describe('authenticated independent booking endpoints', () => {
     const confirmed = await status(request())
     expect(await confirmed.json()).toEqual(result)
     expect(db.writes).toHaveLength(1)
+  })
+
+  it('refuses a second booking of the same slot with 409, but not once the first was cancelled (D4b)', async () => {
+    const db = database()
+    mocks.createClient.mockResolvedValue(db.client)
+    expect((await POST(request())).status).toBe(200)
+    const again = { ...body(), correlationId: '12345678-1234-4234-8234-123456789013' }
+    const refused = await POST(request(again))
+    expect(refused.status).toBe(409)
+    expect((await refused.json()).errorCode).toBe('APPOINTMENT_CONFLICT')
+
+    db.rows[0].status = 'cancelled'
+    const rebooked = await POST(request(again))
+    expect(rebooked.status).toBe(200)
+    expect(db.rows).toHaveLength(2)
+    expect(db.rows[0].status).toBe('cancelled')
+    expect(db.rows[1].status).not.toBe('cancelled')
   })
 
   it('rejects anonymous, blocked, inactive-clinic and unsupported-role requests without writes', async () => {

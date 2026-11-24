@@ -21,6 +21,8 @@ export function createBookingStore(supabase: SupabaseClient, clinicId: string): 
     },
     async findConflicts(patientId, time, dates) {
       return await supabase.from('appointments').select('id,date').eq('clinic_id', clinicId).eq('patient_id', patientId).eq('time', time).in('date', dates)
+        // A cancelled appointment no longer holds its slot (decision D4b, as External Staff booking).
+        .neq('status', 'cancelled')
     },
     async insertAppointments(rows) {
       return await supabase.from('appointments').insert(rows).select('id')
