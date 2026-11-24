@@ -23,8 +23,8 @@ import {
 import { ReferralFields, useReferralSelection, type ReferralPatientOption } from '@/components/referral/referral-fields'
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
-import { requestErrorMessage } from '@/lib/actions/request-error-message'
-import { ageFieldsForSave, parseAgeInput, patientAge, type PatientAgeFields } from '@/lib/patients/age'
+import { isNetworkError, requestErrorMessage } from '@/lib/actions/request-error-message'
+import { ageFieldsForSave, parseAgeInput, patientAge, type PatientAgeWrite } from '@/lib/patients/age'
 import type { Doctor, Patient } from '@/lib/supabase/types'
 
 type PatientFormValues = {
@@ -39,8 +39,9 @@ type PatientFormValues = {
   referred_by_doctor_id: string | null
   referred_by_patient_id: string | null
   referral_other: string | null
-  // The legacy `dob` is never written: an edit that leaves the shown age alone omits these keys.
-} & Partial<PatientAgeFields>
+  // An edit that leaves the shown age alone omits these keys; the legacy `dob` is only ever written
+  // as null, when an edit empties the Age field (decision D4a).
+} & PatientAgeWrite
 
 export function PatientForm({
   patient,
@@ -75,6 +76,14 @@ export function PatientForm({
     other: patient?.referral_other,
   })
 
+  // A failed request: say it in plain words, never `TypeError: Failed to fetch` (G-12). No signal
+  // is the phone's condition, not an app fault, so it is logged as a warning and not reported.
+  function reportSaveFailure(context: string, error: unknown) {
+    if (isNetworkError(error)) logger.warn(context, error, { patientId: patient?.id })
+    else logger.error(context, error, { patientId: patient?.id })
+    toast({ title: 'Error', description: requestErrorMessage(error, 'Unable to save patient. Please try again.'), variant: 'destructive' })
+  }
+
   // Persist the patient (insert on create, update on edit) and navigate on success.
   async function savePatient(data: PatientFormValues) {
     if (savingRef.current) return
@@ -82,16 +91,26 @@ export function PatientForm({
 
     try {
       let error
+      let updatedRows: unknown[] | null = null
       if (patient) {
-        ({ error } = await supabase.from('patients').update(data).eq('id', patient.id))
+        // Read back the id: an update that matches no row (the patient was deleted meanwhile)
+        // returns no error, only an empty list (G-3).
+        ({ data: updatedRows, error } = await supabase.from('patients').update(data).eq('id', patient.id).select('id'))
       } else {
         ({ error } = await supabase.from('patients').insert(data))
       }
 
+      if (!error && patient && updatedRows?.length === 0) {
+        toast({
+          title: 'Patient not saved',
+          description: 'This patient no longer exists. It may have been deleted by someone else.',
+          variant: 'destructive',
+        })
+        return
+      }
+
       if (error) {
-        logger.error('PatientForm/save', error, { patientId: patient?.id })
-        // A dropped connection comes back as `TypeError: Failed to fetch`; say it in plain words (G-12).
-        toast({ title: 'Error', description: requestErrorMessage(error, 'Unable to save patient. Please try again.'), variant: 'destructive' })
+        reportSaveFailure('PatientForm/save', error)
         return
       }
 
@@ -146,10 +165,17 @@ export function PatientForm({
       // RLS scopes the lookup to the current clinic; shared family numbers are still
       // allowed via "Add anyway".
       if (!patient && data.phone) {
-        const { data: dupes } = await supabase
+        const { data: dupes, error: dupesError } = await supabase
           .from('patients')
           .select('id, name')
           .eq('phone', data.phone)
+
+        // Without the check there is no warning; stop rather than insert a duplicate unseen.
+        if (dupesError) {
+          reportSaveFailure('PatientForm/duplicateCheck', dupesError)
+          setLoading(false)
+          return
+        }
 
         if (dupes && dupes.length > 0) {
           setDuplicateNames(dupes.map((d) => d.name))
@@ -177,11 +203,15 @@ export function PatientForm({
     setLoading(false)
   }
 
-  async function confirmDuplicate() {
+  async function confirmDuplicate(event: React.MouseEvent) {
+    // Close the dialog ourselves: Radix's own close would call onOpenChange(false) →
+    // cancelDuplicate(), which clears `loading` while the insert is still in flight (G-17a).
+    event.preventDefault()
     const data = pendingData
     setPendingData(null)
     setDuplicateNames([])
     if (data) await savePatient(data)
+    else setLoading(false)
   }
 
   return (

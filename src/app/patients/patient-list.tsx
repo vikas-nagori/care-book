@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { Loader2, Plus } from 'lucide-react'
 import { PatientListHeader, PatientRows, PatientSearchBar } from '@/components/patients/patient-rows'
 import { createClient } from '@/lib/supabase/client'
@@ -13,7 +14,20 @@ import type { Patient } from '@/lib/supabase/types'
 /** Most matches we render for one term; beyond this the caller should refine the search. */
 const SEARCH_LIMIT = 50
 const SEARCH_DEBOUNCE_MS = 250
+const SEARCH_PARAM = 'q'
 
+/**
+ * Record the search in the current history entry's URL without a navigation or server request.
+ * Next.js syncs native replaceState with useSearchParams, and back to this entry restores it.
+ */
+function rememberSearch(search: string) {
+  const url = new URL(window.location.href)
+  const value = search.trim() ? search : null
+  if (url.searchParams.get(SEARCH_PARAM) === value) return
+  if (value === null) url.searchParams.delete(SEARCH_PARAM)
+  else url.searchParams.set(SEARCH_PARAM, value)
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+}
 
 interface PatientListProps {
   initialPatients: Patient[]
@@ -22,7 +36,9 @@ interface PatientListProps {
 }
 
 export function PatientList({ initialPatients, totalCount, pageSize }: PatientListProps) {
-  const [search, setSearch] = useState('')
+  // The search lives in the URL (?q=) so back from a patient returns to the same results (G-23).
+  const searchParams = useSearchParams()
+  const [search, setSearch] = useState(() => searchParams.get(SEARCH_PARAM) ?? '')
   const [patients, setPatients] = useState<Patient[]>(initialPatients)
   const [loadingMore, setLoadingMore] = useState(false)
   const { toast } = useToast()
@@ -42,12 +58,15 @@ export function PatientList({ initialPatients, totalCount, pageSize }: PatientLi
       setMatches(null)
       setSearching(false)
       setSearchFailed(false)
+      rememberSearch('')
       return
     }
 
     setSearching(true)
     const controller = new AbortController()
     const timer = setTimeout(async () => {
+      // Debounced with the query, so typing does not rewrite the URL on every keystroke.
+      rememberSearch(search)
       const supabase = createClient()
       const { data, error } = await supabase
         .from('patients')

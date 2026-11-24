@@ -247,10 +247,9 @@ test('re-saving a name-only patient unchanged writes no age and leaves every opt
   await guards.assertClean()
 })
 
-// PA-3 (decision D4a). C-1: clearing the age today writes age_years = NULL but keeps the legacy
-// dob, so patientAge() falls back to the dob and the age comes straight back.
-test('C-1: clearing Age on a patient with a legacy date of birth removes the age and the date of birth', { tag: IOS_TAG }, async ({ page, factory, browser }, testInfo) => {
-  test.fail(true, 'C-1: clearing Age keeps the legacy dob, so the age is still shown')
+// PA-3 (decision D4a, change C-1): emptying Age deletes the legacy dob too, or patientAge() would
+// fall back to it and the age would come straight back.
+test('clearing Age on a patient with a legacy date of birth removes the age and the date of birth', { tag: IOS_TAG }, async ({ page, factory, browser }, testInfo) => {
   const guards = guardsFor(page)
   const dob = '1980-05-05'
   const patient = await factory.createPatient({ dob, phone: null })
@@ -349,11 +348,9 @@ test('a patient referred by a doctor with no specialty or address renders and sa
   await guards.assertClean()
 })
 
-// PA-4. G-13: the referral picker demands a referrer before the form may save, so a patient whose
-// referring patient or doctor was deleted (source kept, id set NULL) cannot be edited at all
-// until the source is changed.
-test('G-13: a patient whose referrer was deleted renders and can still be saved', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
-  test.fail(true, 'G-13: a dangling referral blocks every save of the patient')
+// PA-4 (G-13): a patient whose referring patient or doctor was deleted (source kept, id set NULL)
+// stays editable; the dangling referral is saved as it is unless the user picks another.
+test('a patient whose referrer was deleted renders and can still be saved', { tag: IOS_TAG }, async ({ page, factory }, testInfo) => {
   const guards = guardsFor(page)
   const dangling = [
     await factory.createPatient({ phone: null, referral_source: 'patient', referred_by_patient_id: null }),

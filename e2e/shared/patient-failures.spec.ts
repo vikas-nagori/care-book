@@ -169,7 +169,14 @@ async function openEdit(page: Page, factory: E2EFactory) {
   await page.goto(`/patients/${patient.id}/edit`)
   const form = new PatientForm(page)
   await expect(page.locator('input#name')).toHaveValue(patient.name)
-  await page.getByLabel('Notes', { exact: true }).fill(notes)
+  // The form is server-rendered, so the name check passes before React hydrates it. Hydrating the
+  // Notes textarea rewrites its defaultValue, which collapses a fill's select-all to the start:
+  // the new text then lands in front of the old ("…notes after…notes before"). Type only once
+  // React owns the node; it runs initTextarea in the same step that attaches its fiber.
+  const notesField = page.getByLabel('Notes', { exact: true })
+  await expect.poll(() => notesField.evaluate((el) => Object.keys(el).some((key) => key.startsWith('__reactFiber$')))).toBe(true)
+  await notesField.fill(notes)
+  await expect(notesField).toHaveValue(notes)
   return { patient, notes, form }
 }
 
@@ -232,10 +239,9 @@ test('PA-12 a held patient update shows Saving…, sends nothing twice and saves
 
 // ---- PA-13: the record is gone ----------------------------------------------------------------
 
-// G-3: the update matches zero rows, Supabase reports no error, and the form says "Patient
+// G-3: the update matches zero rows and Supabase reports no error; the form must not say "Patient
 // updated" for a patient that no longer exists.
-test('G-3: updating a patient deleted meanwhile shows an error instead of "Patient updated"', async ({ page, factory }) => {
-  test.fail(true, 'G-3: a zero-row patient update reports success')
+test('PA-13 updating a patient deleted meanwhile shows an error instead of "Patient updated"', async ({ page, factory }) => {
   const guards = guardsFor(page, 'rest/v1/patients')
   const { patient, form } = await openEdit(page, factory)
   await factory.deletePatientHard(patient.id)

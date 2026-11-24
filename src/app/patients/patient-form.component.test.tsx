@@ -7,9 +7,12 @@ const mocks = vi.hoisted(() => ({
   insert: vi.fn(),
   update: vi.fn(),
   updateEq: vi.fn(),
+  updateSelect: vi.fn(),
+  dupeEq: vi.fn(),
   from: vi.fn(),
   toast: vi.fn(),
   loggerError: vi.fn(),
+  loggerWarn: vi.fn(),
   referralSource: '' as '' | 'walk_in' | 'doctor' | 'google' | 'patient' | 'other',
   resolveReferral: vi.fn(),
 }))
@@ -33,6 +36,7 @@ vi.mock('@/hooks/use-toast', () => ({
 vi.mock('@/lib/logger', () => ({
   logger: {
     error: mocks.loggerError,
+    warn: mocks.loggerWarn,
   },
 }))
 
@@ -284,7 +288,8 @@ describe('PatientForm age', () => {
     mocks.referralSource = ''
     mocks.resolveReferral.mockResolvedValue(noReferral)
     mocks.insert.mockResolvedValue({ error: null })
-    mocks.updateEq.mockResolvedValue({ error: null })
+    mocks.updateSelect.mockResolvedValue({ data: [{ id: 'patient-1' }], error: null })
+    mocks.updateEq.mockReturnValue({ select: mocks.updateSelect })
     mocks.update.mockReturnValue({ eq: mocks.updateEq })
     mocks.from.mockImplementation(() => ({ insert: mocks.insert, update: mocks.update }))
   })
@@ -378,8 +383,124 @@ describe('PatientForm age', () => {
     expect(payload).not.toHaveProperty('dob')
   })
 
+  it('deletes the stored date of birth when an edit empties the Age field (D4a)', async () => {
+    render(<PatientForm patient={existing({ dob: '1990-03-10' })} />)
+    fireEvent.change(screen.getByLabelText('Age (years)'), { target: { value: '' } })
+    fireEvent.submit(screen.getByLabelText('Name *').closest('form')!)
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledOnce())
+    expect(mocks.update.mock.calls[0][0]).toMatchObject({ dob: null, age_years: null, age_recorded_on: null })
+  })
+
+  it('leaves the date of birth alone when only another field changes', async () => {
+    render(<PatientForm patient={existing({ dob: '1990-03-10' })} />)
+    fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '9876500002' } })
+    fireEvent.submit(screen.getByLabelText('Name *').closest('form')!)
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledOnce())
+    expect(mocks.update.mock.calls[0][0]).not.toHaveProperty('dob')
+  })
+
   it('leaves the age blank for a patient with no age on record', () => {
     render(<PatientForm patient={existing({})} />)
     expect((screen.getByLabelText('Age (years)') as HTMLInputElement).value).toBe('')
+  })
+})
+
+describe('PatientForm edit of a patient deleted meanwhile (G-3)', () => {
+  beforeEach(() => {
+    mocks.referralSource = ''
+    mocks.resolveReferral.mockResolvedValue(noReferral)
+    mocks.updateEq.mockReturnValue({ select: mocks.updateSelect })
+    mocks.update.mockReturnValue({ eq: mocks.updateEq })
+    mocks.from.mockImplementation(() => ({ update: mocks.update }))
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  const patient = {
+    id: 'patient-gone', name: 'Gone Patient', phone: null, email: null, dob: null, age_years: null,
+    age_recorded_on: null, gender: null, address: null, medical_history: null, notes: null,
+    referral_source: null, referred_by_doctor_id: null, referred_by_patient_id: null, referral_other: null,
+  } as unknown as Patient
+
+  it('says the patient no longer exists when the update matched no row, and stays on the form', async () => {
+    mocks.updateSelect.mockResolvedValueOnce({ data: [], error: null })
+    render(<PatientForm patient={patient} />)
+    fireEvent.submit(screen.getByLabelText('Name *').closest('form')!)
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Patient not saved',
+      description: expect.stringMatching(/no longer exists/),
+      variant: 'destructive',
+    })))
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Patient updated' }))
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.updateSelect).toHaveBeenCalledWith('id')
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Update Patient' }) as HTMLButtonElement).disabled).toBe(false))
+  })
+
+  it('reports success when the update matched the row', async () => {
+    mocks.updateSelect.mockResolvedValueOnce({ data: [{ id: 'patient-gone' }], error: null })
+    render(<PatientForm patient={patient} />)
+    fireEvent.submit(screen.getByLabelText('Name *').closest('form')!)
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith({ title: 'Patient updated' }))
+    expect(mocks.push).toHaveBeenCalledWith('/patients')
+  })
+})
+
+describe('PatientForm duplicate phone', () => {
+  beforeEach(() => {
+    mocks.referralSource = ''
+    mocks.resolveReferral.mockResolvedValue(noReferral)
+    mocks.dupeEq.mockResolvedValue({ data: [{ id: 'p-existing', name: 'Existing Person' }], error: null })
+    mocks.from.mockImplementation(() => ({ insert: mocks.insert, select: () => ({ eq: mocks.dupeEq }) }))
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  function submitWithPhone() {
+    render(<PatientForm />)
+    fireEvent.change(screen.getByLabelText('Name *'), { target: { value: 'Second Person' } })
+    fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '9876500009' } })
+    fireEvent.submit(screen.getByLabelText('Name *').closest('form')!)
+  }
+
+  it('keeps the submit button on Saving… while the "Add anyway" insert is in flight (G-17a)', async () => {
+    let finishInsert: (value: { error: null }) => void = () => {}
+    mocks.insert.mockReturnValueOnce(new Promise((resolve) => { finishInsert = resolve }))
+    submitWithPhone()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add anyway' }))
+    await waitFor(() => expect(mocks.insert).toHaveBeenCalledOnce())
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    const saving = screen.getByRole('button', { name: /Saving/ }) as HTMLButtonElement
+    expect(saving.disabled).toBe(true)
+
+    finishInsert({ error: null })
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/patients'))
+  })
+
+  it('stops with a plain-language message when the duplicate check cannot reach the server (G-12)', async () => {
+    mocks.dupeEq.mockResolvedValueOnce({ data: null, error: { message: 'TypeError: Failed to fetch', status: 0 } })
+    submitWithPhone()
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Error',
+      description: NETWORK_ERROR_MESSAGE,
+      variant: 'destructive',
+    })))
+    expect(mocks.insert).not.toHaveBeenCalled()
+    // No signal is not an app fault: a warning, not an error report.
+    expect(mocks.loggerWarn).toHaveBeenCalledWith('PatientForm/duplicateCheck', expect.anything(), { patientId: undefined })
+    expect(mocks.loggerError).not.toHaveBeenCalled()
+    expect((screen.getByRole('button', { name: 'Add Patient' }) as HTMLButtonElement).disabled).toBe(false)
   })
 })

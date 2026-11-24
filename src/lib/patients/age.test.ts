@@ -101,7 +101,20 @@ test('ageFieldsForSave records a changed age and never touches the date of birth
 })
 
 test('ageFieldsForSave clears an entered age when the field is blanked', () => {
-  assert.deepEqual(ageFieldsForSave(null, { age_years: 40, age_recorded_on: '2025-06-01' }, '2026-11-24'), { age_years: null, age_recorded_on: null })
+  assert.deepEqual(
+    ageFieldsForSave(null, { age_years: 40, age_recorded_on: '2025-06-01' }, '2026-11-24'),
+    { age_years: null, age_recorded_on: null, dob: null },
+  )
+})
+
+test('ageFieldsForSave deletes a legacy date of birth when an edit empties the Age field (D4a)', () => {
+  const cleared = { age_years: null, age_recorded_on: null, dob: null }
+  assert.deepEqual(ageFieldsForSave(null, { dob: '1990-03-10' }, '2026-11-24'), cleared)
+  assert.deepEqual(ageFieldsForSave(null, { dob: '1990-03-10', age_years: 50, age_recorded_on: '2026-01-01' }, '2026-11-24'), cleared)
+  // Nothing to clear when no age was shown: an untouched blank field writes nothing.
+  assert.deepEqual(ageFieldsForSave(null, { dob: null, age_years: null, age_recorded_on: null }, '2026-11-24'), {})
+  // A new patient never sends dob.
+  assert.equal('dob' in ageFieldsForSave(null, null, '2026-11-24'), false)
 })
 
 test('formatAge reads naturally for one year and for many', () => {
