@@ -169,7 +169,14 @@ async function openEdit(page: Page, factory: E2EFactory) {
   await page.goto(`/patients/${patient.id}/edit`)
   const form = new PatientForm(page)
   await expect(page.locator('input#name')).toHaveValue(patient.name)
-  await page.getByLabel('Notes', { exact: true }).fill(notes)
+  // The form is server-rendered, so the name check passes before React hydrates it. Hydrating the
+  // Notes textarea rewrites its defaultValue, which collapses a fill's select-all to the start:
+  // the new text then lands in front of the old ("…notes after…notes before"). Type only once
+  // React owns the node; it runs initTextarea in the same step that attaches its fiber.
+  const notesField = page.getByLabel('Notes', { exact: true })
+  await expect.poll(() => notesField.evaluate((el) => Object.keys(el).some((key) => key.startsWith('__reactFiber$')))).toBe(true)
+  await notesField.fill(notes)
+  await expect(notesField).toHaveValue(notes)
   return { patient, notes, form }
 }
 
