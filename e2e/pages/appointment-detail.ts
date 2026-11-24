@@ -11,7 +11,8 @@ export class AppointmentDetail {
 
   async goto(appointmentId: string): Promise<void> {
     await this.page.goto(`/schedule/${appointmentId}`)
-    await expect(this.page.getByText('Status:', { exact: true })).toBeVisible()
+    // WebKit can briefly hold the streamed page twice while it swaps in the server render.
+    await expect(this.page.getByText('Status:', { exact: true }).filter({ visible: true }).first()).toBeVisible()
   }
 
   /** The status select on the summary card (it has no label; it is the only combobox showing a status). */
