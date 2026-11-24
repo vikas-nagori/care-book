@@ -1,5 +1,6 @@
 'use client'
 
+import { requestErrorMessage } from '@/lib/actions/request-error-message'
 import { Suspense, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -78,7 +79,7 @@ function LoginPageContent() {
     })
     setLoading(false)
     if (error) {
-      setError(error.message)
+      setError(requestErrorMessage(error, 'Unable to send the reset link.'))
     } else {
       setResetSent(true)
     }

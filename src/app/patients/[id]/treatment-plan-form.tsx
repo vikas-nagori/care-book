@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
+import { requestErrorMessage } from '@/lib/actions/request-error-message'
 import type { TreatmentPlan } from '@/lib/supabase/types'
 
 interface Props {
@@ -45,7 +46,7 @@ export function TreatmentPlanForm({ patientId, defaultDate, plan, onSuccess }: P
     }
 
     if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      toast({ title: 'Plan not saved', description: requestErrorMessage(error, 'Unable to save the plan.'), variant: 'destructive' })
       setLoading(false)
     } else {
       toast({ title: plan ? 'Plan updated' : 'Plan created' })

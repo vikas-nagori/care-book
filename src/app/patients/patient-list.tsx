@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { Loader2, Plus } from 'lucide-react'
 import { PatientListHeader, PatientRows, PatientSearchBar } from '@/components/patients/patient-rows'
 import { createClient } from '@/lib/supabase/client'
+import { useToast } from '@/hooks/use-toast'
+import { requestErrorMessage } from '@/lib/actions/request-error-message'
 import { buildPatientSearchFilter, normalizePatientSearchTerm } from '@/lib/patients/patient-search-filter'
 import type { Patient } from '@/lib/supabase/types'
 
@@ -23,6 +25,7 @@ export function PatientList({ initialPatients, totalCount, pageSize }: PatientLi
   const [search, setSearch] = useState('')
   const [patients, setPatients] = useState<Patient[]>(initialPatients)
   const [loadingMore, setLoadingMore] = useState(false)
+  const { toast } = useToast()
   const [matches, setMatches] = useState<Patient[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [searchFailed, setSearchFailed] = useState(false)
@@ -80,14 +83,20 @@ export function PatientList({ initialPatients, totalCount, pageSize }: PatientLi
 
   async function loadMore() {
     setLoadingMore(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('patients')
-      .select('*')
-      .order('name')
-      .range(patients.length, patients.length + pageSize - 1)
-    if (data) setPatients((prev) => [...prev, ...data])
-    setLoadingMore(false)
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('patients')
+        .select('*')
+        .order('name')
+        .range(patients.length, patients.length + pageSize - 1)
+      if (error) throw error
+      if (data) setPatients((prev) => [...prev, ...data])
+    } catch (error) {
+      toast({ title: "Couldn't load more patients", description: requestErrorMessage(error), variant: 'destructive' })
+    } finally {
+      setLoadingMore(false)
+    }
   }
 
   const hasMore = patients.length < totalCount

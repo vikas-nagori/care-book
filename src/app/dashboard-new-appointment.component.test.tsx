@@ -9,7 +9,9 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
 }))
 
-vi.mock('next/navigation', () => ({
+vi.mock('next/navigation', async (importOriginal) => ({
+  // Keep the real unstable_* helpers: callServerAction uses them to classify a rejected action.
+  ...(await importOriginal<typeof import('next/navigation')>()),
   useRouter: () => ({ refresh: mocks.refresh }),
 }))
 

@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -21,6 +22,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useToast } from '@/hooks/use-toast'
+import { requestErrorMessage } from '@/lib/actions/request-error-message'
 import { createClient } from '@/lib/supabase/client'
 import {
   buildBillingTimelineItems,
@@ -208,12 +210,12 @@ export function BillingView({
     if (!pendingAction || !actionReason.trim()) return
     setSavingAction(true)
     const result = pendingAction.kind === 'void_payment'
-      ? await voidPayment(pendingAction.id, actionReason)
+      ? await callServerAction(() => voidPayment(pendingAction.id, actionReason))
       : pendingAction.kind === 'cancel_package'
-        ? await cancelPackage(pendingAction.id, actionReason)
+        ? await callServerAction(() => cancelPackage(pendingAction.id, actionReason))
         : pendingAction.kind === 'void_refund'
-          ? await voidRefund(pendingAction.id, actionReason)
-          : await recordRefund({ paymentId: pendingAction.id, amount: Number(refundAmount), refundMethod, refundDate, reason: actionReason })
+          ? await callServerAction(() => voidRefund(pendingAction.id, actionReason))
+          : await callServerAction(() => recordRefund({ paymentId: pendingAction.id, amount: Number(refundAmount), refundMethod, refundDate, reason: actionReason }))
     setSavingAction(false)
 
     if (!result.success) {
@@ -236,49 +238,62 @@ export function BillingView({
 
   async function loadMorePayments() {
     setLoadingMorePayments(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('payments')
-      .select('*, patient:patients(id, name), package:packages(id, name)')
-      .order('date', { ascending: false })
-      .range(payments.length, payments.length + pageSize - 1)
-    if (data) {
-      const nextPayments = data as BillingTimelinePayment[]
-      setPayments((prev) => [...prev, ...nextPayments])
-      const paymentIds = nextPayments.map((payment) => payment.id)
-      if (paymentIds.length > 0) {
-        // The server sends linked-session counts only for the first page; fetch this page's too.
-        const { data: applications } = await fetchAllRows<{ payment_id: string }>((from, to) =>
-          supabase.from('payment_applications').select('payment_id').eq('status', 'active')
-            .in('payment_id', paymentIds).order('id').range(from, to),
-        )
-        setLinkedSessionCounts((prev) => ({ ...prev, ...Object.fromEntries(paymentIds.map((id) => [id, 0])), ...countLinkedSessions(applications) }))
-        const { data: nextRefunds } = await supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason').in('payment_id', paymentIds)
-        const refundIds = (nextRefunds ?? []).map((refund) => refund.id)
-        const { data: reversals } = refundIds.length > 0
-          ? await supabase.from('refund_reversals').select('refund_id').in('refund_id', refundIds)
-          : { data: [] }
-        const reversedIds = new Set((reversals ?? []).map((reversal) => reversal.refund_id))
-        setRefundRows((prev) => {
-          const byId = new Map(prev.map((refund) => [refund.id, refund]))
-          for (const refund of nextRefunds ?? []) byId.set(refund.id, { ...refund, amount: Number(refund.amount), reversed: reversedIds.has(refund.id) })
-          return [...byId.values()]
-        })
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('payments')
+        .select('*, patient:patients(id, name), package:packages(id, name)')
+        .order('date', { ascending: false })
+        .range(payments.length, payments.length + pageSize - 1)
+      if (error) throw error
+      if (data) {
+        const nextPayments = data as BillingTimelinePayment[]
+        setPayments((prev) => [...prev, ...nextPayments])
+        const paymentIds = nextPayments.map((payment) => payment.id)
+        if (paymentIds.length > 0) {
+          // The server sends linked-session counts only for the first page; fetch this page's too.
+          const { data: applications } = await fetchAllRows<{ payment_id: string }>((from, to) =>
+            supabase.from('payment_applications').select('payment_id').eq('status', 'active')
+              .in('payment_id', paymentIds).order('id').range(from, to),
+          )
+          setLinkedSessionCounts((prev) => ({ ...prev, ...Object.fromEntries(paymentIds.map((id) => [id, 0])), ...countLinkedSessions(applications) }))
+          const { data: nextRefunds } = await supabase.from('refunds').select('id, payment_id, amount, refund_method, refund_date, reason').in('payment_id', paymentIds)
+          const refundIds = (nextRefunds ?? []).map((refund) => refund.id)
+          const { data: reversals } = refundIds.length > 0
+            ? await supabase.from('refund_reversals').select('refund_id').in('refund_id', refundIds)
+            : { data: [] }
+          const reversedIds = new Set((reversals ?? []).map((reversal) => reversal.refund_id))
+          setRefundRows((prev) => {
+            const byId = new Map(prev.map((refund) => [refund.id, refund]))
+            for (const refund of nextRefunds ?? []) byId.set(refund.id, { ...refund, amount: Number(refund.amount), reversed: reversedIds.has(refund.id) })
+            return [...byId.values()]
+          })
+        }
       }
+    } catch (error) {
+      // fetchAllRows throws at its row cap and the reads can fail: never leave "Loading…" stuck.
+      toast({ title: "Couldn't load more payments", description: requestErrorMessage(error), variant: 'destructive' })
+    } finally {
+      setLoadingMorePayments(false)
     }
-    setLoadingMorePayments(false)
   }
 
   async function loadMorePackages() {
     setLoadingMorePackages(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('packages')
-      .select('*, patient:patients(id, name)')
-      .order('created_at', { ascending: false })
-      .range(packages.length, packages.length + pageSize - 1)
-    if (data) setPackages((prev) => [...prev, ...(data as BillingTimelinePackage[])])
-    setLoadingMorePackages(false)
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('packages')
+        .select('*, patient:patients(id, name)')
+        .order('created_at', { ascending: false })
+        .range(packages.length, packages.length + pageSize - 1)
+      if (error) throw error
+      if (data) setPackages((prev) => [...prev, ...(data as BillingTimelinePackage[])])
+    } catch (error) {
+      toast({ title: "Couldn't load more packages", description: requestErrorMessage(error), variant: 'destructive' })
+    } finally {
+      setLoadingMorePackages(false)
+    }
   }
 
   const paymentDueTotal = paymentDueRows.reduce((total, row) => total + row.totalDue, 0)

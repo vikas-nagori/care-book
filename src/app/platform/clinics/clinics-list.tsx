@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -21,8 +22,8 @@ export function ClinicsList({ clinics }: ClinicsListProps) {
     const isBlocked = clinic.status === 'inactive'
     setBusyId(clinic.id)
     const result = isBlocked
-      ? await unblockClinic({ clinicId: clinic.id })
-      : await blockClinic({ clinicId: clinic.id })
+      ? await callServerAction(() => unblockClinic({ clinicId: clinic.id }))
+      : await callServerAction(() => blockClinic({ clinicId: clinic.id }))
     setBusyId(null)
 
     toast({

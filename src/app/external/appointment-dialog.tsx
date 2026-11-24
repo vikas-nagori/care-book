@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useId, useRef, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -46,9 +47,11 @@ export function ExternalAppointmentDialog({ appointment, types, minDate, timeZon
     setPending(true)
     setMessage('')
     try {
-      const result = await updateExternalAppointment(request)
+      const result = await callServerAction(() => updateExternalAppointment(request), {
+        failureMessage: 'Unable to confirm this change. Refresh to check whether it was saved.',
+      })
       if (result.success) onSaved(success, date)
-      else if (result.accessDenied) onDenied()
+      else if ('accessDenied' in result && result.accessDenied) onDenied()
       else setMessage(result.message)
     } catch {
       setMessage('Unable to confirm this change. Refresh to check whether it was saved.')

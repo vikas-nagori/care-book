@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import Link from 'next/link'
@@ -97,7 +98,7 @@ export function PatientDetail({
   const confirmDeletePatient = async () => {
     if (!canConfirmDelete) return
     setDeleting(true)
-    const result = await deletePatient(patient.id)
+    const result = await callServerAction(() => deletePatient(patient.id))
     if (!result.success) {
       setDeleting(false)
       toast({

@@ -1,3 +1,4 @@
+import { requestErrorMessage } from '../actions/request-error-message.ts'
 import { MOBILE_NUMBER_INVALID_MESSAGE, normalizeMobileNumber, toAuthPhone } from './mobile-number.ts'
 
 export type SignInMethod = 'mobile' | 'email'
@@ -37,5 +38,5 @@ export function getSignInErrorMessage(
   if (error.code === 'phone_not_confirmed') {
     return 'This mobile number is not confirmed yet. Ask your clinic admin for a new temporary password.'
   }
-  return error.message
+  return requestErrorMessage(error, 'Unable to sign in.')
 }

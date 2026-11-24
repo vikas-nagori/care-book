@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useRef, useState } from 'react'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -67,10 +68,10 @@ export function CompleteInviteForm({ email }: Props) {
     }
 
     setLoading(true)
-    const result = await completeInvitedSignup({
+    const result = await callServerAction(() => completeInvitedSignup({
       password,
       passwordConfirmation,
-    })
+    }))
 
     if (!result.success) {
       const targetField = getInviteCompletionFieldErrorTarget(result.errorCode)

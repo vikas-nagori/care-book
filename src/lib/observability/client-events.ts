@@ -1,7 +1,7 @@
 const OPERATIONS = [
   'PatientForm/save', 'PatientForm/submit', 'AppointmentForm/save', 'App/errorBoundary',
-  // A Settings server action call that rejected: a client on an older build, or no response.
-  'Settings/staleClient', 'Settings/actionFailed',
+  // A server action call that rejected: a client on an older build, or no response.
+  'ServerAction/staleClient', 'ServerAction/failed',
 ] as const
 export type ClientOperation = typeof OPERATIONS[number]
 const BOOKING_PHASES = [

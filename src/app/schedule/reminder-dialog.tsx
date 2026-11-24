@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useRef, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { useRouter } from 'next/navigation'
@@ -38,8 +39,8 @@ export function ReminderDialog({ open, onOpenChange, reminder, patients, default
     setError('')
     try {
       const result = action === 'delete'
-        ? await deleteReminder(reminder.id)
-        : await setReminderStatus(reminder.id, reminder.status === 'completed' ? 'pending' : 'completed')
+        ? await callServerAction(() => deleteReminder(reminder.id))
+        : await callServerAction(() => setReminderStatus(reminder.id, reminder.status === 'completed' ? 'pending' : 'completed'))
       if (result.success) finish(action === 'delete' ? 'Reminder deleted.' : reminder.status === 'completed' ? 'Reminder reopened.' : 'Reminder completed.')
       else setError(result.message)
     } catch {

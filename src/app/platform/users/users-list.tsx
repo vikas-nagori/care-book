@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { accountContactLabel } from '@/lib/auth/mobile-number'
 import { USER_ROLE_LABELS } from '@/lib/user-role'
 
@@ -37,7 +38,7 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
       return
     }
     setTempPasswordBusyId(user.id)
-    const result = await issueTempPassword({ userId: user.id })
+    const result = await callServerAction(() => issueTempPassword({ userId: user.id }))
     setTempPasswordBusyId(null)
 
     if (!result.success) {
@@ -54,7 +55,7 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
 
   async function sendReset(user: PlatformUserSummary) {
     setResetBusyId(user.id)
-    const result = await sendPasswordReset({ userId: user.id })
+    const result = await callServerAction(() => sendPasswordReset({ userId: user.id }))
     setResetBusyId(null)
 
     toast({
@@ -70,8 +71,8 @@ export function UsersList({ users, superadminIds }: UsersListProps) {
     const isBlocked = user.status === 'blocked'
     setBusyId(user.id)
     const result = isBlocked
-      ? await unblockUser({ userId: user.id })
-      : await blockUser({ userId: user.id })
+      ? await callServerAction(() => unblockUser({ userId: user.id }))
+      : await callServerAction(() => blockUser({ userId: user.id }))
     setBusyId(null)
 
     toast({

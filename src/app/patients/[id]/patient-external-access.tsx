@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -52,7 +53,7 @@ export function PatientExternalAccess({
     setStatus(null)
     const selectedIds = [...selected]
     try {
-      const result = await savePatientExternalAccess(patientId, selectedIds)
+      const result = await callServerAction(() => savePatientExternalAccess(patientId, selectedIds))
       if (!result.success) {
         setStatus({ message: result.message, error: true })
         return

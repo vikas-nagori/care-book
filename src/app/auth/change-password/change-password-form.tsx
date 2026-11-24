@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useRef, useState } from 'react'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { BrandLockup } from '@/components/brand/brand'
@@ -66,10 +67,10 @@ export function ChangePasswordForm({ account }: Props) {
     }
 
     setLoading(true)
-    const result = await completeForcedPasswordChange({
+    const result = await callServerAction(() => completeForcedPasswordChange({
       password,
       passwordConfirmation,
-    })
+    }))
 
     if (!result.success) {
       const targetField = getInviteCompletionFieldErrorTarget(result.errorCode)

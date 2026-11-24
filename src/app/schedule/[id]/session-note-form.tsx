@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -24,7 +25,7 @@ export function SessionNoteForm({ appointmentId, sessionNote, onSuccess }: Props
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    const result = await saveSessionNote({
+    const result = await callServerAction(() => saveSessionNote({
       appointmentId,
       noteId: sessionNote?.id ?? null,
       subjective: (formData.get('subjective') as string) || null,
@@ -32,7 +33,7 @@ export function SessionNoteForm({ appointmentId, sessionNote, onSuccess }: Props
       assessment: (formData.get('assessment') as string) || null,
       plan: (formData.get('plan') as string) || null,
       exercises_prescribed: (formData.get('exercises_prescribed') as string) || null,
-    })
+    }))
 
     if (!result.success) {
       toast({ title: 'Error', description: result.message, variant: 'destructive' })

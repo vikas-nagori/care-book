@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useId, useRef, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -68,18 +69,18 @@ export function ExternalBookingDialog({
     setPending(true)
     setMessage('')
     try {
-      const result = await createExternalAppointment({
+      const result = await callServerAction(() => createExternalAppointment({
         id: getRequestId(intent),
         patient_id: patient,
         appointment_type_id: type,
         date: slot.date,
         time: slot.time,
         duration_minutes: duration,
-      })
+      }), { failureMessage: 'Unable to confirm this booking. Try again to check if it was saved.' })
       if (result.success) {
         clearRequestId(intent)
         onBooked(date)
-      } else if (result.accessDenied) {
+      } else if ('accessDenied' in result && result.accessDenied) {
         onDenied()
       } else {
         setMessage(result.message)

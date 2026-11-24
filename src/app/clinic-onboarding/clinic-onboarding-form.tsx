@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useState } from 'react'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
@@ -41,7 +42,7 @@ export function ClinicOnboardingForm() {
     }
 
     setLoading(true)
-    const result = await createClinicOnboardingRequest(validation.values)
+    const result = await callServerAction(() => createClinicOnboardingRequest(validation.values))
     setLoading(false)
 
     if (!result.success) {

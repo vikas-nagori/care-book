@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useId, useRef, useState } from 'react'
 import type { CalendarReminder } from '@/lib/supabase/types'
 import { SearchableSelect } from '@/components/ui/searchable-select'
@@ -40,7 +41,7 @@ export function ReminderForm({ patients, defaultDate, reminder, onSuccess }: Pro
     setError('')
     try {
       const input = { title, date, time, patientId: mode === 'patient' ? patientId || null : null, contactName: mode === 'name' ? name : null, phone, notes }
-      const result = reminder ? await updateReminder(reminder.id, input) : await createReminder(input)
+      const result = reminder ? await callServerAction(() => updateReminder(reminder.id, input)) : await callServerAction(() => createReminder(input))
       if (result.success) onSuccess()
       else setError(result.message)
     } catch {

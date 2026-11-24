@@ -45,3 +45,22 @@ test('framework control flow (redirects) is rethrown, not swallowed', async () =
   const { deps } = harness()
   await assert.rejects(runServerAction(async () => { throw new Error('NEXT_REDIRECT') }, deps), /NEXT_REDIRECT/)
 })
+
+test('a caller can word the failure for its own action', async () => {
+  const { deps } = harness()
+  const result = await runServerAction(async () => { throw new TypeError('Failed to fetch') }, deps, {
+    failureMessage: 'Unable to confirm this booking. Try again to check if it was saved.',
+  })
+  assert.deepEqual(result, {
+    success: false,
+    errorCode: 'CLIENT_ACTION_FAILED',
+    message: 'Unable to confirm this booking. Try again to check if it was saved.',
+  })
+})
+
+// A lost response does not mean the write didn't happen: telling people to just "try again"
+// after a payment invites a duplicate. The default must send them to check first.
+test('the default failure message never implies the action did not happen', () => {
+  assert.match(ACTION_UNREACHABLE_MESSAGE, /refresh/i)
+  assert.match(ACTION_UNREACHABLE_MESSAGE, /before trying again/i)
+})

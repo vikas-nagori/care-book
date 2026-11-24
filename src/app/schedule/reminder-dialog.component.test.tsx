@@ -2,7 +2,11 @@ import React from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 const mocks = vi.hoisted(() => ({ status: vi.fn(), remove: vi.fn(), refresh: vi.fn() }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.refresh }) }))
+vi.mock('next/navigation', async (importOriginal) => ({
+  // Keep the real unstable_* helpers: callServerAction uses them to classify a rejected action.
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ refresh: mocks.refresh }),
+}))
 vi.mock('./reminder-actions', () => ({ setReminderStatus: mocks.status, deleteReminder: mocks.remove }))
 vi.mock('./reminder-form', () => ({ ReminderForm: () => <p>Edit form</p> }))
 import { ReminderDialog } from './reminder-dialog'

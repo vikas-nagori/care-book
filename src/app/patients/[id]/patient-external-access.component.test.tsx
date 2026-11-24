@@ -4,7 +4,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 const mocks = vi.hoisted(() => ({ save: vi.fn(), refresh: vi.fn() }))
 
 vi.mock('../actions', () => ({ savePatientExternalAccess: mocks.save }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.refresh }) }))
+vi.mock('next/navigation', async (importOriginal) => ({
+  // Keep the real unstable_* helpers: callServerAction uses them to classify a rejected action.
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ refresh: mocks.refresh }),
+}))
 
 import { PatientExternalAccess } from './patient-external-access'
 

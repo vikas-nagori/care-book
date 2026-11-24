@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -26,7 +27,7 @@ export function ClinicRequestsList({ requests }: ClinicRequestsListProps) {
 
   async function approve(requestId: string) {
     setBusyId(requestId)
-    const result = await approveClinicOnboardingRequest({ requestId })
+    const result = await callServerAction(() => approveClinicOnboardingRequest({ requestId }))
     setBusyId(null)
 
     toast({
@@ -44,10 +45,10 @@ export function ClinicRequestsList({ requests }: ClinicRequestsListProps) {
 
   async function reject(requestId: string) {
     setBusyId(requestId)
-    const result = await rejectClinicOnboardingRequest({
+    const result = await callServerAction(() => rejectClinicOnboardingRequest({
       requestId,
       rejectionReason: rejectionReasons[requestId] ?? null,
-    })
+    }))
     setBusyId(null)
 
     toast({

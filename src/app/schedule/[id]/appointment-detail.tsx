@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -85,7 +86,7 @@ export function AppointmentDetail({
     // the page when changing status from the calendar.
     startStatusTransition(async () => {
       try {
-        const result = await updateAppointmentStatus({ appointmentId: appointment.id, status })
+        const result = await callServerAction(() => updateAppointmentStatus({ appointmentId: appointment.id, status }))
         if (result.success) {
           toast({ title: 'Status updated' })
           router.refresh()
@@ -100,7 +101,7 @@ export function AppointmentDetail({
 
   async function handleDelete() {
     setDeletePending(true)
-    const result = await deleteAppointment(appointment.id)
+    const result = await callServerAction(() => deleteAppointment(appointment.id))
     if (result.success) {
       setDeletePending(false)
       router.push('/schedule')
@@ -112,7 +113,7 @@ export function AppointmentDetail({
 
   async function handleFeeAdjustment() {
     setFeePending(true)
-    const result = await adjustAppointmentFee(appointment.id, Number(adjustedFee), feeReason)
+    const result = await callServerAction(() => adjustAppointmentFee(appointment.id, Number(adjustedFee), feeReason))
     setFeePending(false)
     if (!result.success) {
       toast({ title: 'Fee adjustment not saved', description: result.message, variant: 'destructive' })

@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useEffect, useMemo, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { Loader2 } from 'lucide-react'
@@ -73,7 +74,7 @@ export function BillingEntryForm({
     let cancelled = false
     setChargesLoading(true)
     setChargesError(null)
-    getOutstandingCharges(selectedPatient).then((result) => {
+    callServerAction(() => getOutstandingCharges(selectedPatient)).then((result) => {
       if (cancelled) return
       if (result.success) {
         setCharges(result.charges)
@@ -132,7 +133,7 @@ export function BillingEntryForm({
     }
 
     const result = mode === 'payment_only'
-      ? await recordPayment({
+      ? await callServerAction(() => recordPayment({
         patientId: selectedPatient,
         // Standalone receipts are always regular-scoped; package money is collected
         // through the "Package + payment" entry type. The action pins the funding scope
@@ -141,8 +142,8 @@ export function BillingEntryForm({
         paymentMethod: input.paymentMethod ?? '',
         date: input.paymentDate ?? '',
         notes: input.paymentNotes ?? null,
-      })
-      : await createBillingEntry(input)
+      }))
+      : await callServerAction(() => createBillingEntry(input))
 
     if (!result.success) {
       toast({

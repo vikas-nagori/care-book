@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { useToast } from '@/hooks/use-toast'
 import { logger } from '@/lib/logger'
+import { requestErrorMessage } from '@/lib/actions/request-error-message'
 import type { Doctor, ReferralSource } from '@/lib/supabase/types'
 
 export const REFERRAL_SOURCE_LABEL: Record<ReferralSource, string> = {
@@ -136,7 +137,7 @@ export function useReferralSelection(initial?: {
       }
 
       logger.error('ReferralFields/createDoctor', error, { name })
-      toast({ title: 'Doctor not saved', description: error?.message ?? 'Unable to create the doctor record.', variant: 'destructive' })
+      toast({ title: 'Doctor not saved', description: requestErrorMessage(error, 'Unable to create the doctor record.'), variant: 'destructive' })
       return null
     }
 

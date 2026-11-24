@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { format, parseISO } from 'date-fns'
@@ -45,9 +46,9 @@ export function DashboardReminders({ reminders, today, loadError = false }: Prop
     setLoading(true)
     setOptionsError(false)
     try {
-      const result = await getDashboardReminderPatients()
+      const result = await callServerAction(() => getDashboardReminderPatients())
       if (!mounted.current) return
-      if (!result.ok) { setOptionsError(true); return }
+      if (!('ok' in result) || !result.ok) { setOptionsError(true); return }
       setPatients(result.patients)
       setSelected(reminder)
       setOpen(true)

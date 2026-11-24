@@ -104,7 +104,7 @@ describe('invite UI', () => {
     await waitFor(() => {
       expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Login not created',
-        description: "Couldn't reach Care-Book. Check your connection and try again.",
+        description: "Couldn't get a response from Care-Book. Check your connection, then refresh to see whether it went through before trying again.",
         variant: 'destructive',
       }))
     })

@@ -1,5 +1,6 @@
 'use client'
 
+import { callServerAction } from '@/lib/actions/call-server-action'
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
@@ -51,18 +52,19 @@ function DashboardNewAppointment({
     const requestId = ++requestIdRef.current
     setOptions({ status: 'loading' })
 
-    getDashboardAppointmentOptions()
+    callServerAction(() => getDashboardAppointmentOptions())
       .then((result) => {
         if (!mountedRef.current || requestId !== requestIdRef.current) return
         requestInFlightRef.current = false
-        if (result.ok) {
+        if ('ok' in result && result.ok) {
           setOptions({ status: 'success', data: result.data })
           return
         }
         setOptions({
           status: 'error',
           message: result.message,
-          retryable: result.retryable,
+          // A call that never got an answer (no connection, older app build) is worth retrying.
+          retryable: 'retryable' in result ? result.retryable : true,
         })
       })
       .catch(() => {

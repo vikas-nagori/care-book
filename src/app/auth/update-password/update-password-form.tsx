@@ -1,5 +1,6 @@
 'use client'
 
+import { requestErrorMessage } from '@/lib/actions/request-error-message'
 import { useRef, useState } from 'react'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -43,7 +44,7 @@ export function UpdatePasswordForm({ email }: Props) {
     const { error } = await supabase.auth.updateUser({ password })
 
     if (error) {
-      setError(error.message)
+      setError(requestErrorMessage(error, 'Unable to update your password.'))
       setLoading(false)
       return
     }
