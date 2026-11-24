@@ -128,6 +128,25 @@ export function excludePendingInviteeProfiles<P extends { id: string; email: str
   })
 }
 
+/**
+ * The same-origin path an auth link may continue to, or the default page. Only a plain absolute
+ * path is followed: anything a browser could read as another host is refused, including
+ * protocol-relative `//host`, a backslash (`/\host` is normalised to `//host`), and whitespace or
+ * control characters (the URL parser drops tabs and newlines, so `/\t/host` becomes `//host`).
+ */
+export function sanitizeNextPath(nextPath: string | null | undefined): string {
+  if (
+    !nextPath
+    || !nextPath.startsWith('/')
+    || nextPath.startsWith('//')
+    ||/[\\\s\u0000-\u001f\u007f]/.test(nextPath)
+  ) {
+    return DEFAULT_INVITE_NEXT_PATH
+  }
+
+  return nextPath
+}
+
 export function normalizeSiteOrigin(origin: string | null | undefined): string | null {
   if (!origin) return null
 

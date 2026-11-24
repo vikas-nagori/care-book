@@ -85,8 +85,9 @@ test.describe('HTTP contracts (PL-10, PL-11)', () => {
       const location = redirectTarget(response)
       expect(location.origin, `Location: ${raw}`).toBe(APP_ORIGIN)
       expect(location.pathname, `Location: ${raw}`).not.toBe('/login')
-      // Protocol-relative and absolute values are replaced by the default page, never followed.
-      if (next !== '/\\evil.example') expect(location.pathname).toBe(DEFAULT_INVITE_NEXT_PATH)
+      // Protocol-relative, backslashed and absolute values are replaced by the default page, never
+      // followed (G-25: `/\evil.example` used to come back as the path `//evil.example`).
+      expect(location.pathname, `Location: ${raw}`).toBe(DEFAULT_INVITE_NEXT_PATH)
     })
   }
 
